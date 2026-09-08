@@ -166,15 +166,19 @@ class _AIExamPageState extends State<AIExamPage> {
   }
 
   // --- DYNAMIC AI CATEGORY STYLING ---
-  Map<String, dynamic> _getCategoryStyle(String type) {
-    if (type.contains('Technical Interview'))
+Map<String, dynamic> _getCategoryStyle(String type) {
+    if (type.contains('Technical Interview')) {
       return {'color': Colors.indigo, 'icon': Icons.record_voice_over};
-    if (type.contains('Behavioral'))
+    }
+    if (type.contains('Behavioral')) {
       return {'color': Colors.pink, 'icon': Icons.people_alt_outlined};
-    if (type.contains('Cognitive'))
+    }
+    if (type.contains('Cognitive')) {
       return {'color': Colors.purple, 'icon': Icons.extension_outlined};
-    if (type.contains('Quantitative'))
+    }
+    if (type.contains('Quantitative')) {
       return {'color': Colors.orange, 'icon': Icons.calculate_outlined};
+    }
     return {'color': Colors.blue, 'icon': Icons.code};
   }
 

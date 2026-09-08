@@ -1,10 +1,12 @@
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
-import 'admin_dashboard.dart';
-import 'user_profile.dart';
-import 'landing_page.dart';
+import 'admin_ui.dart';
+import 'user_ui.dart';
+import 'landingpage_ui.dart';
+import 'common_widgets_ui.dart';
 
 enum AuthView { login, register, onboarding }
 
@@ -119,8 +121,9 @@ class _AuthPageState extends State<AuthPage> {
   // MOCK LOGIC: LOGIN
   // ==========================================
   Future<void> _loginUser() async {
-    if (_emailController.text.isEmpty || _passwordController.text.isEmpty)
-      return;
+    if (_emailController.text.isEmpty || _passwordController.text.isEmpty) {
+      return; // Added curly braces here
+    }
 
     setState(() => _isLoading = true);
     await Future.delayed(const Duration(seconds: 2));
@@ -221,8 +224,8 @@ class _AuthPageState extends State<AuthPage> {
       decoration: const BoxDecoration(
         color: Colors.black,
         image: DecorationImage(
-          image: NetworkImage(
-            'https://images.unsplash.com/photo-1497215728101-856f4ea42174?ixlib=rb-4.0.3&auto=format&fit=crop&w=1920&q=80',
+          image: CachedNetworkImageProvider(
+            'https://images.unsplash.com/photo-1497215728101-856f4ea42174?ixlib=rb-4.0.3&auto=format&fit=crop&w=1200&q=80',
           ),
           fit: BoxFit.cover,
         ),
@@ -315,12 +318,12 @@ class _AuthPageState extends State<AuthPage> {
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(30),
                   child: BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
+                    filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
                     child: Container(
                       width: isLogin ? 480 : 550,
                       padding: const EdgeInsets.all(45),
                       decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.5),
+                        color: Colors.black.withValues(alpha: 0.7),
                         borderRadius: BorderRadius.circular(30),
                         border: Border.all(
                           color: Colors.white.withValues(alpha: 0.15),
@@ -360,8 +363,7 @@ class _AuthPageState extends State<AuthPage> {
         return _buildRegisterView(pesoGreen);
       case AuthView.onboarding:
         return _buildOnboardingView(pesoGreen);
-      default:
-        return const SizedBox.shrink();
+      // Removed the default: return const SizedBox.shrink();
     }
   }
 

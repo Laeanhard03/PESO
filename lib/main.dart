@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import 'landing_page.dart';
+import 'peso_ui/landingpage_ui.dart';
 
 void main() async {
   // Ensure Flutter bindings are initialized before calling native code
