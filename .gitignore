@@ -46,3 +46,17 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# ==========================================
+# React & Node.js related (JobKonek Custom)
+# ==========================================
+# Ignore dependencies
+node_modules/
+react_workspace/node_modules/
+
+# Ignore Vite cache
+.vite/
+react_workspace/node_modules/.vite/
+
+# Ignore React build output
+react_workspace/dist/

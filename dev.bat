@@ -7,7 +7,6 @@ echo ==========================================
 echo Starting PESO JobKonek Workspace...
 echo ==========================================
 
-<<<<<<< Updated upstream
 :: Prevents the "not a clone" error for anyone pulling this repo
 git config --global --add safe.directory "*"
 
@@ -46,63 +45,38 @@ if %errorlevel% neq 0 (
 :: ---------------------------------------------------------
 :: WORKSPACE BOOT SEQUENCE
 :: ---------------------------------------------------------
-echo [1/3] Syncing Flutter dependencies...
+echo [1/4] Syncing Flutter dependencies...
 call flutter pub get
-=======
-:: ---------------------------------
-:: FLUTTER SDK
-:: ---------------------------------
-set "FLUTTER_CMD=C:\flutter\bin\flutter.bat"
-
-if not exist "%FLUTTER_CMD%" (
-    echo.
-    echo [ERROR] Flutter SDK not found at:
-    echo %FLUTTER_CMD%
-    pause
-    exit /b 1
-)
-
-echo Flutter found at: %FLUTTER_CMD%
-
-echo.
-echo [1/3] Syncing Flutter dependencies...
-call "%FLUTTER_CMD%" pub get
 if errorlevel 1 (
     echo.
     echo [ERROR] Flutter dependencies could not be resolved.
     pause
     exit /b 1
 )
->>>>>>> Stashed changes
 
 echo.
-echo [2/3] Checking React dependencies...
-if not exist "react_workspace\node_modules\" (
-    echo Node modules not found. Installing React packages...
-    cd /d "%ROOT%react_workspace"
-    call npm install
-    if errorlevel 1 (
-        echo.
-        echo [ERROR] React dependencies could not be installed.
-        pause
-        exit /b 1
-    )
-    cd /d "%ROOT%"
-) else (
-    echo React dependencies already installed.
+echo [2/4] Syncing React dependencies...
+echo Checking for new packages like react-router-dom...
+cd react_workspace
+call npm install
+cd ..
+
+echo.
+echo [3/4] Self-Healing: Optimizing Vite Cache...
+:: This completely prevents the "Invalid Hook Call" error 
+:: by deleting the confused Vite cache before it can crash.
+if exist "react_workspace\node_modules\.vite" (
+    echo Wiping old Vite cache to sync React instances...
+    rmdir /s /q "react_workspace\node_modules\.vite"
 )
 
 echo.
-echo [3/3] Launching Development Servers...
-echo Starting React Vite Server in the background...
-start "PESO React" /D "%ROOT%react_workspace" cmd /k npm run dev
+echo [4/4] Launching Development Servers...
+echo Starting React Vite Server in the background (Forced Sync)...
+:: Using --force as an extra layer of protection
+start /min "React Server" cmd /k "cd react_workspace && npm run dev -- --force"
 
-<<<<<<< Updated upstream
-echo Starting Flutter...
-flutter run
-=======
 echo Starting Flutter web app...
-call "%FLUTTER_CMD%" run -d chrome
+flutter run -d chrome
 
 pause
->>>>>>> Stashed changes

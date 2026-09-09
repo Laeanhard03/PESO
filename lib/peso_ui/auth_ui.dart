@@ -7,6 +7,7 @@ import 'admin_ui.dart';
 import 'user_ui.dart';
 import 'landingpage_ui.dart';
 import 'common_widgets_ui.dart';
+import 'resumebuilder_ui.dart'; // Make sure to create this file next!
 
 enum AuthView { login, register, onboarding }
 
@@ -33,11 +34,9 @@ class _AuthPageState extends State<AuthPage> {
   final TextEditingController _firstNameController = TextEditingController();
   final TextEditingController _lastNameController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
-  final TextEditingController _adminCodeController =
-      TextEditingController(); // Security for Admin
+  final TextEditingController _adminCodeController = TextEditingController();
 
-  // Onboarding Controllers
-  final TextEditingController _bioController = TextEditingController();
+  // Onboarding Selection
   String _selectedResumeType = 'upload'; // 'upload' or 'build'
 
   @override
@@ -63,12 +62,11 @@ class _AuthPageState extends State<AuthPage> {
     _lastNameController.dispose();
     _phoneController.dispose();
     _adminCodeController.dispose();
-    _bioController.dispose();
     super.dispose();
   }
 
   // ==========================================
-  // MOCK LOGIC: REGISTRATION
+  // LOGIC: REGISTRATION
   // ==========================================
   Future<void> _registerUser() async {
     if (_emailController.text.isEmpty || _passwordController.text.isEmpty) {
@@ -100,30 +98,49 @@ class _AuthPageState extends State<AuthPage> {
   }
 
   // ==========================================
-  // MOCK LOGIC: COMPLETE ONBOARDING
+  // LOGIC: COMPLETE ONBOARDING (Resume Flow)
   // ==========================================
   Future<void> _completeOnboarding() async {
-    if (_bioController.text.isEmpty) {
-      _showError('Please write a short bio to configure your AI profile.');
-      return;
-    }
-
     setState(() => _isLoading = true);
-    await Future.delayed(const Duration(seconds: 2));
+    await Future.delayed(const Duration(seconds: 1)); // Simulate processing
 
     if (mounted) {
       setState(() => _isLoading = false);
-      _routeToDashboard();
+
+      if (_selectedResumeType == 'build') {
+        // If they want to build a resume, push the new ResumeBuilderWizard
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ResumeBuilderWizard(
+              onComplete: () {
+                // After finishing the resume, go to UserProfile
+                // (which automatically pops up the PESO Form since it's incomplete)
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(builder: (context) => const UserProfile()),
+                );
+              },
+            ),
+          ),
+        );
+      } else {
+        // If upload, you'd handle file picking here.
+        // For now, we simulate success and go straight to UserProfile (PESO Form)
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const UserProfile()),
+        );
+      }
     }
   }
 
   // ==========================================
-  // MOCK LOGIC: LOGIN
+  // LOGIC: LOGIN
   // ==========================================
   Future<void> _loginUser() async {
-    if (_emailController.text.isEmpty || _passwordController.text.isEmpty) {
-      return; // Added curly braces here
-    }
+    if (_emailController.text.isEmpty || _passwordController.text.isEmpty)
+      return;
 
     setState(() => _isLoading = true);
     await Future.delayed(const Duration(seconds: 2));
@@ -215,6 +232,7 @@ class _AuthPageState extends State<AuthPage> {
 
   Widget _buildHeroAndSlidingAuthCard(Color pesoGreen) {
     bool isLogin = _currentView == AuthView.login;
+    bool isLight = !isLogin; // Light mode for Register & Onboarding
 
     return Container(
       width: double.infinity,
@@ -245,7 +263,7 @@ class _AuthPageState extends State<AuthPage> {
         child: Stack(
           alignment: Alignment.center,
           children: [
-            // Background Text Information (Fades out when registering)
+            // Background Text Information
             IgnorePointer(
               ignoring: !isLogin,
               child: AnimatedOpacity(
@@ -306,7 +324,7 @@ class _AuthPageState extends State<AuthPage> {
               ),
             ),
 
-            // Sliding Glassmorphism Auth Card
+            // Sliding Glassmorphism Auth Card (Dynamic Light/Dark)
             AnimatedAlign(
               alignment: isLogin ? Alignment.centerRight : Alignment.center,
               duration: const Duration(milliseconds: 700),
@@ -318,20 +336,31 @@ class _AuthPageState extends State<AuthPage> {
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(30),
                   child: BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
-                    child: Container(
-                      width: isLogin ? 480 : 550,
+                    filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 400),
+                      width: isLogin
+                          ? 480
+                          : 580, // Slightly wider for light mode forms
                       padding: const EdgeInsets.all(45),
                       decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.7),
+                        color: isLight
+                            ? Colors.white.withValues(
+                                alpha: 0.95,
+                              ) // Light Mode Frosted
+                            : Colors.black.withValues(
+                                alpha: 0.7,
+                              ), // Dark Mode Frosted
                         borderRadius: BorderRadius.circular(30),
                         border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.15),
+                          color: isLight
+                              ? Colors.grey.shade300
+                              : Colors.white.withValues(alpha: 0.15),
                           width: 1.5,
                         ),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.4),
+                            color: Colors.black.withValues(alpha: 0.2),
                             blurRadius: 40,
                             spreadRadius: 10,
                           ),
@@ -341,7 +370,7 @@ class _AuthPageState extends State<AuthPage> {
                         duration: const Duration(milliseconds: 400),
                         child: Container(
                           key: ValueKey<AuthView>(_currentView),
-                          child: _buildCurrentAuthView(pesoGreen),
+                          child: _buildCurrentAuthView(pesoGreen, isLight),
                         ),
                       ),
                     ),
@@ -355,44 +384,46 @@ class _AuthPageState extends State<AuthPage> {
     );
   }
 
-  Widget _buildCurrentAuthView(Color pesoGreen) {
+  Widget _buildCurrentAuthView(Color pesoGreen, bool isLight) {
     switch (_currentView) {
       case AuthView.login:
-        return _buildLoginView(pesoGreen);
+        return _buildLoginView(pesoGreen, isLight);
       case AuthView.register:
-        return _buildRegisterView(pesoGreen);
+        return _buildRegisterView(pesoGreen, isLight);
       case AuthView.onboarding:
-        return _buildOnboardingView(pesoGreen);
-      // Removed the default: return const SizedBox.shrink();
+        return _buildOnboardingView(pesoGreen, isLight);
     }
   }
 
   // ==========================================
-  // 1. LOGIN VIEW
+  // 1. LOGIN VIEW (Dark Mode by default)
   // ==========================================
-  Widget _buildLoginView(Color pesoGreen) {
+  Widget _buildLoginView(Color pesoGreen, bool isLight) {
+    Color textColor = Colors.white;
+    Color subtitleColor = Colors.white54;
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Text(
+        Text(
           'Welcome Back',
           style: TextStyle(
             fontSize: 32,
             fontWeight: FontWeight.w900,
-            color: Colors.white,
+            color: textColor,
           ),
           textAlign: TextAlign.center,
         ),
         const SizedBox(height: 5),
-        const Text(
+        Text(
           'Access your PESO JobKonek portal',
-          style: TextStyle(color: Colors.white54, fontSize: 16),
+          style: TextStyle(color: subtitleColor, fontSize: 16),
           textAlign: TextAlign.center,
         ),
         const SizedBox(height: 35),
 
-        _buildRoleSelector(pesoGreen),
+        _buildRoleSelector(pesoGreen, isLight),
         const SizedBox(height: 30),
 
         _buildModernTextField(
@@ -400,6 +431,7 @@ class _AuthPageState extends State<AuthPage> {
           Icons.email_outlined,
           false,
           pesoGreen,
+          isLight,
           controller: _emailController,
         ),
         const SizedBox(height: 20),
@@ -408,6 +440,7 @@ class _AuthPageState extends State<AuthPage> {
           Icons.lock_outline,
           true,
           pesoGreen,
+          isLight,
           controller: _passwordController,
         ),
         const SizedBox(height: 15),
@@ -416,10 +449,10 @@ class _AuthPageState extends State<AuthPage> {
           alignment: Alignment.centerRight,
           child: TextButton(
             onPressed: () {},
-            child: const Text(
+            child: Text(
               'Forgot Password?',
               style: TextStyle(
-                color: Colors.white54,
+                color: subtitleColor,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -460,7 +493,7 @@ class _AuthPageState extends State<AuthPage> {
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Text(
+            Text(
               "Don't have an account? ",
               style: TextStyle(color: Colors.white70, fontSize: 15),
             ),
@@ -482,10 +515,12 @@ class _AuthPageState extends State<AuthPage> {
   }
 
   // ==========================================
-  // 2. REGISTRATION VIEW
+  // 2. REGISTRATION VIEW (Light Mode)
   // ==========================================
-  Widget _buildRegisterView(Color pesoGreen) {
+  Widget _buildRegisterView(Color pesoGreen, bool isLight) {
     bool isAdmin = _selectedRoleIndex == 1;
+    Color textColor = isLight ? Colors.black87 : Colors.white;
+    Color subtitleColor = isLight ? Colors.black54 : Colors.white54;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -507,19 +542,19 @@ class _AuthPageState extends State<AuthPage> {
               width: 30,
               height: 4,
               decoration: BoxDecoration(
-                color: Colors.white24,
+                color: Colors.grey.shade300,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
           ],
         ),
         const SizedBox(height: 20),
-        const Text(
+        Text(
           'Create Account',
           style: TextStyle(
             fontSize: 32,
             fontWeight: FontWeight.w900,
-            color: Colors.white,
+            color: textColor,
           ),
           textAlign: TextAlign.center,
         ),
@@ -528,12 +563,12 @@ class _AuthPageState extends State<AuthPage> {
           isAdmin
               ? 'Secure System Admin Registration'
               : 'Step 1: Basic Information',
-          style: const TextStyle(color: Colors.white54, fontSize: 16),
+          style: TextStyle(color: subtitleColor, fontSize: 16),
           textAlign: TextAlign.center,
         ),
         const SizedBox(height: 30),
 
-        _buildRoleSelector(pesoGreen),
+        _buildRoleSelector(pesoGreen, isLight),
         const SizedBox(height: 30),
 
         if (isAdmin) ...[
@@ -547,14 +582,17 @@ class _AuthPageState extends State<AuthPage> {
               ),
               borderRadius: BorderRadius.circular(15),
             ),
-            child: const Row(
+            child: Row(
               children: [
-                Icon(Icons.security, color: Colors.redAccent),
-                SizedBox(width: 15),
+                const Icon(Icons.security, color: Colors.redAccent),
+                const SizedBox(width: 15),
                 Expanded(
                   child: Text(
                     'Authorized PESO Staff Only. Requires internal access code.',
-                    style: TextStyle(color: Colors.white70, fontSize: 13),
+                    style: TextStyle(
+                      color: textColor.withValues(alpha: 0.8),
+                      fontSize: 13,
+                    ),
                   ),
                 ),
               ],
@@ -565,6 +603,7 @@ class _AuthPageState extends State<AuthPage> {
             Icons.key,
             true,
             pesoGreen,
+            isLight,
             controller: _adminCodeController,
           ),
           const SizedBox(height: 15),
@@ -577,6 +616,7 @@ class _AuthPageState extends State<AuthPage> {
                   Icons.person_outline,
                   false,
                   pesoGreen,
+                  isLight,
                   controller: _firstNameController,
                 ),
               ),
@@ -587,6 +627,7 @@ class _AuthPageState extends State<AuthPage> {
                   null,
                   false,
                   pesoGreen,
+                  isLight,
                   controller: _lastNameController,
                 ),
               ),
@@ -600,6 +641,7 @@ class _AuthPageState extends State<AuthPage> {
           Icons.email_outlined,
           false,
           pesoGreen,
+          isLight,
           controller: _emailController,
         ),
         const SizedBox(height: 15),
@@ -610,6 +652,7 @@ class _AuthPageState extends State<AuthPage> {
             Icons.phone_android,
             false,
             pesoGreen,
+            isLight,
             controller: _phoneController,
             prefixText: '+63 ',
           ),
@@ -621,6 +664,7 @@ class _AuthPageState extends State<AuthPage> {
           Icons.lock_outline,
           true,
           pesoGreen,
+          isLight,
           controller: _passwordController,
         ),
         const SizedBox(height: 30),
@@ -645,10 +689,12 @@ class _AuthPageState extends State<AuthPage> {
                   ),
                 )
               : Text(
-                  isAdmin ? 'Register Admin' : 'Continue to AI Setup',
+                  isAdmin
+                      ? 'Register Admin'
+                      : 'Continue to upload resume or create resume',
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 18,
+                    fontSize: 16,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -658,16 +704,16 @@ class _AuthPageState extends State<AuthPage> {
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Text(
+            Text(
               "Already have an account? ",
-              style: TextStyle(color: Colors.white70, fontSize: 15),
+              style: TextStyle(color: subtitleColor, fontSize: 15),
             ),
             GestureDetector(
               onTap: () => setState(() => _currentView = AuthView.login),
               child: Text(
                 'Login Here',
                 style: TextStyle(
-                  color: Colors.greenAccent[400],
+                  color: pesoGreen,
                   fontWeight: FontWeight.bold,
                   fontSize: 15,
                 ),
@@ -680,9 +726,12 @@ class _AuthPageState extends State<AuthPage> {
   }
 
   // ==========================================
-  // 3. ONBOARDING VIEW (AI Profile)
+  // 3. ONBOARDING VIEW (Resume Builder/Uploader)
   // ==========================================
-  Widget _buildOnboardingView(Color pesoGreen) {
+  Widget _buildOnboardingView(Color pesoGreen, bool isLight) {
+    Color textColor = isLight ? Colors.black87 : Colors.white;
+    Color subtitleColor = isLight ? Colors.black54 : Colors.white70;
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -710,73 +759,25 @@ class _AuthPageState extends State<AuthPage> {
           ],
         ),
         const SizedBox(height: 20),
-        const Icon(Icons.psychology, color: Colors.greenAccent, size: 50),
+        const Icon(Icons.description_outlined, color: Colors.green, size: 50),
         const SizedBox(height: 15),
-        const Text(
-          'Configure AI Profile',
+        Text(
+          'Resume Data Source',
           style: TextStyle(
             fontSize: 32,
             fontWeight: FontWeight.w900,
-            color: Colors.white,
+            color: textColor,
           ),
           textAlign: TextAlign.center,
         ),
         const SizedBox(height: 10),
-        const Text(
-          'Our engine requires this data to generate custom exams and accurate TESDA action plans.',
-          style: TextStyle(color: Colors.white70, fontSize: 15, height: 1.5),
+        Text(
+          'Our AI engine needs your professional data. Choose how you want to provide your resume before proceeding to the PESO form.',
+          style: TextStyle(color: subtitleColor, fontSize: 15, height: 1.5),
           textAlign: TextAlign.center,
         ),
         const SizedBox(height: 35),
 
-        const Text(
-          'Bilingual Bio (Tagalog or English)',
-          style: TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-            fontSize: 15,
-          ),
-        ),
-        const SizedBox(height: 10),
-        TextField(
-          controller: _bioController,
-          maxLines: 4,
-          style: const TextStyle(color: Colors.white),
-          decoration: InputDecoration(
-            hintText: 'Ikwento ang iyong mga karanasan at soft skills... / Briefly describe your background, skills, and goals...',
-            hintStyle: const TextStyle(color: Colors.white30, height: 1.5),
-            filled: true,
-            fillColor: Colors.white.withValues(alpha: 0.05),
-            contentPadding: const EdgeInsets.all(20),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(15),
-              borderSide: BorderSide(
-                color: Colors.white.withValues(alpha: 0.1),
-              ),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(15),
-              borderSide: BorderSide(
-                color: Colors.white.withValues(alpha: 0.1),
-              ),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(15),
-              borderSide: BorderSide(color: pesoGreen, width: 2),
-            ),
-          ),
-        ),
-        const SizedBox(height: 30),
-
-        const Text(
-          'Resume Data Source',
-          style: TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-            fontSize: 15,
-          ),
-        ),
-        const SizedBox(height: 15),
         Row(
           children: [
             Expanded(
@@ -784,18 +785,20 @@ class _AuthPageState extends State<AuthPage> {
                 'upload',
                 Icons.upload_file,
                 'Upload PDF',
-                'Let AI parse it',
+                'Let AI parse your existing file',
                 pesoGreen,
+                isLight,
               ),
             ),
             const SizedBox(width: 15),
             Expanded(
               child: _buildResumeChoiceCard(
                 'build',
-                Icons.edit_document,
-                'System Form',
-                'Build it here',
+                Icons.auto_awesome_mosaic,
+                'Resume Builder',
+                'Create a new design in-app',
                 pesoGreen,
+                isLight,
               ),
             ),
           ],
@@ -822,7 +825,7 @@ class _AuthPageState extends State<AuthPage> {
                   ),
                 )
               : const Text(
-                  'Complete & Enter Dashboard',
+                  'Proceed to Next Step',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 18,
@@ -835,19 +838,30 @@ class _AuthPageState extends State<AuthPage> {
   }
 
   // --- SHARED DESIGNER UI HELPERS ---
-
-  Widget _buildRoleSelector(Color pesoGreen) {
+  Widget _buildRoleSelector(Color pesoGreen, bool isLight) {
     return Container(
       padding: const EdgeInsets.all(6),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.05),
+        color: isLight
+            ? Colors.grey.shade200
+            : Colors.white.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(15),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+        border: Border.all(
+          color: isLight
+              ? Colors.grey.shade300
+              : Colors.white.withValues(alpha: 0.1),
+        ),
       ),
       child: Row(
         children: [
-          _buildRoleTab('Job Seeker', Icons.person, 0, pesoGreen),
-          _buildRoleTab('IT Admin', Icons.admin_panel_settings, 1, pesoGreen),
+          _buildRoleTab('Job Seeker', Icons.person, 0, pesoGreen, isLight),
+          _buildRoleTab(
+            'IT Admin',
+            Icons.admin_panel_settings,
+            1,
+            pesoGreen,
+            isLight,
+          ),
         ],
       ),
     );
@@ -858,6 +872,7 @@ class _AuthPageState extends State<AuthPage> {
     IconData icon,
     int index,
     Color pesoGreen,
+    bool isLight,
   ) {
     bool isSelected = _selectedRoleIndex == index;
     return Expanded(
@@ -885,13 +900,17 @@ class _AuthPageState extends State<AuthPage> {
               Icon(
                 icon,
                 size: 18,
-                color: isSelected ? Colors.white : Colors.white54,
+                color: isSelected
+                    ? Colors.white
+                    : (isLight ? Colors.black54 : Colors.white54),
               ),
               const SizedBox(width: 8),
               Text(
                 title,
                 style: TextStyle(
-                  color: isSelected ? Colors.white : Colors.white54,
+                  color: isSelected
+                      ? Colors.white
+                      : (isLight ? Colors.black87 : Colors.white54),
                   fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
                   fontSize: 15,
                 ),
@@ -907,39 +926,49 @@ class _AuthPageState extends State<AuthPage> {
     String hint,
     IconData? icon,
     bool isPassword,
-    Color pesoGreen, {
+    Color pesoGreen,
+    bool isLight, {
     TextEditingController? controller,
     String? prefixText,
   }) {
+    Color fieldBg = isLight
+        ? Colors.grey.shade100
+        : Colors.white.withValues(alpha: 0.05);
+    Color borderColor = isLight
+        ? Colors.grey.shade300
+        : Colors.white.withValues(alpha: 0.1);
+    Color textColor = isLight ? Colors.black87 : Colors.white;
+    Color hintColor = isLight ? Colors.black38 : Colors.white38;
+
     return TextField(
       controller: controller,
       obscureText: isPassword && _obscurePassword,
-      style: const TextStyle(color: Colors.white, fontSize: 16),
+      style: TextStyle(color: textColor, fontSize: 16),
       decoration: InputDecoration(
         hintText: hint,
-        hintStyle: const TextStyle(color: Colors.white38),
+        hintStyle: TextStyle(color: hintColor),
         prefixText: prefixText,
-        prefixStyle: const TextStyle(
-          color: Colors.white,
+        prefixStyle: TextStyle(
+          color: textColor,
           fontSize: 16,
           fontWeight: FontWeight.bold,
         ),
         prefixIcon: icon != null
-            ? Icon(icon, color: Colors.white54, size: 22)
+            ? Icon(icon, color: hintColor, size: 22)
             : null,
         filled: true,
-        fillColor: Colors.white.withValues(alpha: 0.05),
+        fillColor: fieldBg,
         contentPadding: const EdgeInsets.symmetric(
           vertical: 20,
           horizontal: 20,
         ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(15),
-          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+          borderSide: BorderSide(color: borderColor),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(15),
-          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+          borderSide: BorderSide(color: borderColor),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(15),
@@ -949,7 +978,7 @@ class _AuthPageState extends State<AuthPage> {
             ? IconButton(
                 icon: Icon(
                   _obscurePassword ? Icons.visibility_off : Icons.visibility,
-                  color: Colors.white54,
+                  color: hintColor,
                 ),
                 onPressed: () =>
                     setState(() => _obscurePassword = !_obscurePassword),
@@ -965,19 +994,29 @@ class _AuthPageState extends State<AuthPage> {
     String title,
     String subtitle,
     Color pesoGreen,
+    bool isLight,
   ) {
     bool isSelected = _selectedResumeType == type;
+    Color activeBg = isLight
+        ? pesoGreen.withValues(alpha: 0.1)
+        : pesoGreen.withValues(alpha: 0.15);
+    Color inactiveBg = isLight
+        ? Colors.grey.shade100
+        : Colors.white.withValues(alpha: 0.03);
+    Color borderColor = isLight
+        ? Colors.grey.shade300
+        : Colors.white.withValues(alpha: 0.1);
+    Color textColor = isLight ? Colors.black87 : Colors.white;
+
     return GestureDetector(
       onTap: () => setState(() => _selectedResumeType = type),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 300),
         padding: const EdgeInsets.symmetric(vertical: 25, horizontal: 15),
         decoration: BoxDecoration(
-          color: isSelected
-              ? pesoGreen.withValues(alpha: 0.15)
-              : Colors.white.withValues(alpha: 0.03),
+          color: isSelected ? activeBg : inactiveBg,
           border: Border.all(
-            color: isSelected ? pesoGreen : Colors.white.withValues(alpha: 0.1),
+            color: isSelected ? pesoGreen : borderColor,
             width: isSelected ? 2 : 1,
           ),
           borderRadius: BorderRadius.circular(20),
@@ -987,13 +1026,17 @@ class _AuthPageState extends State<AuthPage> {
             Icon(
               icon,
               size: 36,
-              color: isSelected ? Colors.greenAccent : Colors.white38,
+              color: isSelected
+                  ? Colors.green
+                  : (isLight ? Colors.black38 : Colors.white38),
             ),
             const SizedBox(height: 15),
             Text(
               title,
               style: TextStyle(
-                color: isSelected ? Colors.white : Colors.white70,
+                color: isSelected
+                    ? (isLight ? Colors.green.shade800 : Colors.white)
+                    : textColor,
                 fontWeight: FontWeight.bold,
                 fontSize: 16,
               ),
@@ -1001,10 +1044,11 @@ class _AuthPageState extends State<AuthPage> {
             const SizedBox(height: 5),
             Text(
               subtitle,
+              textAlign: TextAlign.center,
               style: TextStyle(
                 color: isSelected
-                    ? Colors.greenAccent.withValues(alpha: 0.8)
-                    : Colors.white38,
+                    ? Colors.green.withValues(alpha: 0.8)
+                    : (isLight ? Colors.black54 : Colors.white38),
                 fontSize: 12,
               ),
             ),
