@@ -3,40 +3,46 @@ echo ==========================================
 echo Starting PESO JobKonek Workspace...
 echo ==========================================
 
-:: ---------------------------------
-:: FIX GIT SECURITY FOR FLUTTER
-:: ---------------------------------
-:: This prevents the "not a clone of the GitHub project" error 
-:: by telling Git to trust local directories on Windows.
+:: Prevents the "not a clone" error for anyone pulling this repo
 git config --global --add safe.directory "*"
 
-:: ---------------------------------
-:: AUTO-DETECT FLUTTER PATH
-:: ---------------------------------
-set "FLUTTER_CMD=flutter"
-where flutter >nul 2>&1
+:: ---------------------------------------------------------
+:: AUTOMATED FLUTTER PATH CONFIGURATION
+:: ---------------------------------------------------------
+cmd /c flutter --version >nul 2>&1
 if %errorlevel% neq 0 (
-    echo Flutter not found in global PATH. Scanning common directories...
+    echo.
+    echo [!] 'flutter' command not found. Attempting to fix Windows PATH...
     
-    if exist "C:\src\flutter\bin\flutter.bat" (
-        set "FLUTTER_CMD=C:\src\flutter\bin\flutter.bat"
-    ) else if exist "C:\flutter\bin\flutter.bat" (
-        set "FLUTTER_CMD=C:\flutter\bin\flutter.bat"
-    ) else if exist "%USERPROFILE%\flutter\bin\flutter.bat" (
-        set "FLUTTER_CMD=%USERPROFILE%\flutter\bin\flutter.bat"
-    ) else (
-        echo.
-        echo [ERROR] Could not automatically find the Flutter SDK!
-        echo Please make sure Flutter is installed or add it to your Windows PATH.
-        pause
-        exit /b 1
+    set "FOUND_FLUTTER="
+    
+    :: 1. Scan common installation directories
+    if exist "C:\src\flutter\bin\flutter.bat" set "FOUND_FLUTTER=C:\src\flutter\bin"
+    if exist "C:\flutter\bin\flutter.bat" set "FOUND_FLUTTER=C:\flutter\bin"
+    if exist "%USERPROFILE%\flutter\bin\flutter.bat" set "FOUND_FLUTTER=%USERPROFILE%\flutter\bin"
+    
+    :: 2. If it still can't find it, ask the teammate where they put it
+    if not defined FOUND_FLUTTER (
+        echo [ERROR] Could not automatically locate the Flutter SDK.
+        set /p FOUND_FLUTTER="Please paste the full path to your Flutter 'bin' folder (e.g., C:\flutter\bin): "
     )
-    echo Success! Found Flutter at: %FLUTTER_CMD%
+    
+    :: 3. Update the active terminal session so the script doesn't crash today
+    set "PATH=%PATH%;%FOUND_FLUTTER%"
+    
+    :: 4. Safely inject it into their permanent Windows User PATH for tomorrow
+    echo Adding Flutter to permanent Windows Environment Variables...
+    powershell -Command "[Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ';%FOUND_FLUTTER%', 'User')"
+    
+    echo [SUCCESS] Flutter PATH configured at: %FOUND_FLUTTER%
+    echo.
 )
 
-echo.
+:: ---------------------------------------------------------
+:: WORKSPACE BOOT SEQUENCE
+:: ---------------------------------------------------------
 echo [1/3] Syncing Flutter dependencies...
-call "%FLUTTER_CMD%" pub get
+call flutter pub get
 
 echo.
 echo [2/3] Checking React dependencies...
@@ -55,4 +61,4 @@ echo Starting React Vite Server in the background...
 start /min "React Server" cmd /k "cd react_workspace && npm run dev"
 
 echo Starting Flutter...
-"%FLUTTER_CMD%" run
+flutter run
