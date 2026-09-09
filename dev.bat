@@ -4,6 +4,13 @@ echo Starting PESO JobKonek Workspace...
 echo ==========================================
 
 :: ---------------------------------
+:: FIX GIT SECURITY FOR FLUTTER
+:: ---------------------------------
+:: This prevents the "not a clone of the GitHub project" error 
+:: by telling Git to trust local directories on Windows.
+git config --global --add safe.directory "*"
+
+:: ---------------------------------
 :: AUTO-DETECT FLUTTER PATH
 :: ---------------------------------
 set "FLUTTER_CMD=flutter"
