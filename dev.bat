@@ -1,8 +1,13 @@
 @echo off
+setlocal
+set "ROOT=%~dp0"
+cd /d "%ROOT%"
+
 echo ==========================================
 echo Starting PESO JobKonek Workspace...
 echo ==========================================
 
+<<<<<<< Updated upstream
 :: Prevents the "not a clone" error for anyone pulling this repo
 git config --global --add safe.directory "*"
 
@@ -43,14 +48,46 @@ if %errorlevel% neq 0 (
 :: ---------------------------------------------------------
 echo [1/3] Syncing Flutter dependencies...
 call flutter pub get
+=======
+:: ---------------------------------
+:: FLUTTER SDK
+:: ---------------------------------
+set "FLUTTER_CMD=C:\flutter\bin\flutter.bat"
+
+if not exist "%FLUTTER_CMD%" (
+    echo.
+    echo [ERROR] Flutter SDK not found at:
+    echo %FLUTTER_CMD%
+    pause
+    exit /b 1
+)
+
+echo Flutter found at: %FLUTTER_CMD%
+
+echo.
+echo [1/3] Syncing Flutter dependencies...
+call "%FLUTTER_CMD%" pub get
+if errorlevel 1 (
+    echo.
+    echo [ERROR] Flutter dependencies could not be resolved.
+    pause
+    exit /b 1
+)
+>>>>>>> Stashed changes
 
 echo.
 echo [2/3] Checking React dependencies...
 if not exist "react_workspace\node_modules\" (
     echo Node modules not found. Installing React packages...
-    cd react_workspace
+    cd /d "%ROOT%react_workspace"
     call npm install
-    cd ..
+    if errorlevel 1 (
+        echo.
+        echo [ERROR] React dependencies could not be installed.
+        pause
+        exit /b 1
+    )
+    cd /d "%ROOT%"
 ) else (
     echo React dependencies already installed.
 )
@@ -58,7 +95,14 @@ if not exist "react_workspace\node_modules\" (
 echo.
 echo [3/3] Launching Development Servers...
 echo Starting React Vite Server in the background...
-start /min "React Server" cmd /k "cd react_workspace && npm run dev"
+start "PESO React" /D "%ROOT%react_workspace" cmd /k npm run dev
 
+<<<<<<< Updated upstream
 echo Starting Flutter...
 flutter run
+=======
+echo Starting Flutter web app...
+call "%FLUTTER_CMD%" run -d chrome
+
+pause
+>>>>>>> Stashed changes

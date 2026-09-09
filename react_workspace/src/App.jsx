@@ -1,4 +1,8 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
+
+const GreenLabel = ({ children, className = '' }) => (
+  <span className={`bg-green-200/60 px-1 font-bold ${className}`}>{children}</span>
+);
 
 export default function App() {
   const [zoomLevel, setZoomLevel] = useState(1);
@@ -17,11 +21,6 @@ export default function App() {
       alert("Form Submitted!\n\nIf you are testing Flutter on Chrome Web, click the 'Skip (Web Test)' button in the Flutter AppBar to continue.");
     }
   };
-
-  // Helper component for the green highlighted headers
-  const GreenLabel = ({ children, className = '' }) => (
-    <span className={`bg-green-200/60 px-1 font-bold ${className}`}>{children}</span>
-  );
 
   return (
     <div className="min-h-screen bg-gray-200 py-8 flex flex-col items-center font-sans overflow-x-hidden">
