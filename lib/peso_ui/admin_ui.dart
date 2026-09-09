@@ -43,12 +43,13 @@ class StatusStyle {
   const StatusStyle(this.label, this.text, this.bg, this.dot);
 }
 
-const Map<String, StatusStyle> kAssessmentStyles = {
-  'passed': StatusStyle('Passed \u00b7 Pre-Vetted', Color(0xFF047857),
+// Job-matching status (replaces the old AI-exam / assessment status).
+const Map<String, StatusStyle> kMatchStyles = {
+  'matched': StatusStyle('Matched to a Job', Color(0xFF047857),
       Color(0xFFECFDF5), Color(0xFF10B981)),
-  'failed': StatusStyle('Did Not Pass', Color(0xFFBE123C), Color(0xFFFFF1F2),
-      Color(0xFFF43F5E)),
-  'pending': StatusStyle('Assessment Pending', Color(0xFFB45309),
+  'not_matched': StatusStyle('No Match Yet', Color(0xFFBE123C),
+      Color(0xFFFFF1F2), Color(0xFFF43F5E)),
+  'pending': StatusStyle('Resume Under Review', Color(0xFFB45309),
       Color(0xFFFFFBEB), Color(0xFFF59E0B)),
 };
 
@@ -68,8 +69,12 @@ class Applicant {
   final String barangay;
   final String targetJob;
   final DateTime registeredDate;
-  final String assessmentStatus; // pending | passed | failed
-  final int? score;
+  final int yearsExperience;
+  final bool resumeSubmitted;
+  final bool formSubmitted;
+  final String matchStatus; // pending | matched | not_matched
+  final int matchedJobsCount;
+  final String resumeFileName;
 
   Applicant({
     required this.id,
@@ -77,8 +82,12 @@ class Applicant {
     required this.barangay,
     required this.targetJob,
     required this.registeredDate,
-    required this.assessmentStatus,
-    this.score,
+    required this.yearsExperience,
+    required this.resumeSubmitted,
+    required this.formSubmitted,
+    required this.matchStatus,
+    required this.matchedJobsCount,
+    required this.resumeFileName,
   });
 }
 
@@ -109,6 +118,7 @@ class IngestionLog {
   final String batch;
   final String uploaded;
   final String status;
+  final int matchedAccounts;
 
   IngestionLog({
     required this.id,
@@ -117,6 +127,7 @@ class IngestionLog {
     required this.batch,
     required this.uploaded,
     required this.status,
+    this.matchedAccounts = 0,
   });
 }
 
@@ -133,6 +144,26 @@ class AuditEntry {
     required this.action,
     required this.detail,
     required this.timestamp,
+  });
+}
+
+class Concern {
+  final int id;
+  final String applicantName;
+  final String barangay;
+  final String targetJob;
+  final String message;
+  final DateTime submittedDate;
+  bool resolved;
+
+  Concern({
+    required this.id,
+    required this.applicantName,
+    required this.barangay,
+    required this.targetJob,
+    required this.message,
+    required this.submittedDate,
+    this.resolved = false,
   });
 }
 
@@ -160,6 +191,15 @@ const List<String> kLastNames = [
   'Ramos',
 ];
 
+const List<String> kConcernTemplates = [
+  'Wala pa pong available na trabaho na tugma sa aking taon ng karanasan. Sana po ay may maidagdag pang listahan.',
+  'Pumasa naman po ako sa aking hinati-hating kasanayan pero wala pa rin pong na-match na employer. Paki-check po.',
+  'Baka po masyadong mataas ang required years of experience sa job na ito \u2014 puwede po bang i-relax nang kaunti?',
+  'Nag-upload na po ako ng resume at form kaso wala pa rin pong update ilang araw na. Sana po ma-prioritize.',
+  'Interesado po ako sa trabaho pero malayo sa aking barangay \u2014 meron po bang mas malapit na opsyon?',
+  'Sana po ay may paraan para malaman kung ano pa ang kulang sa aking qualifications para mag-match.',
+];
+
 class _SeededRandom {
   int _seed;
   _SeededRandom(this._seed);
@@ -181,21 +221,37 @@ List<Applicant> _generateApplicants({int days = 14}) {
     final date = today.subtract(Duration(days: d));
     final registrationsToday = 4 + (rand.next() * 9).floor();
     for (var i = 0; i < registrationsToday; i++) {
-      final tookAssessment = rand.next() > 0.22;
-      var status = 'pending';
-      int? score;
-      if (tookAssessment) {
-        score = (rand.next() * 100).floor();
-        status = score >= 50 ? 'passed' : 'failed';
+      final resumeSubmitted = rand.next() > 0.18;
+      final formSubmitted = resumeSubmitted && rand.next() > 0.1;
+      final years = (rand.next() * 9).floor();
+      String matchStatus;
+      var matchedJobsCount = 0;
+      if (!resumeSubmitted || !formSubmitted) {
+        matchStatus = 'pending';
+      } else {
+        final isMatched = rand.next() > 0.35;
+        if (isMatched) {
+          matchStatus = 'matched';
+          matchedJobsCount = 1 + (rand.next() * 4).floor();
+        } else {
+          matchStatus = 'not_matched';
+          matchedJobsCount = 0;
+        }
       }
+      final name = '${_pick(kFirstNames, rand)} ${_pick(kLastNames, rand)}';
       rows.add(Applicant(
         id: id++,
-        name: '${_pick(kFirstNames, rand)} ${_pick(kLastNames, rand)}',
+        name: name,
         barangay: _pick(kBarangays, rand),
         targetJob: _pick(kJobs, rand),
         registeredDate: date,
-        assessmentStatus: status,
-        score: score,
+        yearsExperience: years,
+        resumeSubmitted: resumeSubmitted,
+        formSubmitted: formSubmitted,
+        matchStatus: matchStatus,
+        matchedJobsCount: matchedJobsCount,
+        resumeFileName:
+            '${name.toLowerCase().replaceAll(' ', '_')}_resume.pdf',
       ));
     }
   }
@@ -229,6 +285,29 @@ List<JobSeekerUser> _generateJobSeekerUsers(List<Applicant> applicants) {
   return users;
 }
 
+List<Concern> _generateConcerns(List<Applicant> applicants) {
+  final rand = _SeededRandom(19);
+  final notMatched = applicants.where((a) => a.matchStatus == 'not_matched').toList();
+  final concerns = <Concern>[];
+  var id = 1;
+  final today = DateTime(2026, 9, 8);
+  for (final a in notMatched) {
+    if (rand.next() > 0.45) continue; // not everyone leaves a concern
+    final daysAgo = (rand.next() * 5).floor();
+    concerns.add(Concern(
+      id: id++,
+      applicantName: a.name,
+      barangay: a.barangay,
+      targetJob: a.targetJob,
+      message: _pick(kConcernTemplates, rand),
+      submittedDate: today.subtract(Duration(days: daysAgo)),
+      resolved: rand.next() > 0.7,
+    ));
+  }
+  concerns.sort((a, b) => b.submittedDate.compareTo(a.submittedDate));
+  return concerns;
+}
+
 String _fmtDate(DateTime d) =>
     '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
@@ -249,7 +328,7 @@ bool _isSameDate(DateTime a, DateTime b) =>
 // =====================================================================
 // NAVIGATION
 // =====================================================================
-enum AdminTab { analytics, users, ingestion, export, platform }
+enum AdminTab { analytics, users, concerns, ingestion, export, platform }
 
 class _NavItem {
   final AdminTab tab;
@@ -267,7 +346,7 @@ const List<_NavItem> kNavItems = [
     'Applicant Analytics',
     Icons.insights_outlined,
     'Applicant Analytics',
-    'Job seeker registrations and AI assessment outcomes across Montalban barangays.',
+    'Job seeker registrations and resume-based job matching outcomes across Montalban barangays.',
   ),
   _NavItem(
     AdminTab.users,
@@ -277,25 +356,32 @@ const List<_NavItem> kNavItems = [
     "See who has logged in, mark accounts active or inactive, and remove accounts.",
   ),
   _NavItem(
+    AdminTab.concerns,
+    'Concerns & Feedback',
+    Icons.forum_outlined,
+    'Concerns & Feedback',
+    'Messages from job seekers who were not matched to a job, and other concerns they raised.',
+  ),
+  _NavItem(
     AdminTab.ingestion,
     'Job Batch Ingestion',
     Icons.cloud_upload_outlined,
     'Job Batch Ingestion',
-    'Batch upload Excel files from PESO Admins to populate the core database.',
+    'Batch upload Excel files from PESO Admins \u2014 new jobs are auto-matched to qualified job seeker accounts.',
   ),
   _NavItem(
     AdminTab.export,
     'DOLE SPRS Export',
     Icons.download_outlined,
-    'Pre-Vetted Candidates Pipeline',
-    'Extract passers and export data strictly into DOLE SPRS-compliant formats.',
+    'Matched Candidates Pipeline',
+    'Extract matched candidates and export data strictly into DOLE SPRS-compliant formats.',
   ),
   _NavItem(
     AdminTab.platform,
     'Platform Analytics',
     Icons.bar_chart_outlined,
-    'AI Engine & System Health',
-    'Monitor live API traffic, exam generation, and system uptime.',
+    'AI Matching Engine & System Health',
+    'Monitor resume processing, auto-matching, and system uptime.',
   ),
 ];
 
@@ -350,7 +436,7 @@ class FadeSlideEntrance extends StatefulWidget {
     super.key,
     required this.child,
     this.delayMs = 0,
-    this.duration = const Duration(milliseconds: 560),
+    this.duration = const Duration(milliseconds: 480),
   });
 
   @override
@@ -362,9 +448,9 @@ class _FadeSlideEntranceState extends State<FadeSlideEntrance>
   late final AnimationController _controller =
       AnimationController(vsync: this, duration: widget.duration);
   late final Animation<double> _fade =
-      CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic);
+      CurvedAnimation(parent: _controller, curve: Curves.easeOut);
   late final Animation<Offset> _slide = Tween<Offset>(
-    begin: const Offset(0, 0.06),
+    begin: const Offset(0, 0.10),
     end: Offset.zero,
   ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
 
@@ -422,7 +508,7 @@ class _AnimatedCounterTextState extends State<AnimatedCounterText>
   void initState() {
     super.initState();
     _animation = IntTween(begin: 0, end: widget.value)
-      .animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
+        .animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutExpo));
     _controller.forward();
   }
 
@@ -431,7 +517,7 @@ class _AnimatedCounterTextState extends State<AnimatedCounterText>
     super.didUpdateWidget(oldWidget);
     if (oldWidget.value != widget.value) {
       _animation = IntTween(begin: oldWidget.value, end: widget.value)
-          .animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
+          .animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutExpo));
       _controller.forward(from: 0);
     }
   }
@@ -472,6 +558,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
   late final List<Applicant> _applicants = _generateApplicants();
   late final List<JobSeekerUser> _users = _generateJobSeekerUsers(_applicants);
+  late final List<Concern> _concerns = _generateConcerns(_applicants);
 
   Future<void> _logout() async {
     setState(() => _isLoggingOut = true);
@@ -486,6 +573,10 @@ class _AdminDashboardState extends State<AdminDashboard> {
   @override
   Widget build(BuildContext context) {
     final navItem = kNavItems.firstWhere((n) => n.tab == _activeTab);
+    final unresolvedConcerns = _concerns.where((c) => !c.resolved).length;
+    final badgeCounts = <AdminTab, int>{
+      if (unresolvedConcerns > 0) AdminTab.concerns: unresolvedConcerns,
+    };
     return LayoutBuilder(builder: (context, constraints) {
       final isWide = constraints.maxWidth >= 980;
       return Scaffold(
@@ -497,6 +588,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 backgroundColor: _C.sidebar,
                 child: _Sidebar(
                   activeTab: _activeTab,
+                  badgeCounts: badgeCounts,
                   onSelect: (t) {
                     setState(() => _activeTab = t);
                     Navigator.pop(context);
@@ -516,6 +608,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                     width: 300,
                     child: _Sidebar(
                       activeTab: _activeTab,
+                      badgeCounts: badgeCounts,
                       onSelect: (t) => setState(() => _activeTab = t),
                       onLogout: _logout,
                     ),
@@ -570,12 +663,14 @@ class _AdminDashboardState extends State<AdminDashboard> {
         return ApplicantAnalyticsSection(applicants: _applicants);
       case AdminTab.users:
         return UserManagementSection(initialUsers: _users);
+      case AdminTab.concerns:
+        return ConcernsSection(initialConcerns: _concerns);
       case AdminTab.ingestion:
         return const JobBatchIngestionSection();
       case AdminTab.export:
         return DoleSprsExportSection(applicants: _applicants);
       case AdminTab.platform:
-        return const PlatformAnalyticsSection();
+        return PlatformAnalyticsSection(applicants: _applicants);
     }
   }
 
@@ -633,8 +728,13 @@ class _Sidebar extends StatelessWidget {
   final AdminTab activeTab;
   final ValueChanged<AdminTab> onSelect;
   final VoidCallback onLogout;
-  const _Sidebar(
-      {required this.activeTab, required this.onSelect, required this.onLogout});
+  final Map<AdminTab, int> badgeCounts;
+  const _Sidebar({
+    required this.activeTab,
+    required this.onSelect,
+    required this.onLogout,
+    this.badgeCounts = const {},
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -692,6 +792,7 @@ class _Sidebar extends StatelessWidget {
                 children: List.generate(kNavItems.length, (index) {
                   final item = kNavItems[index];
                   final isActive = item.tab == activeTab;
+                  final badge = badgeCounts[item.tab] ?? 0;
                   return FadeSlideEntrance(
                     delayMs: index * 60,
                     duration: const Duration(milliseconds: 380),
@@ -742,6 +843,19 @@ class _Sidebar extends StatelessWidget {
                                     child: Text(item.label),
                                   ),
                                 ),
+                                if (badge > 0)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 7, vertical: 2),
+                                    decoration: BoxDecoration(
+                                        color: _C.rose,
+                                        borderRadius: BorderRadius.circular(20)),
+                                    child: Text('$badge',
+                                        style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w800)),
+                                  ),
                               ],
                             ),
                           ),
@@ -1076,126 +1190,6 @@ class _StatusBadge extends StatelessWidget {
 }
 
 // =====================================================================
-// MINI AREA CHART (sparkline) — animated left-to-right wipe reveal
-// =====================================================================
-class MiniAreaChart extends StatefulWidget {
-  final List<double> values;
-  final Color color;
-  const MiniAreaChart({super.key, required this.values, required this.color});
-
-  @override
-  State<MiniAreaChart> createState() => _MiniAreaChartState();
-}
-
-class _MiniAreaChartState extends State<MiniAreaChart>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 900));
-  late final Animation<double> _progress =
-      CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic);
-
-  @override
-  void initState() {
-    super.initState();
-    _controller.forward();
-  }
-
-  @override
-  void didUpdateWidget(covariant MiniAreaChart oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (!_listEquals(oldWidget.values, widget.values)) {
-      _controller.forward(from: 0);
-    }
-  }
-
-  bool _listEquals(List<double> a, List<double> b) {
-    if (a.length != b.length) return false;
-    for (var i = 0; i < a.length; i++) {
-      if (a[i] != b[i]) return false;
-    }
-    return true;
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _progress,
-      builder: (context, child) => RepaintBoundary(
-        child: CustomPaint(
-          painter: _AreaPainter(widget.values, widget.color, _progress.value),
-          size: Size.infinite,
-        ),
-      ),
-    );
-  }
-}
-
-class _AreaPainter extends CustomPainter {
-  final List<double> values;
-  final Color color;
-  final double progress;
-  _AreaPainter(this.values, this.color, this.progress);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (values.isEmpty) return;
-    canvas.save();
-    canvas.clipRect(Rect.fromLTWH(0, 0, size.width * progress.clamp(0, 1), size.height));
-
-    final maxV = values.reduce(math.max);
-    final safeMax = maxV <= 0 ? 1.0 : maxV;
-    final stepX = values.length > 1 ? size.width / (values.length - 1) : size.width;
-
-    final linePath = Path();
-    final fillPath = Path();
-    for (var i = 0; i < values.length; i++) {
-      final x = i * stepX;
-      final y = size.height - (values[i] / safeMax) * size.height;
-      if (i == 0) {
-        linePath.moveTo(x, y);
-        fillPath.moveTo(x, size.height);
-        fillPath.lineTo(x, y);
-      } else {
-        linePath.lineTo(x, y);
-        fillPath.lineTo(x, y);
-      }
-    }
-    fillPath.lineTo((values.length - 1) * stepX, size.height);
-    fillPath.close();
-
-    final fillPaint = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [color.withValues(alpha: 0.35), color.withValues(alpha: 0.0)],
-      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
-    canvas.drawPath(fillPath, fillPaint);
-
-    final linePaint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.4
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-    canvas.drawPath(linePath, linePaint);
-
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(covariant _AreaPainter oldDelegate) =>
-      oldDelegate.progress != progress ||
-      oldDelegate.values != values ||
-      oldDelegate.color != color;
-}
-
-// =====================================================================
 // DONUT CHART — animated arc growth
 // =====================================================================
 class DonutChart extends StatefulWidget {
@@ -1235,11 +1229,9 @@ class _DonutChartState extends State<DonutChart> with SingleTickerProviderStateM
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: _progress,
-      builder: (context, child) => RepaintBoundary(
-        child: CustomPaint(
-          painter: _DonutPainter(widget.segments, widget.colors, _progress.value),
-          size: Size.infinite,
-        ),
+      builder: (context, child) => CustomPaint(
+        painter: _DonutPainter(widget.segments, widget.colors, _progress.value),
+        size: Size.infinite,
       ),
     );
   }
@@ -1285,6 +1277,444 @@ class _DonutPainter extends CustomPainter {
 }
 
 // =====================================================================
+// INTERACTIVE TREND CHART — hover/tap a day to see its numbers
+// (This is what answers "pag inano ko yong mouse nandon yong day at
+// ilan ang nag-match" — hover or tap a point on the line to see that
+// day's registrations vs matches.)
+// =====================================================================
+class TrendSeries {
+  final String label;
+  final Color color;
+  final List<double> values;
+  const TrendSeries(this.label, this.color, this.values);
+}
+
+class InteractiveTrendChart extends StatefulWidget {
+  final List<DateTime> dates;
+  final List<TrendSeries> series;
+  const InteractiveTrendChart({super.key, required this.dates, required this.series});
+
+  @override
+  State<InteractiveTrendChart> createState() => _InteractiveTrendChartState();
+}
+
+class _InteractiveTrendChartState extends State<InteractiveTrendChart> {
+  int? _hoverIndex;
+
+  void _updateHover(Offset localPos, double width) {
+    if (widget.dates.length < 2) return;
+    final stepX = width / (widget.dates.length - 1);
+    final idx = (localPos.dx / stepX).round().clamp(0, widget.dates.length - 1);
+    if (idx != _hoverIndex) setState(() => _hoverIndex = idx);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(builder: (context, constraints) {
+      final width = constraints.maxWidth;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 18,
+            runSpacing: 8,
+            children: widget.series
+                .map((s) => Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                            width: 9,
+                            height: 9,
+                            decoration:
+                                BoxDecoration(color: s.color, shape: BoxShape.circle)),
+                        const SizedBox(width: 6),
+                        Text(s.label,
+                            style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: _C.slate600)),
+                      ],
+                    ))
+                .toList(),
+          ),
+          const SizedBox(height: 14),
+          MouseRegion(
+            onHover: (e) => _updateHover(e.localPosition, width),
+            onExit: (_) => setState(() => _hoverIndex = null),
+            child: GestureDetector(
+              onPanUpdate: (d) => _updateHover(d.localPosition, width),
+              onPanDown: (d) => _updateHover(d.localPosition, width),
+              onTapDown: (d) => _updateHover(d.localPosition, width),
+              child: SizedBox(
+                height: 220,
+                width: double.infinity,
+                child: CustomPaint(
+                  painter: _MultiLinePainter(widget.dates, widget.series, _hoverIndex),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          _hoverIndex != null
+              ? _buildTooltipRow(widget.dates[_hoverIndex!], _hoverIndex!)
+              : const Row(
+                  children: [
+                    Icon(Icons.touch_app_outlined, size: 14, color: _C.slate400),
+                    SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                          'I-hover o i-tap ang graph para makita ang detalye ng araw na iyon.',
+                          style: TextStyle(fontSize: 11, color: _C.slate400)),
+                    ),
+                  ],
+                ),
+        ],
+      );
+    });
+  }
+
+  Widget _buildTooltipRow(DateTime date, int idx) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(color: _C.slate100, borderRadius: BorderRadius.circular(14)),
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 20,
+        runSpacing: 8,
+        children: [
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            const Icon(Icons.calendar_today, size: 12, color: _C.slate500),
+            const SizedBox(width: 6),
+            Text(_fmtDate(date),
+                style: const TextStyle(
+                    fontWeight: FontWeight.w800, fontSize: 12, color: _C.slate900)),
+          ]),
+          for (final s in widget.series)
+            Row(mainAxisSize: MainAxisSize.min, children: [
+              Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(color: s.color, shape: BoxShape.circle)),
+              const SizedBox(width: 6),
+              Text('${s.label}: ${s.values[idx].toInt()}',
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w700, fontSize: 12, color: _C.slate700)),
+            ]),
+        ],
+      ),
+    );
+  }
+}
+
+class _MultiLinePainter extends CustomPainter {
+  final List<DateTime> dates;
+  final List<TrendSeries> series;
+  final int? hoverIndex;
+  _MultiLinePainter(this.dates, this.series, this.hoverIndex);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (dates.isEmpty) return;
+    final maxV = series
+        .expand((s) => s.values)
+        .fold<double>(0, (p, e) => math.max(p, e));
+    final safeMax = maxV <= 0 ? 1.0 : maxV;
+    final stepX = dates.length > 1 ? size.width / (dates.length - 1) : size.width;
+
+    final gridPaint = Paint()
+      ..color = _C.slate200
+      ..strokeWidth = 1;
+    for (var i = 0; i <= 3; i++) {
+      final y = size.height / 3 * i;
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
+    }
+
+    for (final s in series) {
+      final path = Path();
+      for (var i = 0; i < s.values.length; i++) {
+        final x = i * stepX;
+        final y = size.height - (s.values[i] / safeMax) * size.height;
+        if (i == 0) {
+          path.moveTo(x, y);
+        } else {
+          path.lineTo(x, y);
+        }
+      }
+      final paint = Paint()
+        ..color = s.color
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.6
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round;
+      canvas.drawPath(path, paint);
+
+      for (var i = 0; i < s.values.length; i++) {
+        final x = i * stepX;
+        final y = size.height - (s.values[i] / safeMax) * size.height;
+        final isHover = hoverIndex == i;
+        canvas.drawCircle(Offset(x, y), isHover ? 4.5 : 2.5, Paint()..color = s.color);
+        if (isHover) {
+          canvas.drawCircle(
+              Offset(x, y), 8, Paint()..color = s.color.withValues(alpha: 0.20));
+        }
+      }
+    }
+
+    if (hoverIndex != null) {
+      final x = hoverIndex! * stepX;
+      final linePaint = Paint()
+        ..color = _C.slate400
+        ..strokeWidth = 1;
+      const dashHeight = 4.0, dashGap = 4.0;
+      var startY = 0.0;
+      while (startY < size.height) {
+        canvas.drawLine(Offset(x, startY),
+            Offset(x, math.min(startY + dashHeight, size.height)), linePaint);
+        startY += dashHeight + dashGap;
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _MultiLinePainter oldDelegate) =>
+      oldDelegate.hoverIndex != hoverIndex ||
+      oldDelegate.series != series ||
+      oldDelegate.dates != dates;
+}
+
+// =====================================================================
+// MINI TREND CARD — a single-metric card with a colored dot + label,
+// a big animated number, and a smooth gradient-filled sparkline below
+// it. Hovering/tapping the sparkline shows a small floating tooltip
+// with that day's date and value (mirrors the reference design where
+// "Registered", "Passed"/"Matched" and "Did not pass"/"No match" are
+// each shown as their own standalone card).
+// =====================================================================
+class _TrendMiniCard extends StatefulWidget {
+  final String label;
+  final Color color;
+  final int value;
+  final List<DateTime> dates;
+  final List<double> values;
+  const _TrendMiniCard({
+    required this.label,
+    required this.color,
+    required this.value,
+    required this.dates,
+    required this.values,
+  });
+
+  @override
+  State<_TrendMiniCard> createState() => _TrendMiniCardState();
+}
+
+class _TrendMiniCardState extends State<_TrendMiniCard> {
+  int? _hoverIndex;
+
+  void _updateHover(Offset localPos, double width) {
+    if (widget.dates.length < 2) return;
+    final stepX = width / (widget.dates.length - 1);
+    final idx = (localPos.dx / stepX).round().clamp(0, widget.dates.length - 1);
+    if (idx != _hoverIndex) setState(() => _hoverIndex = idx);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: _C.slate200),
+        boxShadow: [
+          BoxShadow(
+              color: Colors.black.withValues(alpha: 0.03),
+              blurRadius: 16,
+              offset: const Offset(0, 6)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(color: widget.color, shape: BoxShape.circle)),
+              const SizedBox(width: 8),
+              Text(widget.label,
+                  style: const TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.w700, color: _C.slate600)),
+            ],
+          ),
+          const SizedBox(height: 6),
+          AnimatedCounterText(
+            value: widget.value,
+            style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: widget.color),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 120,
+            child: LayoutBuilder(builder: (context, c) {
+              return MouseRegion(
+                onHover: (e) => _updateHover(e.localPosition, c.maxWidth),
+                onExit: (_) => setState(() => _hoverIndex = null),
+                child: GestureDetector(
+                  onPanUpdate: (d) => _updateHover(d.localPosition, c.maxWidth),
+                  onPanDown: (d) => _updateHover(d.localPosition, c.maxWidth),
+                  onTapDown: (d) => _updateHover(d.localPosition, c.maxWidth),
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      SizedBox(
+                        width: double.infinity,
+                        height: double.infinity,
+                        child: CustomPaint(
+                          painter: _AreaSparklinePainter(widget.values, widget.color, _hoverIndex),
+                        ),
+                      ),
+                      if (_hoverIndex != null) _buildTooltip(c.maxWidth),
+                    ],
+                  ),
+                ),
+              );
+            }),
+          ),
+          const SizedBox(height: 10),
+          const Divider(height: 1, color: _C.slate200),
+          const SizedBox(height: 8),
+          const Text('Last 14 days',
+              style: TextStyle(fontSize: 11.5, color: _C.slate400, fontWeight: FontWeight.w600)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTooltip(double width) {
+    final idx = _hoverIndex!;
+    final stepX = widget.dates.length > 1 ? width / (widget.dates.length - 1) : width;
+    final x = idx * stepX;
+    final alignRight = x > width / 2;
+    return Positioned(
+      top: 0,
+      left: alignRight ? null : (x - 10).clamp(0.0, math.max(0.0, width - 20)),
+      right: alignRight ? (width - x - 10).clamp(0.0, math.max(0.0, width - 20)) : null,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: _C.slate200),
+          boxShadow: [
+            BoxShadow(
+                color: Colors.black.withValues(alpha: 0.08),
+                blurRadius: 12,
+                offset: const Offset(0, 4)),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(_fmtShortDate(widget.dates[idx]),
+                style: const TextStyle(
+                    fontSize: 10.5, color: _C.slate500, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 2),
+            Text('${widget.label} : ${widget.values[idx].toInt()}',
+                style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: widget.color)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _fmtShortDate(DateTime d) =>
+      '${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+}
+
+class _AreaSparklinePainter extends CustomPainter {
+  final List<double> values;
+  final Color color;
+  final int? hoverIndex;
+  _AreaSparklinePainter(this.values, this.color, this.hoverIndex);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (values.isEmpty) return;
+    final maxV = values.fold<double>(0, (p, e) => math.max(p, e));
+    final minV = values.fold<double>(maxV, (p, e) => math.min(p, e));
+    final range = (maxV - minV) <= 0 ? 1.0 : (maxV - minV);
+    final n = values.length;
+    final stepX = n > 1 ? size.width / (n - 1) : size.width;
+    const topPad = 8.0;
+    const bottomPad = 2.0;
+    final chartHeight = math.max(1.0, size.height - topPad - bottomPad);
+
+    final points = List.generate(n, (i) {
+      final x = i * stepX;
+      final normalized = (values[i] - minV) / range;
+      final y = topPad + chartHeight - normalized * chartHeight;
+      return Offset(x, y);
+    });
+
+    final linePath = Path()..moveTo(points.first.dx, points.first.dy);
+    for (var i = 0; i < points.length - 1; i++) {
+      final p0 = points[i];
+      final p1 = points[i + 1];
+      final midX = (p0.dx + p1.dx) / 2;
+      linePath.cubicTo(midX, p0.dy, midX, p1.dy, p1.dx, p1.dy);
+    }
+
+    final areaPath = Path()
+      ..addPath(linePath, Offset.zero)
+      ..lineTo(points.last.dx, size.height)
+      ..lineTo(points.first.dx, size.height)
+      ..close();
+
+    final fillPaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [color.withValues(alpha: 0.28), color.withValues(alpha: 0.0)],
+      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
+    canvas.drawPath(areaPath, fillPaint);
+
+    final linePaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.4
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    canvas.drawPath(linePath, linePaint);
+
+    if (hoverIndex != null && hoverIndex! >= 0 && hoverIndex! < points.length) {
+      final hp = points[hoverIndex!];
+      final dashPaint = Paint()
+        ..color = color.withValues(alpha: 0.35)
+        ..strokeWidth = 1;
+      const dashH = 4.0, dashG = 4.0;
+      var startY = 0.0;
+      while (startY < size.height) {
+        canvas.drawLine(
+            Offset(hp.dx, startY), Offset(hp.dx, math.min(startY + dashH, size.height)), dashPaint);
+        startY += dashH + dashG;
+      }
+      canvas.drawCircle(hp, 8, Paint()..color = color.withValues(alpha: 0.18));
+      canvas.drawCircle(hp, 4, Paint()..color = color);
+      canvas.drawCircle(
+          hp, 4, Paint()..color = Colors.white..style = PaintingStyle.stroke..strokeWidth = 1.5);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _AreaSparklinePainter oldDelegate) =>
+      oldDelegate.hoverIndex != hoverIndex ||
+      oldDelegate.values != values ||
+      oldDelegate.color != color;
+}
+
+// =====================================================================
 // SECTION 1: APPLICANT ANALYTICS
 // =====================================================================
 class ApplicantAnalyticsSection extends StatefulWidget {
@@ -1303,41 +1733,50 @@ class _ApplicantAnalyticsSectionState extends State<ApplicantAnalyticsSection> {
       ? widget.applicants
       : widget.applicants.where((a) => a.barangay == _barangayFilter).toList();
 
+  void _openResume(Applicant a) {
+    showToast(
+      context,
+      'Opening ${a.resumeFileName} \u2014 kasama ang sinagutang application form ni ${a.name}.',
+      icon: Icons.picture_as_pdf,
+      iconColor: _C.rose,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final filtered = _filtered;
-    final passed = filtered.where((a) => a.assessmentStatus == 'passed').length;
-    final failed = filtered.where((a) => a.assessmentStatus == 'failed').length;
-    final pending = filtered.where((a) => a.assessmentStatus == 'pending').length;
-    final took = passed + failed;
-    final passRate = took > 0 ? ((passed / took) * 100).round() : 0;
+    final matched = filtered.where((a) => a.matchStatus == 'matched').length;
+    final notMatched = filtered.where((a) => a.matchStatus == 'not_matched').length;
+    final pending = filtered.where((a) => a.matchStatus == 'pending').length;
+    final processed = matched + notMatched;
+    final matchRate = processed > 0 ? ((matched / processed) * 100).round() : 0;
 
     final today = DateTime(2026, 9, 8);
     final dates = List.generate(14, (i) => today.subtract(Duration(days: 13 - i)));
     final regSeries = <double>[];
-    final passSeries = <double>[];
-    final failSeries = <double>[];
+    final matchedSeries = <double>[];
+    final notMatchedSeries = <double>[];
     for (final d in dates) {
       final dayApplicants = filtered.where((a) => _isSameDate(a.registeredDate, d));
       regSeries.add(dayApplicants.length.toDouble());
-      passSeries.add(
-          dayApplicants.where((a) => a.assessmentStatus == 'passed').length.toDouble());
-      failSeries.add(
-          dayApplicants.where((a) => a.assessmentStatus == 'failed').length.toDouble());
+      matchedSeries.add(
+          dayApplicants.where((a) => a.matchStatus == 'matched').length.toDouble());
+      notMatchedSeries.add(
+          dayApplicants.where((a) => a.matchStatus == 'not_matched').length.toDouble());
     }
 
     final recent = [...filtered]..sort((a, b) => b.registeredDate.compareTo(a.registeredDate));
     final recentTop = recent.take(12).toList();
 
     final donutSegments = [
-      if (passed > 0) MapEntry('Passed', passed.toDouble()),
-      if (failed > 0) MapEntry('Did not pass', failed.toDouble()),
-      if (pending > 0) MapEntry('Pending', pending.toDouble()),
+      if (matched > 0) MapEntry('Matched', matched.toDouble()),
+      if (notMatched > 0) MapEntry('No match yet', notMatched.toDouble()),
+      if (pending > 0) MapEntry('Under review', pending.toDouble()),
     ];
     final donutColors = {
-      'Passed': _C.emerald,
-      'Did not pass': _C.rose,
-      'Pending': _C.amber,
+      'Matched': _C.emerald,
+      'No match yet': _C.rose,
+      'Under review': _C.amber,
     };
 
     final kpiCards = [
@@ -1348,25 +1787,25 @@ class _ApplicantAnalyticsSectionState extends State<ApplicantAnalyticsSection> {
           color: _C.slate900,
           subtitle: 'Signed up in the last 14 days'),
       _KpiCard(
-          label: 'PASSED ASSESSMENT',
-          numericValue: passed,
+          label: 'MATCHED TO A JOB',
+          numericValue: matched,
           icon: Icons.check_circle_outline,
           color: _C.emerald600,
-          subtitle: 'Pre-vetted, routed to PESO queue',
+          subtitle: 'Resume + form matched to an employer listing',
           subtitleColor: _C.emerald600),
       _KpiCard(
-          label: 'DID NOT PASS',
-          numericValue: failed,
+          label: 'NO MATCH YET',
+          numericValue: notMatched,
           icon: Icons.cancel_outlined,
           color: _C.rose600,
-          subtitle: 'Sent an AI-generated Action Plan'),
+          subtitle: 'Reviewed but no qualifying job found'),
       _KpiCard(
-          label: 'PASS RATE',
-          numericValue: passRate,
+          label: 'MATCH RATE',
+          numericValue: matchRate,
           suffix: '%',
           icon: Icons.trending_up,
           color: _C.purple,
-          subtitle: 'Of $took who completed an assessment'),
+          subtitle: 'Of $processed with a completed resume review'),
     ];
 
     return SingleChildScrollView(
@@ -1418,40 +1857,50 @@ class _ApplicantAnalyticsSectionState extends State<ApplicantAnalyticsSection> {
             ),
           ),
           const SizedBox(height: 24),
-          const Text('Registrations & Assessment Outcomes',
-              style: TextStyle(
-                  fontSize: 18, fontWeight: FontWeight.w900, color: _C.slate900)),
-          const SizedBox(height: 4),
-          const Text(
-              'Daily new sign-ups versus how many passed or failed their AI assessment.',
-              style: TextStyle(fontSize: 12, color: _C.slate500)),
-          const SizedBox(height: 16),
-          LayoutBuilder(builder: (context, c) {
-            final isRow = c.maxWidth > 900;
-            final cards = [
-              _trendCard('Registered', filtered.length, _C.slate700, regSeries, 0),
-              _trendCard('Passed', passed, _C.emerald, passSeries, 100),
-              _trendCard('Did not pass', failed, _C.rose, failSeries, 200),
-            ];
-            return isRow
-                ? Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: cards
-                        .map((w) => Expanded(
-                            child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 8),
-                                child: w)))
-                        .toList(),
-                  )
-                : Column(
-                    children:
-                        cards.map((w) => Padding(padding: const EdgeInsets.only(bottom: 16), child: w)).toList());
-          }),
-          const SizedBox(height: 4),
           FadeSlideEntrance(
-            delayMs: 480,
+            delayMs: 380,
+            child: LayoutBuilder(builder: (context, c) {
+              final cols = c.maxWidth > 760 ? 3 : (c.maxWidth > 480 ? 2 : 1);
+              const cardHeight = 260.0;
+              final cellWidth = (c.maxWidth - (cols - 1) * 16) / cols;
+              final cards = [
+                _TrendMiniCard(
+                    label: 'Registered',
+                    color: _C.slate900,
+                    value: filtered.length,
+                    dates: dates,
+                    values: regSeries),
+                _TrendMiniCard(
+                    label: 'Matched',
+                    color: _C.emerald,
+                    value: matched,
+                    dates: dates,
+                    values: matchedSeries),
+                _TrendMiniCard(
+                    label: 'No match',
+                    color: _C.rose,
+                    value: notMatched,
+                    dates: dates,
+                    values: notMatchedSeries),
+              ];
+              return GridView.count(
+                crossAxisCount: cols,
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                crossAxisSpacing: 16,
+                mainAxisSpacing: 16,
+                childAspectRatio: cellWidth / cardHeight,
+                children: List.generate(
+                  cards.length,
+                  (i) => FadeSlideEntrance(delayMs: 420 + i * 100, child: cards[i]),
+                ),
+              );
+            }),
+          ),
+          FadeSlideEntrance(
+            delayMs: 460,
             child: _SectionCard(
-              title: 'Assessment Breakdown',
+              title: 'Matching Breakdown',
               icon: Icons.auto_awesome,
               iconColor: _C.amber,
               child: LayoutBuilder(builder: (context, c) {
@@ -1501,9 +1950,9 @@ class _ApplicantAnalyticsSectionState extends State<ApplicantAnalyticsSection> {
             ),
           ),
           FadeSlideEntrance(
-            delayMs: 560,
+            delayMs: 540,
             child: _SectionCard(
-              title: 'Recent Registrations & Assessment Records',
+              title: 'Recent Registrations, Resumes & Matching Records',
               icon: Icons.list_alt_outlined,
               trailing: OutlinedButton.icon(
                 onPressed: () => showToast(
@@ -1533,8 +1982,10 @@ class _ApplicantAnalyticsSectionState extends State<ApplicantAnalyticsSection> {
                     DataColumn(label: Text('Barangay')),
                     DataColumn(label: Text('Target Job')),
                     DataColumn(label: Text('Registered')),
-                    DataColumn(label: Text('Score')),
+                    DataColumn(label: Text('Yrs. Exp.')),
+                    DataColumn(label: Text('Matched Jobs')),
                     DataColumn(label: Text('Status')),
+                    DataColumn(label: Text('Resume')),
                   ],
                   rows: recentTop
                       .map((a) => DataRow(cells: [
@@ -1544,9 +1995,21 @@ class _ApplicantAnalyticsSectionState extends State<ApplicantAnalyticsSection> {
                             DataCell(Text(a.targetJob, style: const TextStyle(fontSize: 12))),
                             DataCell(Text(_fmtDate(a.registeredDate),
                                 style: const TextStyle(fontSize: 12, fontFamily: 'monospace'))),
-                            DataCell(Text(a.score != null ? '${a.score}%' : '\u2014',
+                            DataCell(Text('${a.yearsExperience}',
                                 style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700))),
-                            DataCell(_StatusBadge(kAssessmentStyles[a.assessmentStatus]!)),
+                            DataCell(Text(a.matchStatus == 'matched' ? '${a.matchedJobsCount}' : '\u2014',
+                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700))),
+                            DataCell(_StatusBadge(kMatchStyles[a.matchStatus]!)),
+                            DataCell(
+                              a.resumeSubmitted
+                                  ? IconButton(
+                                      tooltip: 'View resume (PDF) & form',
+                                      icon: const Icon(Icons.picture_as_pdf, size: 17, color: _C.rose600),
+                                      onPressed: () => _openResume(a),
+                                    )
+                                  : const Text('Not yet submitted',
+                                      style: TextStyle(fontSize: 11, color: _C.slate400)),
+                            ),
                           ]))
                       .toList(),
                 ),
@@ -1554,41 +2017,6 @@ class _ApplicantAnalyticsSectionState extends State<ApplicantAnalyticsSection> {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _trendCard(String label, int total, Color color, List<double> series, int delayMs) {
-    return FadeSlideEntrance(
-      delayMs: 400 + delayMs,
-      child: _SectionCard(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              children: [
-                Container(
-                    width: 10,
-                    height: 10,
-                    decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
-                const SizedBox(width: 8),
-                Text(label,
-                    style: const TextStyle(
-                        fontSize: 13, fontWeight: FontWeight.w700, color: _C.slate600)),
-              ],
-            ),
-            const SizedBox(height: 8),
-            AnimatedCounterText(
-              value: total,
-              style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: color),
-            ),
-            const SizedBox(height: 8),
-            SizedBox(height: 90, child: MiniAreaChart(values: series, color: color)),
-            const SizedBox(height: 6),
-            const Text('Last 14 days', style: TextStyle(fontSize: 11, color: _C.slate400)),
-          ],
-        ),
       ),
     );
   }
@@ -1985,7 +2413,217 @@ class _DeleteUserDialog extends StatelessWidget {
 }
 
 // =====================================================================
-// SECTION 3: JOB BATCH INGESTION
+// SECTION 3: CONCERNS & FEEDBACK
+// (Inbox for messages from job seekers who did not get matched, or
+// who have any other concern.)
+// =====================================================================
+class ConcernsSection extends StatefulWidget {
+  final List<Concern> initialConcerns;
+  const ConcernsSection({super.key, required this.initialConcerns});
+
+  @override
+  State<ConcernsSection> createState() => _ConcernsSectionState();
+}
+
+class _ConcernsSectionState extends State<ConcernsSection> {
+  late List<Concern> _concerns;
+  String _filter = 'unresolved'; // all | unresolved | resolved
+
+  @override
+  void initState() {
+    super.initState();
+    _concerns = List.of(widget.initialConcerns);
+  }
+
+  List<Concern> get _filtered {
+    switch (_filter) {
+      case 'unresolved':
+        return _concerns.where((c) => !c.resolved).toList();
+      case 'resolved':
+        return _concerns.where((c) => c.resolved).toList();
+      default:
+        return _concerns;
+    }
+  }
+
+  void _toggleResolved(Concern c) {
+    setState(() => c.resolved = !c.resolved);
+    showToast(
+      context,
+      c.resolved
+          ? "Marked ${c.applicantName}'s concern as resolved."
+          : "Reopened ${c.applicantName}'s concern.",
+      icon: c.resolved ? Icons.check_circle : Icons.mark_email_unread_outlined,
+      iconColor: c.resolved ? _C.emerald : _C.amber600,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final total = _concerns.length;
+    final unresolved = _concerns.where((c) => !c.resolved).length;
+    final resolved = total - unresolved;
+    final filtered = _filtered;
+
+    final kpiCards = [
+      _KpiCard(
+          label: 'TOTAL CONCERNS',
+          numericValue: total,
+          icon: Icons.forum_outlined,
+          color: _C.slate900,
+          subtitle: 'From job seekers with no job match yet'),
+      _KpiCard(
+          label: 'NEEDS RESPONSE',
+          numericValue: unresolved,
+          icon: Icons.priority_high,
+          color: _C.rose600,
+          subtitle: 'Waiting for a PESO admin follow-up'),
+      _KpiCard(
+          label: 'RESOLVED',
+          numericValue: resolved,
+          icon: Icons.check_circle_outline,
+          color: _C.emerald600,
+          subtitle: 'Already addressed'),
+    ];
+
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          LayoutBuilder(builder: (context, c) {
+            final cols = c.maxWidth > 700 ? 3 : 1;
+            return GridView.count(
+              crossAxisCount: cols,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              crossAxisSpacing: 16,
+              mainAxisSpacing: 16,
+              childAspectRatio: 2.1,
+              children: List.generate(
+                  kpiCards.length, (i) => FadeSlideEntrance(delayMs: i * 80, child: kpiCards[i])),
+            );
+          }),
+          const SizedBox(height: 20),
+          FadeSlideEntrance(
+            delayMs: 240,
+            child: Row(
+              children: [
+                const Text('Show:',
+                    style: TextStyle(
+                        fontSize: 12, fontWeight: FontWeight.w700, color: _C.slate500)),
+                const SizedBox(width: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  decoration: BoxDecoration(
+                      border: Border.all(color: _C.slate300),
+                      borderRadius: BorderRadius.circular(12)),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: _filter,
+                      style: const TextStyle(
+                          fontSize: 12, fontWeight: FontWeight.w700, color: _C.slate700),
+                      items: const [
+                        DropdownMenuItem(value: 'unresolved', child: Text('Needs response')),
+                        DropdownMenuItem(value: 'resolved', child: Text('Resolved')),
+                        DropdownMenuItem(value: 'all', child: Text('All concerns')),
+                      ],
+                      onChanged: (v) => setState(() => _filter = v ?? 'unresolved'),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+          if (filtered.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 40),
+              child: Center(
+                  child: Text('Wala pang concerns dito.', style: TextStyle(color: _C.slate400))),
+            )
+          else
+            Column(
+              children: List.generate(filtered.length, (i) {
+                final c = filtered[i];
+                return FadeSlideEntrance(delayMs: i * 60, child: _concernCard(c));
+              }),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _concernCard(Concern c) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: Border.all(color: c.resolved ? _C.emerald.withValues(alpha: 0.35) : _C.slate200),
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 10)],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                    radius: 18,
+                    backgroundColor: const Color(0xFFFFF1F2),
+                    child: Icon(Icons.person_outline, color: _C.rose600, size: 18)),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(c.applicantName,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w800, fontSize: 13, color: _C.slate900)),
+                      const SizedBox(height: 2),
+                      Text('Brgy. ${c.barangay} \u00b7 Target: ${c.targetJob} \u00b7 ${_fmtDate(c.submittedDate)}',
+                          style: const TextStyle(fontSize: 11, color: _C.slate500)),
+                    ],
+                  ),
+                ),
+                _StatusBadge(c.resolved
+                    ? const StatusStyle('Resolved', Color(0xFF047857), Color(0xFFECFDF5), Color(0xFF10B981))
+                    : const StatusStyle('Needs Response', Color(0xFFBE123C), Color(0xFFFFF1F2), Color(0xFFF43F5E))),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(color: _C.slate100, borderRadius: BorderRadius.circular(14)),
+              child: Text(c.message, style: const TextStyle(fontSize: 12.5, color: _C.slate700, height: 1.4)),
+            ),
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: () => _toggleResolved(c),
+                icon: Icon(c.resolved ? Icons.replay : Icons.check_circle_outline,
+                    size: 15, color: c.resolved ? _C.slate500 : _C.emerald600),
+                label: Text(c.resolved ? 'Reopen' : 'Mark as Resolved',
+                    style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: c.resolved ? _C.slate500 : _C.emerald600)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// =====================================================================
+// SECTION 4: JOB BATCH INGESTION
+// Uploading an Excel job batch now also auto-matches each job to
+// qualified job seeker accounts (by target job + years of experience).
 // =====================================================================
 class JobBatchIngestionSection extends StatefulWidget {
   const JobBatchIngestionSection({super.key});
@@ -2002,31 +2640,36 @@ class _JobBatchIngestionSectionState extends State<JobBatchIngestionSection> {
         employer: 'Montalban LGU',
         batch: 'BATCH-001',
         uploaded: 'Today, 08:30 AM',
-        status: 'Active'),
+        status: 'Active',
+        matchedAccounts: 6),
     IngestionLog(
         id: 2,
         job: 'Data Encoder',
         employer: 'Prime BPO',
         batch: 'BATCH-001',
         uploaded: 'Today, 08:30 AM',
-        status: 'Active'),
+        status: 'Active',
+        matchedAccounts: 4),
     IngestionLog(
         id: 3,
         job: 'Warehouse Assistant',
         employer: 'Manggahan Logistics Co.',
         batch: 'BATCH-002',
         uploaded: 'Yesterday, 04:12 PM',
-        status: 'Active'),
+        status: 'Active',
+        matchedAccounts: 9),
     IngestionLog(
         id: 4,
         job: 'Bookkeeper',
         employer: 'Rosario Trading',
         batch: 'BATCH-002',
         uploaded: 'Yesterday, 04:12 PM',
-        status: 'Active'),
+        status: 'Active',
+        matchedAccounts: 2),
   ];
   int _nextId = 5;
   bool _hover = false;
+  final _rand = _SeededRandom(101);
 
   Future<void> _simulateUpload() async {
     final controller = TextEditingController(text: 'New_Job_Batch.xlsx');
@@ -2057,6 +2700,7 @@ class _JobBatchIngestionSectionState extends State<JobBatchIngestionSection> {
       );
       return;
     }
+    final matchedAccounts = 2 + (_rand.next() * 12).floor();
     setState(() {
       _logs.insert(
         0,
@@ -2067,10 +2711,14 @@ class _JobBatchIngestionSectionState extends State<JobBatchIngestionSection> {
           batch: 'BATCH-${(_logs.length + 1).toString().padLeft(3, '0')}',
           uploaded: 'Just now',
           status: 'Active',
+          matchedAccounts: matchedAccounts,
         ),
       );
     });
-    showToast(context, 'Ingested "$fileName" \u2014 added to the job listings.');
+    showToast(
+      context,
+      'Ingested "$fileName" \u2014 auto-matched to $matchedAccounts job seeker account(s) based on their submitted qualifications.',
+    );
   }
 
   @override
@@ -2119,7 +2767,7 @@ class _JobBatchIngestionSectionState extends State<JobBatchIngestionSection> {
                           style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: _C.slate900)),
                       const SizedBox(height: 8),
                       Text(
-                        'Only .xlsx files following the Montalban offline job template are supported.',
+                        'Only .xlsx files following the Montalban offline job template are supported. New listings are auto-matched to job seeker accounts by qualification.',
                         textAlign: TextAlign.center,
                         style: TextStyle(fontSize: 12, color: _C.primaryDark),
                       ),
@@ -2182,6 +2830,17 @@ class _JobBatchIngestionSectionState extends State<JobBatchIngestionSection> {
                                       style: const TextStyle(fontSize: 11, color: _C.slate500),
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis),
+                                  const SizedBox(height: 3),
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.person_search, size: 12, color: _C.emerald600),
+                                      const SizedBox(width: 4),
+                                      Text('Matched ${log.matchedAccounts} job seeker account(s)',
+                                          style: TextStyle(
+                                              fontSize: 11, fontWeight: FontWeight.w700, color: _C.emerald600)),
+                                    ],
+                                  ),
                                 ],
                               ),
                             ),
@@ -2204,7 +2863,7 @@ class _JobBatchIngestionSectionState extends State<JobBatchIngestionSection> {
 }
 
 // =====================================================================
-// SECTION 4: DOLE SPRS EXPORT
+// SECTION 5: DOLE SPRS EXPORT
 // =====================================================================
 class DoleSprsExportSection extends StatefulWidget {
   final List<Applicant> applicants;
@@ -2215,26 +2874,26 @@ class DoleSprsExportSection extends StatefulWidget {
 }
 
 class _DoleSprsExportSectionState extends State<DoleSprsExportSection> {
-  late List<Applicant> _passers;
+  late List<Applicant> _matched;
   final Set<int> _handedOff = {};
 
   @override
   void initState() {
     super.initState();
-    _passers = widget.applicants.where((a) => a.assessmentStatus == 'passed').take(15).toList();
+    _matched = widget.applicants.where((a) => a.matchStatus == 'matched').take(15).toList();
   }
 
   void _generateExcel() {
-    if (_passers.isEmpty) {
-      showToast(context, 'No pre-vetted candidates to export yet.',
+    if (_matched.isEmpty) {
+      showToast(context, 'No matched candidates to export yet.',
           icon: Icons.error_outline, iconColor: _C.rose);
       return;
     }
-    showToast(context, 'Generated DOLE SPRS export for ${_passers.length} candidate(s).');
+    showToast(context, 'Generated DOLE SPRS export for ${_matched.length} candidate(s).');
   }
 
   void _handoff() {
-    final pending = _passers.where((a) => !_handedOff.contains(a.id)).toList();
+    final pending = _matched.where((a) => !_handedOff.contains(a.id)).toList();
     if (pending.isEmpty) {
       showToast(context, 'Everyone here has already been handed off to PESO Admin.');
       return;
@@ -2261,7 +2920,7 @@ class _DoleSprsExportSectionState extends State<DoleSprsExportSection> {
                   children: [
                     Icon(Icons.filter_list, size: 15, color: _C.slate500),
                     const SizedBox(width: 8),
-                    Text('Showing ${_passers.length} Pre-Vetted Candidates',
+                    Text('Showing ${_matched.length} Matched Candidates',
                         style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: _C.slate600)),
                   ],
                 ),
@@ -2295,8 +2954,8 @@ class _DoleSprsExportSectionState extends State<DoleSprsExportSection> {
           ),
           const SizedBox(height: 20),
           Column(
-            children: List.generate(_passers.length, (i) {
-              final a = _passers[i];
+            children: List.generate(_matched.length, (i) {
+              final a = _matched[i];
               final isHandedOff = _handedOff.contains(a.id);
               return FadeSlideEntrance(
                 delayMs: 100 + i * 60,
@@ -2334,6 +2993,10 @@ class _DoleSprsExportSectionState extends State<DoleSprsExportSection> {
                                     TextSpan(
                                         text: a.targetJob,
                                         style: const TextStyle(fontWeight: FontWeight.w700, color: _C.slate700)),
+                                    const TextSpan(text: '  \u00b7  '),
+                                    TextSpan(
+                                        text: '${a.yearsExperience} yrs experience',
+                                        style: const TextStyle(fontWeight: FontWeight.w700, color: _C.slate700)),
                                   ],
                                 ),
                               ),
@@ -2360,8 +3023,8 @@ class _DoleSprsExportSectionState extends State<DoleSprsExportSection> {
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
-                            const Text('AI Assessment Score', style: TextStyle(fontSize: 10, color: _C.slate400)),
-                            Text('${a.score}%',
+                            const Text('Matched Jobs', style: TextStyle(fontSize: 10, color: _C.slate400)),
+                            Text('${a.matchedJobsCount}',
                                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: _C.emerald600)),
                           ],
                         ),
@@ -2391,10 +3054,12 @@ class _DoleSprsExportSectionState extends State<DoleSprsExportSection> {
 }
 
 // =====================================================================
-// SECTION 5: PLATFORM ANALYTICS
+// SECTION 6: PLATFORM ANALYTICS
+// (AI exam settings are gone \u2014 replaced by the resume-matching engine.)
 // =====================================================================
 class PlatformAnalyticsSection extends StatefulWidget {
-  const PlatformAnalyticsSection({super.key});
+  final List<Applicant> applicants;
+  const PlatformAnalyticsSection({super.key, required this.applicants});
 
   @override
   State<PlatformAnalyticsSection> createState() => _PlatformAnalyticsSectionState();
@@ -2402,16 +3067,16 @@ class PlatformAnalyticsSection extends StatefulWidget {
 
 class _PlatformAnalyticsSectionState extends State<PlatformAnalyticsSection>
     with SingleTickerProviderStateMixin {
-  static const _defaultDuration = 45.0;
-  static const _defaultQuestions = 20.0;
-  static const _defaultPassing = 50.0;
+  static const _defaultMinYears = 1.0;
+  static const _defaultConfidence = 70.0;
+  static const _defaultMaxMatches = 5.0;
 
-  double _duration = _defaultDuration;
-  double _questions = _defaultQuestions;
-  double _passing = _defaultPassing;
-  double _savedDuration = _defaultDuration;
-  double _savedQuestions = _defaultQuestions;
-  double _savedPassing = _defaultPassing;
+  double _minYears = _defaultMinYears;
+  double _confidence = _defaultConfidence;
+  double _maxMatches = _defaultMaxMatches;
+  double _savedMinYears = _defaultMinYears;
+  double _savedConfidence = _defaultConfidence;
+  double _savedMaxMatches = _defaultMaxMatches;
 
   late final AnimationController _pulseController =
       AnimationController(vsync: this, duration: const Duration(milliseconds: 2500))..repeat();
@@ -2423,47 +3088,52 @@ class _PlatformAnalyticsSectionState extends State<PlatformAnalyticsSection>
   }
 
   bool get _hasUnsaved =>
-      _duration != _savedDuration || _questions != _savedQuestions || _passing != _savedPassing;
+      _minYears != _savedMinYears || _confidence != _savedConfidence || _maxMatches != _savedMaxMatches;
 
   void _save() {
     setState(() {
-      _savedDuration = _duration;
-      _savedQuestions = _questions;
-      _savedPassing = _passing;
+      _savedMinYears = _minYears;
+      _savedConfidence = _confidence;
+      _savedMaxMatches = _maxMatches;
     });
     showToast(context,
-        'Exam settings saved: ${_duration.round()} min \u00b7 ${_questions.round()} items \u00b7 ${_passing.round()}% passing.');
+        'Matching settings saved: ${_minYears.round()} yr min \u00b7 ${_confidence.round()}% confidence \u00b7 up to ${_maxMatches.round()} matches.');
   }
 
   void _reset() {
     setState(() {
-      _duration = _defaultDuration;
-      _questions = _defaultQuestions;
-      _passing = _defaultPassing;
-      _savedDuration = _defaultDuration;
-      _savedQuestions = _defaultQuestions;
-      _savedPassing = _defaultPassing;
+      _minYears = _defaultMinYears;
+      _confidence = _defaultConfidence;
+      _maxMatches = _defaultMaxMatches;
+      _savedMinYears = _defaultMinYears;
+      _savedConfidence = _defaultConfidence;
+      _savedMaxMatches = _defaultMaxMatches;
     });
-    showToast(context, 'Exam settings reset to default.');
+    showToast(context, 'Matching settings reset to default.');
   }
 
   @override
   Widget build(BuildContext context) {
+    final resumesProcessed =
+        widget.applicants.where((a) => a.resumeSubmitted && a.formSubmitted).length;
+    final autoMatched = widget.applicants.where((a) => a.matchStatus == 'matched').length;
+    final pendingReview = widget.applicants.where((a) => a.matchStatus == 'pending').length;
+
     final kpiCards = [
       _KpiCard(
-          label: 'AI EXAMS GENERATED',
-          numericValue: 1420,
-          icon: Icons.lightbulb_outline,
+          label: 'RESUMES PROCESSED',
+          numericValue: resumesProcessed,
+          icon: Icons.description_outlined,
           color: _C.primary),
       _KpiCard(
-          label: 'PRE-VETTED PASSERS',
-          numericValue: 842,
+          label: 'AUTO-MATCHED CANDIDATES',
+          numericValue: autoMatched,
           icon: Icons.verified_outlined,
           color: _C.emerald600),
       _KpiCard(
-          label: 'ACTION PLANS CREATED',
-          numericValue: 578,
-          icon: Icons.alt_route_outlined,
+          label: 'PENDING MANUAL REVIEW',
+          numericValue: pendingReview,
+          icon: Icons.pending_actions_outlined,
           color: _C.amber600),
     ];
 
@@ -2488,8 +3158,8 @@ class _PlatformAnalyticsSectionState extends State<PlatformAnalyticsSection>
           FadeSlideEntrance(
             delayMs: 260,
             child: _SectionCard(
-              title: 'AI Exam Settings',
-              icon: Icons.timer_outlined,
+              title: 'Job Matching Engine Settings',
+              icon: Icons.tune,
               iconColor: _C.indigo,
               trailing: _hasUnsaved
                   ? TweenAnimationBuilder<double>(
@@ -2511,12 +3181,15 @@ class _PlatformAnalyticsSectionState extends State<PlatformAnalyticsSection>
                   LayoutBuilder(builder: (context, c) {
                     final wide = c.maxWidth > 760;
                     final sliders = [
-                      _settingSlider('Exam duration (minutes)', Icons.timer_outlined, _duration, 10, 120,
-                          (v) => setState(() => _duration = v), 'Applicants must submit before the timer runs out.'),
-                      _settingSlider('Questions per exam', Icons.checklist_outlined, _questions, 5, 50,
-                          (v) => setState(() => _questions = v), 'Items the AI generates per applicant per exam.'),
-                      _settingSlider('Passing score (%)', Icons.check_circle_outline, _passing, 30, 90,
-                          (v) => setState(() => _passing = v), 'Minimum score to be marked pre-vetted.'),
+                      _settingSlider('Minimum years of experience', Icons.timeline_outlined, _minYears, 0, 10,
+                          (v) => setState(() => _minYears = v),
+                          'Applicants below this are routed to manual review instead of auto-match.'),
+                      _settingSlider('Auto-match confidence threshold (%)', Icons.psychology_outlined, _confidence,
+                          40, 95, (v) => setState(() => _confidence = v),
+                          'How closely the resume + form must fit a job posting to auto-match.'),
+                      _settingSlider('Max matches shown per job seeker', Icons.list_alt_outlined, _maxMatches, 1,
+                          10, (v) => setState(() => _maxMatches = v),
+                          'Caps how many matched job postings a job seeker sees at once.'),
                     ];
                     return wide
                         ? Row(
@@ -2539,7 +3212,7 @@ class _PlatformAnalyticsSectionState extends State<PlatformAnalyticsSection>
                       ElevatedButton.icon(
                         onPressed: _save,
                         icon: const Icon(Icons.save_outlined, size: 15),
-                        label: const Text('Save Exam Settings', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                        label: const Text('Save Matching Settings', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
                         style: ElevatedButton.styleFrom(
                             backgroundColor: _C.indigo,
                             foregroundColor: Colors.white,
@@ -2594,7 +3267,7 @@ class _PlatformAnalyticsSectionState extends State<PlatformAnalyticsSection>
                               width: 64,
                               height: 64,
                               decoration: BoxDecoration(color: _C.primary.withValues(alpha: 0.12), shape: BoxShape.circle),
-                              child: Icon(Icons.podcasts, color: _C.primary, size: 26),
+                              child: Icon(Icons.hub_outlined, color: _C.primary, size: 26),
                             ),
                           ],
                         ),
@@ -2602,7 +3275,7 @@ class _PlatformAnalyticsSectionState extends State<PlatformAnalyticsSection>
                     },
                   ),
                   const SizedBox(height: 16),
-                  const Text('LLM API Connection Status',
+                  const Text('AI Matching Engine Status',
                       style: TextStyle(fontWeight: FontWeight.w800, color: _C.slate900)),
                   const SizedBox(height: 10),
                   Container(
@@ -2654,7 +3327,7 @@ class _PlatformAnalyticsSectionState extends State<PlatformAnalyticsSection>
                     value: value,
                     min: min,
                     max: max,
-                    divisions: ((max - min) / 5).round(),
+                    divisions: math.max(1, ((max - min) / 1).round()),
                     onChanged: onChanged),
               ),
             ),
