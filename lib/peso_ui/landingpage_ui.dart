@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
 import 'auth_ui.dart';
-import 'common_widgets_ui.dart';
+import 'reusable_ui.dart';
 
 class LandingPage extends StatefulWidget {
   const LandingPage({super.key});

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import 'peso_ui/admin_ui.dart';
+import 'peso_ui/landingpage_ui.dart';
 
 void main() async {
   // Ensure Flutter bindings are initialized before calling native code
@@ -35,7 +35,7 @@ class PesoApp extends StatelessWidget {
           tertiary: const Color(0xFF1565C0),
         ),
       ),
-      home: const AdminDashboard(),
+      home: const LandingPage(),
       debugShowCheckedModeBanner: false,
     );
   }

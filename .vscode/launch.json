@@ -1,0 +1,12 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    
+    {
+      "name": "PESO 1-Click (Dev.bat + Flutter)",
+      "request": "launch",
+      "type": "dart",
+      "preLaunchTask": "Run Dev Script"
+    }
+  ]
+}

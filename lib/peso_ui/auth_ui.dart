@@ -6,7 +6,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'admin_ui.dart';
 import 'user_ui.dart';
 import 'landingpage_ui.dart';
-import 'common_widgets_ui.dart';
+import 'reusable_ui.dart';
 import 'resumebuilder_ui.dart'; // Make sure to create this file next!
 
 enum AuthView { login, register, onboarding }
