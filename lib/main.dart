@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import 'peso_ui/landingpage_ui.dart';
 
 void main() async {
   // Ensure Flutter bindings are initialized before calling native code
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Load the environment variables from .env
+  await dotenv.load(fileName: ".env");
 
   // Initialize Supabase with YOUR actual project credentials
   await Supabase.initialize(

@@ -2,12 +2,14 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:file_picker/file_picker.dart'; // NEW IMPORT
 
+import '../peso_logic/peso_ai_engine.dart'; // NEW IMPORT
 import 'admin_ui.dart';
 import 'user_ui.dart';
 import 'landingpage_ui.dart';
 import 'reusable_ui.dart';
-import 'resumebuilder_ui.dart'; // Make sure to create this file next!
+import 'resumebuilder_ui.dart';
 
 enum AuthView { login, register, onboarding }
 
@@ -101,21 +103,17 @@ class _AuthPageState extends State<AuthPage> {
   // LOGIC: COMPLETE ONBOARDING (Resume Flow)
   // ==========================================
   Future<void> _completeOnboarding() async {
-    setState(() => _isLoading = true);
-    await Future.delayed(const Duration(seconds: 1)); // Simulate processing
+    if (_selectedResumeType == 'build') {
+      setState(() => _isLoading = true);
+      await Future.delayed(const Duration(seconds: 1)); // Simulate processing
 
-    if (mounted) {
-      setState(() => _isLoading = false);
-
-      if (_selectedResumeType == 'build') {
-        // If they want to build a resume, push the new ResumeBuilderWizard
+      if (mounted) {
+        setState(() => _isLoading = false);
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
             builder: (context) => ResumeBuilderWizard(
               onComplete: () {
-                // After finishing the resume, go to UserProfile
-                // (which automatically pops up the PESO Form since it's incomplete)
                 Navigator.pushReplacement(
                   context,
                   MaterialPageRoute(builder: (context) => const UserProfile()),
@@ -124,13 +122,51 @@ class _AuthPageState extends State<AuthPage> {
             ),
           ),
         );
-      } else {
-        // If upload, you'd handle file picking here.
-        // For now, we simulate success and go straight to UserProfile (PESO Form)
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const UserProfile()),
-        );
+      }
+    } else if (_selectedResumeType == 'upload') {
+      // 1. Trigger the native file picker
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png'],
+        withData: true, // Ensures file bytes are loaded into memory for parsing
+      );
+
+      if (result != null && result.files.single.bytes != null) {
+        setState(() => _isLoading = true);
+
+        try {
+          final platformFile = result.files.single;
+
+          // 2. Pass the bytes directly to Gemini
+          final extractedData = await PesoAIEngine.parseResume(
+            platformFile.bytes!,
+            platformFile.extension ?? 'pdf',
+          );
+
+          // Print it to the debug console so you can verify it worked
+          print('Extracted by Gemini: $extractedData');
+
+          if (mounted) {
+            setState(() => _isLoading = false);
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('AI Extraction Complete! Profile populated.'),
+                backgroundColor: Color(0xFF2E7D32),
+              ),
+            );
+
+            // 3. Route to Profile
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => const UserProfile()),
+            );
+          }
+        } catch (e) {
+          if (mounted) {
+            setState(() => _isLoading = false);
+            _showError('AI Parsing Failed: $e');
+          }
+        }
       }
     }
   }
@@ -139,8 +175,9 @@ class _AuthPageState extends State<AuthPage> {
   // LOGIC: LOGIN
   // ==========================================
   Future<void> _loginUser() async {
-    if (_emailController.text.isEmpty || _passwordController.text.isEmpty)
+    if (_emailController.text.isEmpty || _passwordController.text.isEmpty) {
       return;
+    }
 
     setState(() => _isLoading = true);
     await Future.delayed(const Duration(seconds: 2));
@@ -493,7 +530,7 @@ class _AuthPageState extends State<AuthPage> {
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(
+            const Text(
               "Don't have an account? ",
               style: TextStyle(color: Colors.white70, fontSize: 15),
             ),
