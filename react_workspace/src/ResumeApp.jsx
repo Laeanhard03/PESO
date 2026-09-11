@@ -1,4 +1,6 @@
 import React, { useState, useRef } from "react";
+import * as htmlToImage from "html-to-image";
+import { jsPDF } from "jspdf";
 
 // --- SVG Icons ---
 const PhoneIcon = () => (
@@ -42,6 +44,7 @@ export default function ResumeApp() {
   const [activeTemplate, setActiveTemplate] = useState("sally");
   const [zoom, setZoom] = useState(1);
   const [photo, setPhoto] = useState(null);
+  const [isProcessing, setIsProcessing] = useState(false);
   const fileInputRef = useRef(null);
 
   const handlePhotoUpload = (e) => {
@@ -52,14 +55,54 @@ export default function ResumeApp() {
     }
   };
 
-  // --- THE FLUTTER BRIDGE ---
-  const handleCompleteResume = () => {
-    if (window.FlutterBridge) {
-      // This tells your Flutter app to close the WebView and move to the PESO form
-      window.FlutterBridge.postMessage('completed');
-    } else {
-      // Fallback for Chrome browser testing
-      alert("Resume Saved!\n\nIf you are testing Flutter on Chrome Web, click the 'Skip (Web Test)' button in the Flutter AppBar to continue.");
+  // --- THE FLUTTER BRIDGE WITH SILENT PDF GENERATION ---
+  const handleCompleteResume = async () => {
+    setIsProcessing(true);
+
+    // FIX: Temporarily remove the scale to prevent clipping/crashing, 
+    // take the snapshot, then restore the scale.
+    const zoomWrapper = document.getElementById('zoom-wrapper');
+    const originalTransform = zoomWrapper.style.transform;
+    zoomWrapper.style.transform = 'scale(1)';
+
+    try {
+      const element = document.getElementById('resume-node');
+      
+      // Using html-to-image to silently capture the design
+      const imgData = await htmlToImage.toJpeg(element, { 
+        quality: 0.98,
+        backgroundColor: '#ffffff',
+        pixelRatio: 2 // Ensures text is crisp
+      });
+      
+      // Calculate A4 proportions based on the captured canvas
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (element.offsetHeight * pdfWidth) / element.offsetWidth;
+      
+      pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
+      
+      // Download directly to the user's computer
+      pdf.save('JobKonek_Resume.pdf');
+
+      // Extract raw text from all editable fields for the Gemini AI Engine
+      const editables = document.querySelectorAll('span[contenteditable]');
+      const resumeText = Array.from(editables).map(e => e.innerText).join('\n');
+      const payload = JSON.stringify({ status: 'completed', data: resumeText });
+
+      // Send the text payload back to Flutter
+      if (window.FlutterBridge) {
+        window.FlutterBridge.postMessage(payload);
+      } else {
+        alert("Resume Downloaded!\n\nIf you are testing Flutter on Chrome Web, click the 'Skip (Web Test)' button in the Flutter AppBar to continue.");
+      }
+    } catch (error) {
+      console.error("PDF Generation failed:", error);
+      alert("Failed to generate PDF. Check console for details.");
+    } finally {
+      // Put the zoom back to normal
+      zoomWrapper.style.transform = originalTransform;
+      setIsProcessing(false);
     }
   };
 
@@ -74,7 +117,7 @@ export default function ResumeApp() {
 
   return (
     <div className="min-h-screen bg-neutral-100 text-neutral-800 flex flex-col font-sans">
-      {/* Top Toolbar (Hidden during Print) */}
+      {/* Top Toolbar */}
       <header className="print:hidden sticky top-0 z-50 bg-white border-b border-neutral-200 px-6 py-3 flex flex-wrap items-center justify-between shadow-sm gap-4">
         {/* Template Selectors */}
         <div className="flex items-center gap-2">
@@ -141,9 +184,17 @@ export default function ResumeApp() {
 
           <button
             onClick={handleCompleteResume}
-            className="px-4 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-md shadow transition-colors"
+            disabled={isProcessing}
+            className="px-4 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-md shadow transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Save changes and upload
+            {isProcessing ? (
+              <span>Processing PDF...</span>
+            ) : (
+              <>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                Download PDF & Upload
+              </>
+            )}
           </button>
         </div>
       </header>
@@ -151,15 +202,15 @@ export default function ResumeApp() {
       {/* Canvas Workspace */}
       <main className="flex-1 overflow-auto p-6 flex justify-center items-start bg-neutral-200/70">
         <div
+          id="zoom-wrapper"
           style={{
             transform: `scale(${zoom})`,
             transformOrigin: "top center",
             transition: "transform 0.15s ease-out",
           }}
-          className="print:transform-none"
         >
-          {/* 210mm x 297mm standard sheet container (794px x 1123px at 96dpi) */}
-          <div className="w-[794px] min-h-[1123px] bg-white shadow-2xl relative print:shadow-none print:w-full overflow-hidden">
+          {/* 210mm x 297mm standard sheet container */}
+          <div id="resume-node" className="w-[794px] min-h-[1123px] bg-white shadow-2xl relative overflow-hidden">
             {activeTemplate === "sally" && <TemplateSally photo={currentPhoto} />}
             {activeTemplate === "emily" && <TemplateEmily photo={currentPhoto} />}
             {activeTemplate === "richard" && <TemplateRichard photo={currentPhoto} />}
@@ -189,7 +240,7 @@ function TemplateSally({ photo }) {
 
         {/* Photo Container */}
         <div className="absolute top-5 left-10 w-36 h-36 rounded-full border-4 border-white overflow-hidden shadow-md z-10">
-          <img src={photo} alt="Avatar" className="w-full h-full object-cover" />
+          <img src={photo} alt="Avatar" className="w-full h-full object-cover" crossOrigin="anonymous" />
         </div>
 
         {/* Name and Title */}
@@ -334,7 +385,7 @@ function TemplateEmily({ photo }) {
       {/* Left Column (Warm Sand/Blush) */}
       <div className="w-[36%] bg-[#ddc8bc] p-8 flex flex-col items-center text-left">
         <div className="w-36 h-36 rounded-full overflow-hidden mb-8 border-2 border-white shadow-sm">
-          <img src={photo} alt="Avatar" className="w-full h-full object-cover" />
+          <img src={photo} alt="Avatar" className="w-full h-full object-cover" crossOrigin="anonymous" />
         </div>
 
         <div className="w-full space-y-6">
@@ -519,7 +570,7 @@ function TemplateRichard({ photo }) {
       {/* Dark Slate Top Bar */}
       <div className="h-44 bg-[#323b49] text-white flex items-center justify-end px-12 relative">
         <div className="absolute -bottom-12 left-10 w-36 h-36 rounded-full border-4 border-white overflow-hidden shadow-lg z-10 bg-white">
-          <img src={photo} alt="Avatar" className="w-full h-full object-cover" />
+          <img src={photo} alt="Avatar" className="w-full h-full object-cover" crossOrigin="anonymous" />
         </div>
         <div className="text-left w-3/5">
           <h1 className="text-3xl font-extrabold tracking-wider uppercase mb-1">
@@ -689,7 +740,7 @@ function TemplateDian({ photo }) {
         {/* Soft Lavender Top block holding the photo */}
         <div className="bg-[#ddd5e8] p-8 flex justify-center items-center">
           <div className="w-36 h-36 rounded-full overflow-hidden border-4 border-white shadow">
-            <img src={photo} alt="Avatar" className="w-full h-full object-cover" />
+            <img src={photo} alt="Avatar" className="w-full h-full object-cover" crossOrigin="anonymous" />
           </div>
         </div>
 

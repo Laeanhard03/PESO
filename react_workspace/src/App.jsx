@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import * as htmlToImage from "html-to-image";
+import { jsPDF } from "jspdf";
 
 const GreenLabel = ({ children, className = '' }) => (
   <span className={`bg-green-200/60 px-1 font-bold ${className}`}>{children}</span>
@@ -6,26 +8,91 @@ const GreenLabel = ({ children, className = '' }) => (
 
 export default function App() {
   const [zoomLevel, setZoomLevel] = useState(1);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   const handleZoomIn = () => setZoomLevel(prev => Math.min(prev + 0.1, 2));
   const handleZoomOut = () => setZoomLevel(prev => Math.max(prev - 0.1, 0.5));
   const handleResetZoom = () => setZoomLevel(1);
 
-  // --- THE FLUTTER BRIDGE ---
-  const handleCompleteRegistration = () => {
-    if (window.FlutterBridge) {
-      // This tells your Flutter app to close the WebView and open the dashboard
-      window.FlutterBridge.postMessage('completed');
-    } else {
-      // Fallback for Chrome browser testing
-      alert("Form Submitted!\n\nIf you are testing Flutter on Chrome Web, click the 'Skip (Web Test)' button in the Flutter AppBar to continue.");
+  const handleCompleteRegistration = async () => {
+    setIsProcessing(true);
+
+    const zoomWrapper = document.getElementById('zoom-wrapper');
+    const originalTransform = zoomWrapper.style.transform;
+    zoomWrapper.style.transform = 'scale(1)';
+
+    try {
+      // 1. Sync values so they show up in PDF
+      const inputs = document.querySelectorAll('input');
+      inputs.forEach(input => {
+        if (input.type === 'checkbox' || input.type === 'radio') {
+          if (input.checked) input.setAttribute('checked', 'checked');
+        } else {
+          input.setAttribute('value', input.value);
+        }
+      });
+
+      // 2. Render Page 1
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+
+      const page1 = document.getElementById('peso-page-1');
+      const imgData1 = await htmlToImage.toJpeg(page1, { 
+        quality: 0.98, 
+        backgroundColor: '#ffffff',
+        pixelRatio: 2 
+      });
+      const pdfHeight1 = (page1.offsetHeight * pdfWidth) / page1.offsetWidth;
+      pdf.addImage(imgData1, 'JPEG', 0, 0, pdfWidth, pdfHeight1);
+
+      // 3. Render Page 2
+      pdf.addPage();
+      const page2 = document.getElementById('peso-page-2');
+      const imgData2 = await htmlToImage.toJpeg(page2, { 
+        quality: 0.98, 
+        backgroundColor: '#ffffff',
+        pixelRatio: 2 
+      });
+      const pdfHeight2 = (page2.offsetHeight * pdfWidth) / page2.offsetWidth;
+      pdf.addImage(imgData2, 'JPEG', 0, 0, pdfWidth, pdfHeight2);
+
+      // Save directly to the machine
+      pdf.save('NSRP_Form1.pdf');
+
+      // 4. Extract data for AI
+      const textInputs = Array.from(document.querySelectorAll('input[type="text"], input[type="date"]'))
+        .map(i => i.value.trim())
+        .filter(val => val !== '');
+
+      const checkedBoxes = Array.from(document.querySelectorAll('input[type="checkbox"]:checked'))
+        .map(i => i.parentElement.innerText.trim());
+
+      const cleanTextData = `
+      --- PESO FORM EXTRACTED VALUES ---
+      Entered Text/Dates: ${textInputs.join(', ')}
+      Checked Options/Skills: ${checkedBoxes.join(', ')}
+      `;
+
+      const payload = JSON.stringify({ status: 'completed', data: cleanTextData });
+
+      if (window.FlutterBridge) {
+        window.FlutterBridge.postMessage(payload);
+      } else {
+        alert("Form Downloaded!\n\nIf you are testing Flutter on Chrome Web, click the 'Skip (Web Test)' button in the Flutter AppBar to continue.");
+      }
+    } catch (error) {
+      console.error("PDF Generation failed:", error);
+      alert("Failed to generate PDF. Check console for details.");
+    } finally {
+      zoomWrapper.style.transform = originalTransform;
+      setIsProcessing(false);
     }
   };
 
   return (
     <div className="min-h-screen bg-gray-200 py-8 flex flex-col items-center font-sans overflow-x-hidden">
       
-      {/* Zoom Controls (Fixed at top) */}
+      {/* Zoom Controls */}
       <div className="fixed top-0 left-0 w-full bg-slate-800 p-3 flex justify-center gap-4 z-50 shadow-lg">
         <span className="text-white font-semibold my-auto">Form Viewer Controls:</span>
         <button onClick={handleZoomOut} className="bg-white px-4 py-1 rounded hover:bg-gray-100 font-bold">- Zoom Out</button>
@@ -33,16 +100,15 @@ export default function App() {
         <button onClick={handleZoomIn} className="bg-white px-4 py-1 rounded hover:bg-gray-100 font-bold">+ Zoom In</button>
       </div>
 
-      {/* Zoomable Container */}
       <div 
+        id="zoom-wrapper"
         className="transition-transform duration-200 origin-top mt-12 pb-24"
         style={{ transform: `scale(${zoomLevel})` }}
       >
         
         {/* ======================= PAGE 1 ======================= */}
-        <div className="w-[850px] bg-white shadow-2xl mb-8 border border-gray-400 p-8 text-xs text-black">
+        <div id="peso-page-1" className="w-[850px] bg-white shadow-sm mb-8 border border-gray-400 p-8 text-xs text-black">
           
-          {/* Header */}
           <div className="flex border border-black mb-2">
             <div className="w-1/4 border-r border-black p-2 flex flex-col justify-center">
               <span className="font-bold">NSRP Form 1</span>
@@ -59,18 +125,15 @@ export default function App() {
             </div>
           </div>
 
-          {/* Instructions */}
           <div className="border border-black p-2 mb-2 bg-gray-50">
             <span className="font-bold">INSTRUCTIONS:</span> Please fill out the form legibly with ball pen. Print in block letters. Check appropriate boxes. Please do not leave any items unanswered. Indicate "NA" if not applicable. You may use extra sheet if needed. Submit accomplished form to the Public Employment Service Office Manager or Officer in your city/municipality.
           </div>
 
-          {/* I. PERSONAL INFORMATION */}
           <div className="bg-gray-300 font-bold p-1 border border-black border-b-0">
             I. PERSONAL INFORMATION
           </div>
 
           <div className="border border-black flex flex-col">
-            {/* Name Row */}
             <div className="flex border-b border-black divide-x divide-black">
               <div className="w-1/4 p-1"><GreenLabel>SURNAME</GreenLabel><input type="text" className="w-full outline-none uppercase mt-1" /></div>
               <div className="w-1/4 p-1"><GreenLabel>FIRST NAME</GreenLabel><input type="text" className="w-full outline-none uppercase mt-1" /></div>
@@ -78,7 +141,6 @@ export default function App() {
               <div className="w-1/4 p-1"><GreenLabel>SUFFIX</GreenLabel> (Ex: Sr., Jr., III, etc.)<input type="text" className="w-full outline-none uppercase mt-1" /></div>
             </div>
 
-            {/* DOB / Age / Birthplace */}
             <div className="flex border-b border-black divide-x divide-black">
               <div className="w-1/4 p-1 flex flex-col justify-between"><GreenLabel>DATE OF BIRTH</GreenLabel> (mm/dd/yyyy)<input type="date" className="w-full outline-none mt-1" /></div>
               <div className="w-1/4 flex divide-x divide-black">
@@ -89,7 +151,6 @@ export default function App() {
               <div className="w-[37.5%] p-1"><GreenLabel>PLACE OF BIRTH</GreenLabel><input type="text" className="w-full outline-none mt-1" /></div>
             </div>
 
-            {/* Sex/Religion & Address Block */}
             <div className="flex border-b border-black divide-x divide-black">
               <div className="w-1/2 flex flex-col divide-y divide-black">
                 <div className="flex divide-x divide-black h-1/2">
@@ -119,7 +180,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* IDs and Contact Block */}
             <div className="flex border-b border-black divide-x divide-black">
               <div className="w-1/2 flex flex-col divide-y divide-black">
                   <div className="flex"><div className="w-1/3 p-1 bg-gray-200">TIN</div><div className="w-2/3 p-1"><input type="text" className="w-full outline-none" /></div></div>
@@ -135,7 +195,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Disability */}
              <div className="flex border-b border-black divide-x divide-black p-1">
                 <div className="w-[16.5%] font-bold">DISABILITY</div>
                 <div className="w-[83.5%] grid grid-cols-4 px-2">
@@ -149,7 +208,6 @@ export default function App() {
                 </div>
             </div>
 
-            {/* Employment Status */}
             <div className="flex border-b border-black divide-x divide-black">
                 <div className="w-[16.5%] p-1"><GreenLabel>EMPLOYMENT</GreenLabel><br/><GreenLabel>STATUS/TYPE</GreenLabel></div>
                 <div className="w-[83.5%] flex divide-x divide-black">
@@ -184,7 +242,6 @@ export default function App() {
                 </div>
             </div>
             
-            {/* Job Search questions */}
             <div className="p-1 flex items-center gap-4 border-b border-black">
                 <span>Are you actively looking for work?</span>
                 <label className="flex items-center gap-1"><input type="checkbox"/> Yes</label>
@@ -208,7 +265,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* II. JOB PREFERENCE */}
           <div className="bg-gray-300 font-bold p-1 border border-black border-t-0 border-b-0 mt-2">
             II. JOB PREFERENCE
           </div>
@@ -245,7 +301,6 @@ export default function App() {
              </div>
           </div>
 
-          {/* III. LANGUAGE / DIALECT PROFICIENCY (Page 1 part) */}
            <div className="font-bold p-1 border-l border-r border-black mt-2 bg-gray-100 flex items-center">
              III. <GreenLabel className="ml-1">LANGUAGE / DIALECT PROFICIENCY</GreenLabel>
           </div>
@@ -270,7 +325,6 @@ export default function App() {
             </tbody>
           </table>
 
-          {/* Page 1 Footer */}
           <div className="flex justify-between items-end mt-4">
               <div className="border border-black p-1 text-[10px] text-center w-32">
                   OM-25-001<br/>Revision No: 00<br/>Date Issued: 25/201
@@ -281,9 +335,8 @@ export default function App() {
         </div>
 
         {/* ======================= PAGE 2 ======================= */}
-        <div className="w-[850px] bg-white shadow-2xl mb-8 border border-gray-400 p-8 text-xs text-black">
+        <div id="peso-page-2" className="w-[850px] bg-white shadow-sm mb-8 border border-gray-400 p-8 text-xs text-black">
             
-           {/* III. Language Continued */}
            <table className="w-full border-collapse border border-black text-center mb-4">
             <tbody>
                 <tr className="divide-x divide-black border-b border-black">
@@ -303,7 +356,6 @@ export default function App() {
             </tbody>
           </table>
 
-          {/* IV. EDUCATIONAL BACKGROUND */}
           <div className="bg-gray-300 font-bold p-1 border border-black border-b-0 flex items-center">
              IV. <GreenLabel className="ml-1">EDUCATIONAL BACKGROUND</GreenLabel>
           </div>
@@ -335,7 +387,6 @@ export default function App() {
             </tbody>
           </table>
 
-           {/* V. TECHNICAL/VOCATIONAL */}
            <div className="bg-gray-300 font-bold p-1 border border-black border-b-0">
              V. TECHNICAL/VOCATIONAL AND OTHER TRAINING <span className="font-normal">(Include courses takens as part of college education)</span>
           </div>
@@ -360,7 +411,6 @@ export default function App() {
             </tbody>
           </table>
 
-          {/* VI. ELIGIBILITY / PROFESSIONAL LICENSE */}
           <div className="bg-gray-300 font-bold p-1 border border-black border-b-0">
              VI. ELIGIBILITY/ PROFESSIONAL LICENSE
           </div>
@@ -387,7 +437,6 @@ export default function App() {
             </tbody>
           </table>
 
-          {/* VII. WORK EXPERIENCE */}
           <div className="bg-gray-300 font-bold p-1 border border-black border-b-0 flex items-center">
              <GreenLabel>VII. WORK EXPERIENCE</GreenLabel> <span className="ml-1 font-normal">(Limit to 10 year period, start with the most recent employment)</span>
           </div>
@@ -414,7 +463,6 @@ export default function App() {
             </tbody>
           </table>
 
-          {/* VIII. OTHER SKILLS */}
           <div className="font-bold p-1 border border-black border-b-0 flex items-center bg-gray-100">
              <GreenLabel>VII OTHER SKILLS ACQUIRED WITHOUT FORMAL TRAINING</GreenLabel>
           </div>
@@ -439,7 +487,6 @@ export default function App() {
              <label className="flex items-center gap-2"><input type="checkbox" className="w-4 h-4"/> OTHERS:</label>
           </div>
 
-          {/* Certification / Authorization */}
           <div className="text-center font-bold mb-2">CERTIFICATION/AUTHORIZATION</div>
           <p className="text-justify indent-8 mb-8">
             This is to certify that all data/information that I have provided in this form are true to the best of my knowledge. This is also to authorized the DOLE to include my profile in the PESO Employment Information System, which is a subsystem of the PhilJobNet. It is understood that my name shall be made available to employers who have access to the Registry. I am also aware that DOLE is not obliged to seek employment on my behalf.
@@ -456,7 +503,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* FOR USE OF PESO ONLY */}
           <div className="border border-black p-2 border-dashed relative">
              <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-white px-2 font-bold text-gray-700 tracking-wide">
                  FOR USE OF PESO ONLY. PLEASE DO NOT WRITE BELOW THIS DOTTED LINE.
@@ -488,7 +534,6 @@ export default function App() {
              </div>
           </div>
 
-          {/* Page 2 Footer */}
           <div className="flex justify-between items-end mt-4">
               <div className="border border-black p-1 text-[10px] text-center w-32">
                   OM-25-001<br/>Revision No: 00<br/>Date Issued: 25/201
@@ -498,13 +543,20 @@ export default function App() {
 
         </div>
         
-        {/* BIG SUBMIT BUTTON */}
-        <div className="flex justify-center mt-4">
+        <div className="flex justify-center mt-4 pb-20">
           <button 
+            disabled={isProcessing}
             onClick={handleCompleteRegistration}
-            className="bg-green-700 text-white font-black text-xl py-4 px-12 rounded-xl hover:bg-green-800 shadow-xl shadow-green-900/30 transition-transform hover:scale-105"
+            className="bg-green-700 text-white font-black text-xl py-4 px-12 rounded-xl hover:bg-green-800 shadow-xl shadow-green-900/30 transition-transform hover:scale-105 flex items-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Save changes to profile
+            {isProcessing ? (
+              <span>Processing PDF...</span>
+            ) : (
+              <>
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                Download Form & Submit to AI
+              </>
+            )}
           </button>
         </div>
 
