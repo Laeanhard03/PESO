@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 
 import '../../peso_services/auth_service.dart';
@@ -78,6 +79,20 @@ class _LoginFormState extends State<LoginForm> {
   }
 
   Future<void> _loginUser() async {
+    // This shortcut exists only in Flutter debug builds. It previews the UI;
+    // Firebase callable functions still enforce real administrator identity.
+    if (kDebugMode &&
+        _emailController.text.trim().toLowerCase() == 'admin' &&
+        _passwordController.text == 'admin') {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => const AdminDashboard(developmentPreview: true),
+        ),
+      );
+      return;
+    }
+
     if (_emailController.text.trim().isEmpty || _passwordController.text.isEmpty) {
       _showMessage('Email and password are required.');
       return;
@@ -281,6 +296,15 @@ class _LoginFormState extends State<LoginForm> {
             ),
           ),
         ),
+        if (kDebugMode)
+          const Padding(
+            padding: EdgeInsets.only(top: 4, bottom: 4),
+            child: Text(
+              'Local preview only: username admin, password admin. Live account management needs a Firebase administrator login.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.amberAccent, fontSize: 12),
+            ),
+          ),
         const SizedBox(height: 10),
         ElevatedButton(
           onPressed: _isLoading ? null : _loginUser,

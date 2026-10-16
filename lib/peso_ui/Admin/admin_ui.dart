@@ -528,7 +528,10 @@ class _AnimatedCounterTextState extends State<AnimatedCounterText>
 // ROOT WIDGET
 // =====================================================================
 class AdminDashboard extends StatefulWidget {
-  const AdminDashboard({super.key});
+  /// Enables a visibly marked, non-authenticated local UI preview only.
+  final bool developmentPreview;
+
+  const AdminDashboard({super.key, this.developmentPreview = false});
 
   @override
   State<AdminDashboard> createState() => _AdminDashboardState();
@@ -599,6 +602,29 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   Expanded(
                     child: Column(
                       children: [
+                        if (widget.developmentPreview)
+                          Container(
+                            width: double.infinity,
+                            margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFF7ED),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: const Color(0xFFF59E0B)),
+                            ),
+                            child: const Row(
+                              children: [
+                                Icon(Icons.developer_mode, color: Color(0xFFB45309)),
+                                SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    'DEVELOPMENT PREVIEW — demo dashboard only. Live registered-user management requires Firebase sign-in with the admin: true claim.',
+                                    style: TextStyle(color: Color(0xFF92400E), fontWeight: FontWeight.w600),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         _TopBar(
                           title: navItem.title,
                           subtitle: navItem.description,
@@ -647,6 +673,23 @@ class _AdminDashboardState extends State<AdminDashboard> {
       case AdminTab.analytics:
         return ApplicantAnalyticsSection(applicants: _applicants);
       case AdminTab.users:
+        if (widget.developmentPreview) {
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.lock_outline_rounded, size: 48, color: Color(0xFF64748B)),
+                  SizedBox(height: 16),
+                  Text('Live User Management Is Locked In Preview', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800), textAlign: TextAlign.center),
+                  SizedBox(height: 10),
+                  Text('The admin/admin shortcut only opens a local dashboard preview. Sign in through Firebase with an authorized administrator account to list, edit, enable, disable, or delete registered users.', textAlign: TextAlign.center),
+                ],
+              ),
+            ),
+          );
+        }
         return const AdminUserManagementSection();
       case AdminTab.concerns:
         return ConcernsSection(initialConcerns: _concerns);
