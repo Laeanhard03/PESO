@@ -1,6 +1,5 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import 'firebase_options.dart';
 import 'peso_services/firebase_setup.dart';
@@ -8,14 +7,6 @@ import 'peso_ui/Landingpage/landingpage_ui.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // AI can still read the local Gemini key when one exists. Missing .env is
-  // tolerated so the landing page stays available before AI credentials exist.
-  try {
-    await dotenv.load(fileName: '.env');
-  } catch (error) {
-    debugPrint('[CONFIG] .env was not loaded: $error');
-  }
 
   // Don't crash the public landing page when Firebase has not been configured.
   // Authentication actions will show setup instructions until FlutterFire is run.

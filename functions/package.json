@@ -1,0 +1,17 @@
+{
+  "name": "peso-gemini-gateway",
+  "private": true,
+  "description": "Authenticated server-side Gemini gateway for PESO JobKonek.",
+  "main": "index.js",
+  "engines": {
+    "node": "22"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "lint": "node --check index.js && node --check admin_users.js && node --check lib/gemini_gateway_core.js && node --check lib/admin_user_management_core.js && node --check scripts/set-admin-claim.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.5.0",
+    "firebase-functions": "^6.4.0"
+  }
+}

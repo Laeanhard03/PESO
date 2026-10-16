@@ -65,3 +65,10 @@ react_workspace/dist/
 lib/peso_logic/secrets.json
 firebase-debug.log
 firestore-debug.log
+
+/functions/node_modules/
+/functions/.secret.local
+/functions/.env.*.local
+/.firebase/
+
+!/functions/.env.example
