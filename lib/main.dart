@@ -1,27 +1,41 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
-import 'peso_ui/landingpage_ui.dart';
+import 'firebase_options.dart';
+import 'peso_services/firebase_setup.dart';
+import 'peso_ui/Landingpage/landingpage_ui.dart';
 
-void main() async {
-  // Ensure Flutter bindings are initialized before calling native code
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Load the environment variables from .env
-  await dotenv.load(fileName: ".env");
+  // AI can still read the local Gemini key when one exists. Missing .env is
+  // tolerated so the landing page stays available before AI credentials exist.
+  try {
+    await dotenv.load(fileName: '.env');
+  } catch (error) {
+    debugPrint('[CONFIG] .env was not loaded: $error');
+  }
 
-  // Initialize Supabase with YOUR actual project credentials
-  await Supabase.initialize(
-    url: 'https://eatrigghcxogthtafxkn.supabase.co',
-    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVhdHJpZ2doY3hvZ3RodGFmeGtuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzNTEzOTUsImV4cCI6MjEwMzkyNzM5NX0.-6O7eUrBAsHH8p_oekNwEXkZrGKHgqAP4QvgeMfHMO0',
-  );
+  // Don't crash the public landing page when Firebase has not been configured.
+  // Authentication actions will show setup instructions until FlutterFire is run.
+  try {
+    if (FirebaseSetup.isConfigured) {
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+    } else {
+      debugPrint(
+        '[CONFIG] Firebase placeholders detected. Run `flutterfire configure`.',
+      );
+    }
+  } catch (error, stackTrace) {
+    debugPrint('[CONFIG] Firebase initialization failed: $error');
+    debugPrintStack(stackTrace: stackTrace);
+  }
 
   runApp(const PesoApp());
 }
-
-// Global variable to quickly access Supabase anywhere in your app
-final supabase = Supabase.instance.client;
 
 class PesoApp extends StatelessWidget {
   const PesoApp({super.key});
@@ -29,7 +43,7 @@ class PesoApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'PESO Prototype',
+      title: 'PESO JobKonek',
       theme: ThemeData(
         primaryColor: const Color(0xFF2E7D32),
         scaffoldBackgroundColor: Colors.grey[100],

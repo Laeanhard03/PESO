@@ -2,7 +2,8 @@ $title = "PESO File Watcher"
 [Console]::Title = $title 
 $global:HasNewFile = $false 
 $watcher = New-Object System.IO.FileSystemWatcher 
-$watcher.Path = "C:\Users\Admin\Desktop\PESOPROTOTYPE\\lib" 
+# Agent Doctor 6 (2026-10-16): resolve the watched source tree relative to this project.
+$watcher.Path = Join-Path $PSScriptRoot 'lib'
 $watcher.Filter = "*.dart" 
 $watcher.IncludeSubdirectories = $true 
 $watcher.EnableRaisingEvents = $true 

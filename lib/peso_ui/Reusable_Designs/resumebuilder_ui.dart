@@ -1,9 +1,14 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
+import '../../peso_services/react_message_bridge.dart';
+
 class ResumeBuilderWizard extends StatefulWidget {
-  final VoidCallback onComplete;
+  final ValueChanged<Map<String, dynamic>> onComplete;
 
   const ResumeBuilderWizard({super.key, required this.onComplete});
 
@@ -13,45 +18,56 @@ class ResumeBuilderWizard extends StatefulWidget {
 
 class _ResumeBuilderWizardState extends State<ResumeBuilderWizard> {
   late final WebViewController _controller;
+  StreamSubscription<String>? _webMessageSubscription;
   bool _isLoading = true;
-
-  // Theme Palette
   final Color _primary = const Color(0xFF2E7D32);
 
   @override
   void initState() {
     super.initState();
-
     _controller = WebViewController();
 
-    if (!kIsWeb) {
+    if (kIsWeb) {
+      _webMessageSubscription = reactBridgeMessages.listen(_handleBridgePayload);
+      Future<void>.delayed(const Duration(milliseconds: 800), () {
+        if (mounted) setState(() => _isLoading = false);
+      });
+    } else {
       _controller
         ..setJavaScriptMode(JavaScriptMode.unrestricted)
         ..setBackgroundColor(const Color(0xFFF8FAFC))
         ..setNavigationDelegate(
           NavigationDelegate(
-            onPageFinished: (String url) {
+            onPageFinished: (_) {
               if (mounted) setState(() => _isLoading = false);
             },
           ),
         )
         ..addJavaScriptChannel(
           'FlutterBridge',
-          onMessageReceived: (JavaScriptMessage message) {
-            // Wait for the 'completed' message from your React button
-            if (message.message == 'completed') {
-              widget.onComplete();
-            }
-          },
+          onMessageReceived: (JavaScriptMessage message) =>
+              _handleBridgePayload(message.message),
         );
-    } else {
-      Future.delayed(const Duration(milliseconds: 800), () {
-        if (mounted) setState(() => _isLoading = false);
-      });
     }
 
-    // We assume you map the resume builder in React to '/resume'
     _controller.loadRequest(Uri.parse('http://localhost:5173/resume'));
+  }
+
+  void _handleBridgePayload(String rawMessage) {
+    try {
+      final decoded = jsonDecode(rawMessage);
+      if (decoded is Map && decoded['status'] == 'completed') {
+        widget.onComplete(Map<String, dynamic>.from(decoded));
+      }
+    } catch (error) {
+      debugPrint('[REACT BRIDGE] Ignored invalid resume payload: $error');
+    }
+  }
+
+  @override
+  void dispose() {
+    _webMessageSubscription?.cancel();
+    super.dispose();
   }
 
   @override
@@ -87,14 +103,18 @@ class _ResumeBuilderWizardState extends State<ResumeBuilderWizard> {
             Padding(
               padding: const EdgeInsets.only(right: 20),
               child: TextButton.icon(
-                onPressed: widget.onComplete,
+                onPressed: () => widget.onComplete({
+                  'status': 'completed',
+                  'source': 'peso-react-workspace',
+                  'kind': 'resume_builder',
+                  'data': '',
+                  'aiText': '',
+                  'resumeData': {'documentType': 'Resume Builder', 'fields': <dynamic>[], 'plainText': ''},
+                }),
                 icon: Icon(Icons.fast_forward, color: _primary),
                 label: Text(
                   'Skip (Web Test)',
-                  style: TextStyle(
-                    color: _primary,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(color: _primary, fontWeight: FontWeight.bold),
                 ),
               ),
             ),
@@ -108,9 +128,7 @@ class _ResumeBuilderWizardState extends State<ResumeBuilderWizard> {
         children: [
           WebViewWidget(controller: _controller),
           if (_isLoading)
-            Center(
-              child: CircularProgressIndicator(color: _primary, strokeWidth: 3),
-            ),
+            Center(child: CircularProgressIndicator(color: _primary, strokeWidth: 3)),
         ],
       ),
     );

@@ -24,7 +24,7 @@ if not exist "lib\peso_logic\secrets.json" (
     echo   - secrets.json not found. Creating default empty JSON...
     echo {> lib\peso_logic\secrets.json
     echo   "gemini_api_key": "",>> lib\peso_logic\secrets.json
-    echo   "warning": "This key is encrypted. Safe to commit to GitHub.">> lib\peso_logic\secrets.json
+    echo   "warning": "Local placeholder only; never commit secrets.json to GitHub.">> lib\peso_logic\secrets.json
     echo }>> lib\peso_logic\secrets.json
 )
 :: --------------------------------------------

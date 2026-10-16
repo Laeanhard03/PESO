@@ -1,3 +1,4 @@
+/* eslint react-refresh/only-export-components: off -- Agent Doctor 6 (2026-10-16): this entry point selects a page component by URL path. */
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'

@@ -60,3 +60,8 @@ react_workspace/node_modules/.vite/
 
 # Ignore React build output
 react_workspace/dist/
+# Firebase / local secrets
+.env
+lib/peso_logic/secrets.json
+firebase-debug.log
+firestore-debug.log

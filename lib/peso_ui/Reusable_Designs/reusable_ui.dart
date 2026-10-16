@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import 'landingpage_ui.dart';
-import 'auth_ui.dart';
+import '../Landingpage/landingpage_ui.dart';
+import '../Login_register_pages/auth_ui.dart';
 
 // =====================================================================
 // EXPORTED COMPONENT 1: GLOBAL NAV BAR (ANIMATED)
@@ -51,106 +51,150 @@ class GlobalNavBar extends StatelessWidget implements PreferredSizeWidget {
         ],
       ),
       child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15),
-          child: Row(
-            children: [
-              Row(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            // Agent Doctor 6 (2026-10-16): switch to a menu before desktop navigation overflows.
+            final compact = constraints.maxWidth < 1100;
+            final register = onRegisterTap ??
+                () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const AuthPage(initialIsLogin: false),
+                  ),
+                );
+            final login = onLoginTap ??
+                () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const AuthPage(initialIsLogin: true),
+                  ),
+                );
+            final logo = Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: isScrolled
+                        ? Colors.white.withValues(alpha: 0.2)
+                        : pesoGreen.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(Icons.work, color: brandColor, size: 28),
+                ),
+                const SizedBox(width: 15),
+                Text(
+                  'JobKonek',
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w900,
+                    color: brandColor,
+                    letterSpacing: -0.5,
+                  ),
+                ),
+              ],
+            );
+            final links = Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildNavLink('Home', 0, linkColor, activeLinkColor),
+                _buildNavLink('Jobs', 1, linkColor, activeLinkColor),
+                _buildNavLink('Gallery', 2, linkColor, activeLinkColor),
+                _buildNavLink('History', 3, linkColor, activeLinkColor),
+                _buildNavLink('About', 4, linkColor, activeLinkColor),
+              ],
+            );
+            final authActions = Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                OutlinedButton(
+                  onPressed: register,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: btnOutlinedText,
+                    side: BorderSide(color: btnOutlinedBorder, width: 2),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 25,
+                      vertical: 18,
+                    ),
+                  ),
+                  child: const Text(
+                    'Register',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+                const SizedBox(width: 15),
+                ElevatedButton(
+                  onPressed: login,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: btnElevatedBg,
+                    foregroundColor: btnElevatedText,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 30,
+                      vertical: 18,
+                    ),
+                  ),
+                  child: const Text(
+                    'Login',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            );
+            if (compact) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+                child: Row(
+                  children: [
+                    logo,
+                    const Spacer(),
+                    PopupMenuButton<int>(
+                      tooltip: 'Open navigation menu',
+                      icon: Icon(Icons.menu, color: brandColor),
+                      onSelected: (value) {
+                        if (value < 5) {
+                          onTabSelected(value);
+                        } else if (value == 5) {
+                          register();
+                        } else {
+                          login();
+                        }
+                      },
+                      itemBuilder: (context) => const [
+                        PopupMenuItem(value: 0, child: Text('Home')),
+                        PopupMenuItem(value: 1, child: Text('Jobs')),
+                        PopupMenuItem(value: 2, child: Text('Gallery')),
+                        PopupMenuItem(value: 3, child: Text('History')),
+                        PopupMenuItem(value: 4, child: Text('About')),
+                        PopupMenuDivider(),
+                        PopupMenuItem(value: 5, child: Text('Register')),
+                        PopupMenuItem(value: 6, child: Text('Login')),
+                      ],
+                    ),
+                  ],
+                ),
+              );
+            }
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15),
+              child: Row(
                 children: [
-                  AnimatedContainer(
-                    duration: const Duration(milliseconds: 300),
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: isScrolled
-                          ? Colors.white.withValues(alpha: 0.2)
-                          : pesoGreen.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Icon(Icons.work, color: brandColor, size: 28),
-                  ),
-                  const SizedBox(width: 15),
-                  Text(
-                    'JobKonek',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w900,
-                      color: brandColor,
-                      letterSpacing: -0.5,
-                    ),
-                  ),
+                  logo,
+                  const Spacer(),
+                  links,
+                  const Spacer(),
+                  authActions,
                 ],
               ),
-              const Spacer(),
-              Row(
-                children: [
-                  _buildNavLink('Home', 0, linkColor, activeLinkColor),
-                  _buildNavLink('Jobs', 1, linkColor, activeLinkColor),
-                  _buildNavLink('Gallery', 2, linkColor, activeLinkColor),
-                  _buildNavLink('History', 3, linkColor, activeLinkColor),
-                  _buildNavLink('About', 4, linkColor, activeLinkColor),
-                ],
-              ),
-              const Spacer(),
-              Row(
-                children: [
-                  OutlinedButton(
-                    onPressed:
-                        onRegisterTap ??
-                        () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) =>
-                                const AuthPage(initialIsLogin: false),
-                          ),
-                        ),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: btnOutlinedText,
-                      side: BorderSide(color: btnOutlinedBorder, width: 2),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(30),
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 25,
-                        vertical: 18,
-                      ),
-                    ),
-                    child: const Text(
-                      'Register',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                  const SizedBox(width: 15),
-                  ElevatedButton(
-                    onPressed:
-                        onLoginTap ??
-                        () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) =>
-                                const AuthPage(initialIsLogin: true),
-                          ),
-                        ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: btnElevatedBg,
-                      foregroundColor: btnElevatedText,
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(30),
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 30,
-                        vertical: 18,
-                      ),
-                    ),
-                    child: const Text(
-                      'Login',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
+            );
+          },
         ),
       ),
     );
@@ -313,8 +357,12 @@ class GlobalFooter extends StatelessWidget {
           const SizedBox(height: 60),
           const Divider(color: Colors.white12),
           const SizedBox(height: 30),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          // Agent Doctor 6 (2026-10-16): let the copyright and scroll action wrap on small screens.
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 16,
+            runSpacing: 12,
             children: [
               const Text(
                 '© 2026 Developed by Josh Lander Ferrea. All Rights Reserved.',

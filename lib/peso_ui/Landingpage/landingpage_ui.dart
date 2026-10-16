@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
-import 'auth_ui.dart';
-import 'reusable_ui.dart';
+import '../Login_register_pages/auth_ui.dart';
+import '../Reusable_Designs/reusable_ui.dart';
 
 class LandingPage extends StatefulWidget {
   const LandingPage({super.key});
@@ -112,7 +112,7 @@ class _LandingPageState extends State<LandingPage> {
   }
 
   // ==========================================
-  // TAB 0: HOME PAGE (Unified View)
+  // TAB 0: HOME PAGE
   // ==========================================
   Widget _buildHomeContent(Color pesoGreen) {
     return Column(
@@ -146,7 +146,7 @@ class _LandingPageState extends State<LandingPage> {
   }
 
   // ==========================================
-  // TAB 2: GALLERY PAGE (Animated Grid)
+  // TAB 2: GALLERY PAGE
   // ==========================================
   Widget _buildGalleryPage(Color pesoGreen) {
     final List<String> images = [
@@ -223,19 +223,11 @@ class _LandingPageState extends State<LandingPage> {
           fit: BoxFit.cover,
         ),
       ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(20),
-          hoverColor: Colors.black.withValues(alpha: 0.2),
-          onTap: () {},
-        ),
-      ),
     );
   }
 
   // ==========================================
-  // TAB 3: HISTORY PAGE (Animated Timeline)
+  // TAB 3: HISTORY PAGE
   // ==========================================
   Widget _buildHistoryPage(Color pesoGreen) {
     return Container(
@@ -272,8 +264,8 @@ class _LandingPageState extends State<LandingPage> {
           ),
           _buildTimelineNode(
             '2020',
-            'Pandemic Response Initatives',
-            'Transitioned to online job boards and implemented TUPAD programs to assist displaced workers during the lockdowns.',
+            'Pandemic Response Initiatives',
+            'Transitioned to online job boards and implemented TUPAD programs to assist displaced workers during lockdowns.',
             Colors.blue,
             300,
           ),
@@ -287,7 +279,7 @@ class _LandingPageState extends State<LandingPage> {
           _buildTimelineNode(
             '2026',
             'JobKonek AI Launch',
-            'Revolutionized the application process by introducing Generative AI screening and localized DOLE SPRS integration.',
+            'Revolutionized job placement by introducing Generative AI skill extraction and DOLE SPRS matching integration.',
             pesoGreen,
             500,
             isLast: true,
@@ -319,13 +311,6 @@ class _LandingPageState extends State<LandingPage> {
                   decoration: BoxDecoration(
                     color: accentColor,
                     shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: accentColor.withValues(alpha: 0.4),
-                        blurRadius: 6,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
                   ),
                   child: Text(
                     year,
@@ -357,13 +342,6 @@ class _LandingPageState extends State<LandingPage> {
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(color: Colors.grey.shade200),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.03),
-                      blurRadius: 8,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -413,7 +391,7 @@ class _LandingPageState extends State<LandingPage> {
   }
 
   // ==========================================
-  // SHARED SECTIONS (Used across Home & Dedicated Pages)
+  // SHARED SECTIONS
   // ==========================================
 
   Widget _buildHeroSection(Color pesoGreen) {
@@ -459,7 +437,7 @@ class _LandingPageState extends State<LandingPage> {
                   Icon(Icons.auto_awesome, color: Colors.amber, size: 18),
                   SizedBox(width: 8),
                   Text(
-                    'AI-Driven Job Matching System',
+                    'AI Skill Matching & Qualification Engine',
                     style: TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.w600,
@@ -484,7 +462,7 @@ class _LandingPageState extends State<LandingPage> {
             const SizedBox(
               width: 800,
               child: Text(
-                'Experience a modern career bridge. JobKonek uses AI to dynamically assess your skills, route you to pre-vetted local job queues, or generate custom TESDA upskilling plans if you fall short. Completely free for Montalban residents.',
+                'Experience a modern career bridge. JobKonek uses AI to parse your resume, match your skill set to ideal job roles, test qualification criteria, or provide local TESDA upskilling guidance if needed. Completely free for Montalban residents.',
                 style: TextStyle(
                   fontSize: 20,
                   color: Colors.white70,
@@ -494,8 +472,11 @@ class _LandingPageState extends State<LandingPage> {
               ),
             ),
             const SizedBox(height: 50),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+            // Agent Doctor 6 (2026-10-16): allow hero actions to wrap on narrow viewports.
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 20,
+              runSpacing: 16,
               children: [
                 ElevatedButton(
                   onPressed: () {
@@ -519,7 +500,6 @@ class _LandingPageState extends State<LandingPage> {
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
                 ),
-                const SizedBox(width: 20),
                 OutlinedButton(
                   onPressed: () => Navigator.push(
                     context,
@@ -567,7 +547,7 @@ class _LandingPageState extends State<LandingPage> {
           ),
           const SizedBox(height: 15),
           const Text(
-            'No manual waiting. Just AI-powered matching and direct PESO routing.',
+            'No manual waiting. Just AI skill matching and direct PESO routing.',
             style: TextStyle(fontSize: 18, color: Colors.grey),
           ),
           const SizedBox(height: 70),
@@ -579,21 +559,21 @@ class _LandingPageState extends State<LandingPage> {
               _buildStepCard(
                 '01',
                 'Inclusive Profiling',
-                'Build your digital identity. Upload a PDF resume or write a bilingual bio (Tagalog/English) so our AI can extract your core soft and technical skills.',
+                'Build your digital identity. Upload a PDF resume or write a bilingual bio (Tagalog/English) so our AI can extract your soft and technical skills.',
                 Icons.person_add_alt_1,
                 pesoGreen,
               ),
               _buildStepCard(
                 '02',
-                'Dynamic AI Exam',
-                'Select a job to trigger a custom, non-repeating assessment. The AI merges your profile with the job description to test your exact knowledge gaps.',
-                Icons.psychology,
+                'AI Skill Vetting',
+                'Select a target job to trigger an instant AI qualification check. The system analyzes your resume skills against employer requirements to measure job fit.',
+                Icons.auto_awesome,
                 Colors.blue[700]!,
               ),
               _buildStepCard(
                 '03',
                 'Smart Routing',
-                'Score 50% or higher to be pre-vetted for DOLE SPRS extraction. Fall short? Get an instant AI action plan with alternative jobs and TESDA recommendations.',
+                'Fully qualified candidates are pre-vetted for DOLE SPRS extraction. Need upskilling? Get alternative job matches and TESDA course recommendations.',
                 Icons.alt_route,
                 Colors.orange[700]!,
               ),
@@ -617,13 +597,6 @@ class _LandingPageState extends State<LandingPage> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: color.withValues(alpha: 0.1),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
-          ),
-        ],
         border: Border.all(color: Colors.grey.shade100),
       ),
       child: Column(
@@ -691,7 +664,7 @@ class _LandingPageState extends State<LandingPage> {
           ),
           const SizedBox(height: 10),
           Text(
-            'These jobs were bulk-uploaded by the PESO Admin. Login to take the AI exam and apply.',
+            'These jobs were bulk-uploaded by the PESO Admin. Login to check your skill qualification and apply.',
             style: TextStyle(fontSize: 18, color: Colors.grey.shade600),
           ),
           const SizedBox(height: 40),
@@ -700,13 +673,6 @@ class _LandingPageState extends State<LandingPage> {
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(15),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.05),
-                  blurRadius: 8,
-                  offset: const Offset(0, 4),
-                ),
-              ],
               border: Border.all(color: Colors.grey.shade200),
             ),
             child: Row(
@@ -812,13 +778,6 @@ class _LandingPageState extends State<LandingPage> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: Colors.grey.shade200),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
-          ),
-        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -865,8 +824,12 @@ class _LandingPageState extends State<LandingPage> {
           const SizedBox(height: 25),
           const Divider(),
           const SizedBox(height: 20),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          // Agent Doctor 6 (2026-10-16): stack salary/actions when job cards are narrow.
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 12,
+            runSpacing: 12,
             children: [
               Text(
                 salary,
@@ -883,8 +846,8 @@ class _LandingPageState extends State<LandingPage> {
                     builder: (_) => const AuthPage(initialIsLogin: true),
                   ),
                 ),
-                icon: const Icon(Icons.psychology, size: 18),
-                label: const Text('Login to Take Exam'),
+                icon: const Icon(Icons.auto_awesome, size: 18),
+                label: const Text('Login to View Match'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: pesoGreen,
                   foregroundColor: Colors.white,
@@ -919,13 +882,6 @@ class _LandingPageState extends State<LandingPage> {
                   ),
                   fit: BoxFit.cover,
                 ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.1),
-                    blurRadius: 8,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
               ),
             ),
           ),
@@ -956,7 +912,7 @@ class _LandingPageState extends State<LandingPage> {
                 ),
                 const SizedBox(height: 25),
                 Text(
-                  'JobKonek is an advanced digital initiative designed specifically for the Montalban PESO office. Recognizing that employers already use DOLE\'s PhilJobNet, our system acts strictly as an AI-driven pre-screening bridge for local residents.',
+                  'JobKonek is an advanced digital initiative designed specifically for the Montalban PESO office. Recognizing that employers already use DOLE\'s PhilJobNet, our system acts strictly as an AI-driven skill pre-screening bridge for local residents.',
                   style: TextStyle(
                     fontSize: 16,
                     height: 1.6,
@@ -965,7 +921,7 @@ class _LandingPageState extends State<LandingPage> {
                 ),
                 const SizedBox(height: 15),
                 Text(
-                  'By taking offline Excel job postings and returning DOLE SPRS-formatted pre-vetted passers, we optimize the municipality\'s workflow while guiding jobseekers toward success or targeted upskilling.',
+                  'By taking offline Excel job postings and returning DOLE SPRS-formatted pre-vetted candidates, we optimize municipal placement while guiding jobseekers toward suitable roles or targeted upskilling.',
                   style: TextStyle(
                     fontSize: 16,
                     height: 1.6,
@@ -999,18 +955,18 @@ class _LandingPageState extends State<LandingPage> {
             children: [
               _buildFeature(
                 Icons.memory,
-                'Generative AI Exams',
-                'Say goodbye to static quizzes. Our LLM API generates custom technical and general knowledge questions on the fly.',
+                'AI Skill Matching Engine',
+                'Our intelligent AI engine automatically parses your profile and maps your technical skills directly against local job openings.',
               ),
               _buildFeature(
                 Icons.school,
                 'Actionable Upskilling',
-                'Failing an exam isn\'t a dead end. Receive instant alternative job matches and local TESDA center course recommendations.',
+                'Missing key requirements isn\'t a dead end. Receive instant alternative job matches and local TESDA center course recommendations.',
               ),
               _buildFeature(
                 Icons.insert_chart_outlined,
                 'DOLE SPRS Compliant',
-                'Your success data is automatically batched, formatted, and emailed to the PESO Admins to integrate perfectly with regional standards.',
+                'Your qualification data is automatically batched, formatted, and emailed to PESO Admins for seamless regional reporting.',
               ),
             ],
           ),
@@ -1056,7 +1012,7 @@ class _LandingPageState extends State<LandingPage> {
     return Container(
       width: double.infinity,
       decoration: const BoxDecoration(
-        color: Colors.black, // Fallback color
+        color: Colors.black,
         image: DecorationImage(
           image: CachedNetworkImageProvider(
             'https://images.unsplash.com/photo-1552664730-d307ca884978?ixlib=rb-4.0.3&auto=format&fit=crop&w=1200&q=80',
@@ -1065,9 +1021,7 @@ class _LandingPageState extends State<LandingPage> {
         ),
       ),
       child: Container(
-        color: pesoGreen.withValues(
-          alpha: 0.9,
-        ), // Moved color filter overlay here
+        color: pesoGreen.withValues(alpha: 0.9),
         padding: const EdgeInsets.symmetric(vertical: 100, horizontal: 40),
         child: Column(
           children: [
@@ -1118,13 +1072,6 @@ class _LandingPageState extends State<LandingPage> {
         color: Colors.white.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: Colors.white30),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.1),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
-          ),
-        ],
       ),
       child: Column(
         children: [
@@ -1172,28 +1119,28 @@ class _LandingPageState extends State<LandingPage> {
               _buildDeveloperCard(
                 name: 'Josh Lander Ferrera',
                 role: 'Lead Full Stack Engineer & Architect',
-                description: 'The all-around driving force behind the platform. Orchestrates the entire architecture, from bridging complex NoSQL backend logic and AI LLM integrations to building the seamless, cross-platform Flutter frontend.',
+                description: 'The driving force behind the platform architecture, bridging backend logic, AI LLM integrations, and the Flutter web application.',
                 imageUrl: 'https://upload.wikimedia.org/wikipedia/en/8/86/Einstein_tongue.jpg',
                 pesoGreen: pesoGreen,
               ),
               _buildDeveloperCard(
                 name: 'Lovely Anne C. Ilaya',
                 role: 'Full Stack & Lead UI/UX Designer',
-                description: 'Focuses heavily on creating an intuitive, modern, and accessible design system while actively contributing to full-stack development. Ensures the platform is as beautiful as it is functional.',
+                description: 'Creates intuitive design systems and accessible web interfaces while contributing to full-stack frontend development.',
                 imageUrl: 'https://upload.wikimedia.org/wikipedia/commons/7/74/Jeon_Jung-kook_for_Dispatch_%22Boy_With_Luv%22_MV_behind_the_scene_shooting%2C_15_March_2019_04.jpg',
                 pesoGreen: pesoGreen,
               ),
               _buildDeveloperCard(
                 name: 'Edward Marcelino',
                 role: 'Full Stack Engineer (Core Functionalities)',
-                description: 'The balanced core of the development team. Bridges the gap between frontend interfaces and backend databases, focusing heavily on robust functionalities, API routing, and system stability.',
+                description: 'Bridges frontend interfaces and backend databases, maintaining API routing and system stability.',
                 imageUrl: 'https://upload.wikimedia.org/wikipedia/commons/d/d7/Henry_Cavill_by_Gage_Skidmore_2.jpg',
                 pesoGreen: pesoGreen,
               ),
               _buildDeveloperCard(
                 name: 'John Paul Cesneros',
                 role: 'Frontend Engineer & Documentation Lead',
-                description: 'Drives the frontend implementation and handles the crucial technical documentation (papers) of the system. Ensures all functionalities are well-documented, tested, and perfectly aligned.',
+                description: 'Drives frontend UI implementation and technical documentation for municipal system compliance.',
                 imageUrl: 'https://i.kym-cdn.com/entries/icons/original/000/026/152/gigachad.jpg',
                 pesoGreen: pesoGreen,
               ),
@@ -1269,20 +1216,8 @@ class _LandingPageState extends State<LandingPage> {
       ),
     );
   }
-
-  Widget _buildAdvancedFiltersDrawer(Color pesoGreen) {
-    return Drawer(
-      width: 400,
-      backgroundColor: Colors.white,
-      child: const Center(child: Text('Filters UI')),
-    );
-  }
 }
 
-// =====================================================================
-// HELPER WIDGET: ANIMATED ENTRANCE
-// Creates a smooth slide-up and fade-in effect for the dedicated pages.
-// =====================================================================
 class AnimatedEntrance extends StatefulWidget {
   final Widget child;
   final int delay;

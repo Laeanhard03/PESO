@@ -3,7 +3,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
-import 'landingpage_ui.dart';
+import '../Landingpage/landingpage_ui.dart';
 
 // =====================================================================
 // THEME (matched to the React design: slate-950 sidebar, blue-600 accent,

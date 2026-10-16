@@ -1,0 +1,20 @@
+{
+    "firestore":  {
+                      "rules":  "firestore.rules"
+                  },
+    "flutter":  {
+                    "platforms":  {
+                                      "dart":  {
+                                                   "lib/firebase_options.dart":  {
+                                                                                     "projectId":  "capstone-4th-year-peso-ai",
+                                                                                     "configurations":  {
+                                                                                                            "web":  "1:626631929262:web:a36cb4a9bdda7eef676c3f"
+                                                                                                        }
+                                                                                 }
+                                               }
+                                  }
+                },
+    "storage":  {
+                    "rules":  "storage.rules"
+                }
+}

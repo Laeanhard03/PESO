@@ -1,6 +1,7 @@
-import React, { useState, useRef } from "react";
+import { useState, useRef } from "react";
 import * as htmlToImage from "html-to-image";
 import { jsPDF } from "jspdf";
+import { sendToFlutter } from './flutterBridge.js';
 
 // --- SVG Icons ---
 const PhoneIcon = () => (
@@ -29,10 +30,11 @@ const CheckIcon = () => (
 );
 
 // --- Reusable Editable Field ---
-const Editable = ({ defaultText, className = "", multiline = false, ...props }) => (
+const Editable = ({ defaultText, className = "", ...props }) => (
   <span
     contentEditable
     suppressContentEditableWarning
+    data-template-default={typeof defaultText === 'string' ? defaultText : ''}
     className={`outline-none hover:bg-amber-50 focus:bg-amber-100 transition-colors rounded px-0.5 ${className}`}
     {...props}
   >
@@ -55,53 +57,87 @@ export default function ResumeApp() {
     }
   };
 
-  // --- THE FLUTTER BRIDGE WITH SILENT PDF GENERATION ---
+  // Generate the PDF, extract editable resume content, and return both to Flutter.
   const handleCompleteResume = async () => {
     setIsProcessing(true);
-
-    // FIX: Temporarily remove the scale to prevent clipping/crashing, 
-    // take the snapshot, then restore the scale.
     const zoomWrapper = document.getElementById('zoom-wrapper');
-    const originalTransform = zoomWrapper.style.transform;
-    zoomWrapper.style.transform = 'scale(1)';
+    const originalTransform = zoomWrapper?.style.transform ?? '';
+    if (zoomWrapper) zoomWrapper.style.transform = 'scale(1)';
 
     try {
       const element = document.getElementById('resume-node');
-      
-      // Using html-to-image to silently capture the design
-      const imgData = await htmlToImage.toJpeg(element, { 
-        quality: 0.98,
+      if (!element) throw new Error('Resume canvas was not found.');
+
+      const image = await htmlToImage.toJpeg(element, {
+        quality: 0.96,
         backgroundColor: '#ffffff',
-        pixelRatio: 2 // Ensures text is crisp
+        pixelRatio: 1.5,
       });
-      
-      // Calculate A4 proportions based on the captured canvas
       const pdf = new jsPDF('p', 'mm', 'a4');
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = (element.offsetHeight * pdfWidth) / element.offsetWidth;
-      
-      pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
-      
-      // Download directly to the user's computer
+      pdf.addImage(image, 'JPEG', 0, 0, pdfWidth, pdfHeight);
       pdf.save('JobKonek_Resume.pdf');
 
-      // Extract raw text from all editable fields for the Gemini AI Engine
-      const editables = document.querySelectorAll('span[contenteditable]');
-      const resumeText = Array.from(editables).map(e => e.innerText).join('\n');
-      const payload = JSON.stringify({ status: 'completed', data: resumeText });
+      const normalize = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
+      const editables = Array.from(document.querySelectorAll('[contenteditable="true"]'));
+      const extractedFields = editables.map((node, index) => {
+        const section = node.closest('section');
+        const sectionTitle = normalize(section?.querySelector('h3')?.innerText) || 'Resume details';
+        const value = normalize(node.innerText);
+        const templateDefault = normalize(node.getAttribute('data-template-default'));
+        const parent = node.parentElement;
+        const siblingText = normalize(Array.from(parent?.childNodes || [])
+          .filter((child) => child !== node)
+          .map((child) => child.textContent || '')
+          .join(' '));
+        const label = value.includes('@')
+          ? 'Email'
+          : (/\+?\d[\d ()-]{6,}/.test(value) ? 'Phone / contact number'
+            : (siblingText && siblingText.length <= 100 ? siblingText : `Resume detail ${index + 1}`));
+        return { index: index + 1, section: sectionTitle, label, value, context: normalize(parent?.innerText), templateDefault };
+      }).filter((field) => field.value !== '' && field.value !== field.templateDefault);
+      // Template-default sample text is used only to detect unchanged examples;
+      // it is not saved to Firestore or sent to the AI.
+      const fields = extractedFields.map((field) => {
+        const savedField = { ...field };
+        delete savedField.templateDefault;
+        delete savedField.context;
+        return savedField;
+      });
+      const plainText = fields.map((field) => `${field.section} — ${field.label}: ${field.value}`).join('\n');
+      const resumeData = {
+        documentType: 'Resume Builder',
+        template: activeTemplate,
+        fields,
+        plainText,
+        aiText: plainText,
+        completedAt: new Date().toISOString(),
+      };
+      const dataUri = pdf.output('datauristring');
+      const base64 = dataUri.includes(',') ? dataUri.substring(dataUri.indexOf(',') + 1) : '';
+      const delivered = sendToFlutter({
+        status: 'completed',
+        kind: 'resume_builder',
+        data: plainText,
+        aiText: plainText,
+        resumeData,
+        artifact: base64 ? {
+          fileName: 'JobKonek_Resume.pdf',
+          category: 'resume_builder',
+          mimeType: 'application/pdf',
+          base64,
+        } : null,
+      });
 
-      // Send the text payload back to Flutter
-      if (window.FlutterBridge) {
-        window.FlutterBridge.postMessage(payload);
-      } else {
-        alert("Resume Downloaded!\n\nIf you are testing Flutter on Chrome Web, click the 'Skip (Web Test)' button in the Flutter AppBar to continue.");
+      if (!delivered) {
+        alert('The resume PDF was downloaded, but no Flutter app was detected to save the resume data. Open the resume builder from PESO JobKonek to sync it to your profile.');
       }
     } catch (error) {
-      console.error("PDF Generation failed:", error);
-      alert("Failed to generate PDF. Check console for details.");
+      console.error('Resume PDF or data extraction failed:', error);
+      alert('Could not generate your resume. Please check the browser console and try again.');
     } finally {
-      // Put the zoom back to normal
-      zoomWrapper.style.transform = originalTransform;
+      if (zoomWrapper) zoomWrapper.style.transform = originalTransform;
       setIsProcessing(false);
     }
   };

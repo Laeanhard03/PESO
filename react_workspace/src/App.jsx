@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import * as htmlToImage from "html-to-image";
 import { jsPDF } from "jspdf";
+import { sendToFlutter } from './flutterBridge.js';
 
 const GreenLabel = ({ children, className = '' }) => (
   <span className={`bg-green-200/60 px-1 font-bold ${className}`}>{children}</span>
@@ -18,73 +19,153 @@ export default function App() {
     setIsProcessing(true);
 
     const zoomWrapper = document.getElementById('zoom-wrapper');
-    const originalTransform = zoomWrapper.style.transform;
-    zoomWrapper.style.transform = 'scale(1)';
+    const originalTransform = zoomWrapper?.style.transform ?? '';
+    if (zoomWrapper) zoomWrapper.style.transform = 'scale(1)';
 
     try {
-      // 1. Sync values so they show up in PDF
-      const inputs = document.querySelectorAll('input');
-      inputs.forEach(input => {
+      // Mirror current control values into the DOM before rendering the PDF.
+      document.querySelectorAll('input').forEach((input) => {
         if (input.type === 'checkbox' || input.type === 'radio') {
           if (input.checked) input.setAttribute('checked', 'checked');
+          else input.removeAttribute('checked');
         } else {
           input.setAttribute('value', input.value);
         }
       });
 
-      // 2. Render Page 1
       const pdf = new jsPDF('p', 'mm', 'a4');
       const pdfWidth = pdf.internal.pageSize.getWidth();
-
-      const page1 = document.getElementById('peso-page-1');
-      const imgData1 = await htmlToImage.toJpeg(page1, { 
-        quality: 0.98, 
-        backgroundColor: '#ffffff',
-        pixelRatio: 2 
-      });
-      const pdfHeight1 = (page1.offsetHeight * pdfWidth) / page1.offsetWidth;
-      pdf.addImage(imgData1, 'JPEG', 0, 0, pdfWidth, pdfHeight1);
-
-      // 3. Render Page 2
-      pdf.addPage();
-      const page2 = document.getElementById('peso-page-2');
-      const imgData2 = await htmlToImage.toJpeg(page2, { 
-        quality: 0.98, 
-        backgroundColor: '#ffffff',
-        pixelRatio: 2 
-      });
-      const pdfHeight2 = (page2.offsetHeight * pdfWidth) / page2.offsetWidth;
-      pdf.addImage(imgData2, 'JPEG', 0, 0, pdfWidth, pdfHeight2);
-
-      // Save directly to the machine
+      const pages = ['peso-page-1', 'peso-page-2'];
+      for (let index = 0; index < pages.length; index++) {
+        const page = document.getElementById(pages[index]);
+        if (!page) continue;
+        if (index > 0) pdf.addPage();
+        const image = await htmlToImage.toJpeg(page, {
+          quality: 0.96,
+          backgroundColor: '#ffffff',
+          pixelRatio: 1.5,
+        });
+        const imageHeight = (page.offsetHeight * pdfWidth) / page.offsetWidth;
+        pdf.addImage(image, 'JPEG', 0, 0, pdfWidth, imageHeight);
+      }
       pdf.save('NSRP_Form1.pdf');
 
-      // 4. Extract data for AI
-      const textInputs = Array.from(document.querySelectorAll('input[type="text"], input[type="date"]'))
-        .map(i => i.value.trim())
-        .filter(val => val !== '');
+      const normalize = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
+      const getFieldLabel = (input, index) => {
+        const explicit = input.dataset.field || input.name || input.id || input.getAttribute('aria-label');
+        if (explicit) return normalize(explicit);
 
-      const checkedBoxes = Array.from(document.querySelectorAll('input[type="checkbox"]:checked'))
-        .map(i => i.parentElement.innerText.trim());
+        const tableCell = input.closest('td');
+        const tableRow = input.closest('tr');
+        if (tableCell && tableRow) {
+          const columnIndex = Array.from(tableRow.cells).indexOf(tableCell);
+          const table = input.closest('table');
+          const headings = table?.querySelector('thead tr');
+          const heading = headings?.cells?.[columnIndex]?.innerText;
+          const rowLabel = tableRow.cells?.[0]?.innerText;
+          const combined = [normalize(rowLabel), normalize(heading)].filter(Boolean).join(' — ');
+          if (combined) return combined;
+        }
 
-      const cleanTextData = `
-      --- PESO FORM EXTRACTED VALUES ---
-      Entered Text/Dates: ${textInputs.join(', ')}
-      Checked Options/Skills: ${checkedBoxes.join(', ')}
-      `;
+        const label = input.closest('label');
+        if (label) {
+          const text = normalize(label.innerText);
+          if (text) return text;
+        }
 
-      const payload = JSON.stringify({ status: 'completed', data: cleanTextData });
+        const previous = input.previousElementSibling;
+        if (previous && normalize(previous.innerText)) return normalize(previous.innerText);
 
-      if (window.FlutterBridge) {
-        window.FlutterBridge.postMessage(payload);
-      } else {
-        alert("Form Downloaded!\n\nIf you are testing Flutter on Chrome Web, click the 'Skip (Web Test)' button in the Flutter AppBar to continue.");
+        // Handles rows where the label is text immediately before the input.
+        const parent = input.parentElement;
+        if (parent) {
+          const childNodes = Array.from(parent.childNodes);
+          const inputIndex = childNodes.indexOf(input);
+          const prefix = normalize(childNodes.slice(0, inputIndex).map((node) => node.textContent || '').join(' '));
+          if (prefix && prefix.length <= 120) return prefix;
+        }
+
+        // Walk up one or two layout rows to include nearby question text.
+        let branch = input;
+        for (let depth = 0; depth < 5 && branch.parentElement; depth++) {
+          const parentNode = branch.parentElement;
+          const previousElement = branch.previousElementSibling;
+          if (previousElement) {
+            const candidate = normalize(previousElement.innerText);
+            if (candidate && candidate.length <= 100) return candidate;
+          }
+          if (parentNode.classList.contains('p-1') || parentNode.tagName === 'TR') {
+            const candidate = normalize(parentNode.innerText);
+            if (candidate && candidate.length <= 150 && parentNode.querySelectorAll('input').length <= 3) {
+              return candidate;
+            }
+          }
+          branch = parentNode;
+        }
+
+        return `Form field ${index + 1}`;
+      };
+
+      const controls = Array.from(document.querySelectorAll('input, select, textarea')).filter((control) => {
+        const type = (control.type || '').toLowerCase();
+        return !['hidden', 'submit', 'button', 'reset', 'file'].includes(type);
+      });
+      const entries = controls.map((input, index) => {
+        const type = (input.type || input.tagName || 'text').toLowerCase();
+        const label = getFieldLabel(input, index);
+        const checked = type === 'checkbox' || type === 'radio' ? input.checked : undefined;
+        const value = checked === true ? 'Selected' : (checked === false ? '' : normalize(input.value));
+        const fieldKey = [input.name, input.id, input.placeholder, input.getAttribute('aria-label')].filter(Boolean).join(' ');
+        const contextNode = input.closest('tr') || input.closest('label') || input.parentElement;
+        const context = normalize(contextNode?.innerText || contextNode?.textContent || '');
+        return { index: index + 1, label, fieldKey, context, type, value, ...(checked === undefined ? {} : { checked }) };
+      }).filter((entry) => entry.value !== '' || entry.checked === true);
+
+      // Save the full form privately for the user, but omit identity numbers
+      // and nearby labels that may identify them before sending text to Gemini.
+      const sensitiveLabel = /\b(tin|sss|gsis|philhealth|pag-?ibig|passport|household\s*id|tax\s*id|government\s*id|national\s*id|voter'?s?\s*id|driver'?s?\s*license|umid)\b/i;
+      const aiEntries = entries.filter((entry) => !sensitiveLabel.test(`${entry.label} ${entry.fieldKey} ${entry.context}`));
+      const aiText = [
+        'NSRP FORM 1 - COMPLETED VALUES',
+        ...aiEntries.map((entry) => `${entry.label}: ${entry.value}`),
+      ].join('\n');
+      const storedEntries = entries.map((entry) => {
+        const storedEntry = { ...entry };
+        delete storedEntry.fieldKey;
+        delete storedEntry.context;
+        return storedEntry;
+      });
+      const formData = {
+        documentType: 'NSRP Form 1',
+        entries: storedEntries,
+        completedAt: new Date().toISOString(),
+        aiText,
+      };
+
+      const dataUri = pdf.output('datauristring');
+      const base64 = dataUri.includes(',') ? dataUri.substring(dataUri.indexOf(',') + 1) : '';
+      const delivered = sendToFlutter({
+        status: 'completed',
+        kind: 'nsrp_form',
+        data: aiText,
+        aiText,
+        formData,
+        artifact: base64 ? {
+          fileName: 'NSRP_Form1.pdf',
+          category: 'nsrp_form',
+          mimeType: 'application/pdf',
+          base64,
+        } : null,
+      });
+
+      if (!delivered) {
+        alert('The NSRP form was downloaded, but no Flutter app was detected to save the data. Open this form from PESO JobKonek to sync it to your profile.');
       }
     } catch (error) {
-      console.error("PDF Generation failed:", error);
-      alert("Failed to generate PDF. Check console for details.");
+      console.error('NSRP PDF or data extraction failed:', error);
+      alert('Could not complete the NSRP form. Please check the browser console and try again.');
     } finally {
-      zoomWrapper.style.transform = originalTransform;
+      if (zoomWrapper) zoomWrapper.style.transform = originalTransform;
       setIsProcessing(false);
     }
   };
