@@ -1,7 +1,7 @@
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import '../../peso_services/peso_image_cache_manager.dart';
 import 'package:file_picker/file_picker.dart';
 
 import '../../peso_models/profile_artifact.dart';
@@ -241,10 +241,10 @@ class _AuthPageState extends State<AuthPage> {
       constraints: BoxConstraints(
         minHeight: MediaQuery.of(context).size.height - 90,
       ),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: Colors.black,
         image: DecorationImage(
-          image: CachedNetworkImageProvider(
+          image: PesoCachedNetworkImageProvider(
             'https://images.unsplash.com/photo-1497215728101-856f4ea42174?ixlib=rb-4.0.3&auto=format&fit=crop&w=1200&q=80',
           ),
           fit: BoxFit.cover,

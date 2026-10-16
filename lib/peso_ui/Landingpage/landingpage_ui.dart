@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import '../../peso_services/peso_image_cache_manager.dart';
 
 import '../Login_register_pages/auth_ui.dart';
 import '../Reusable_Designs/reusable_ui.dart';
@@ -219,7 +219,7 @@ class _LandingPageState extends State<LandingPage> {
           ),
         ],
         image: DecorationImage(
-          image: CachedNetworkImageProvider(imageUrl),
+          image: PesoCachedNetworkImageProvider(imageUrl),
           fit: BoxFit.cover,
         ),
       ),
@@ -398,10 +398,10 @@ class _LandingPageState extends State<LandingPage> {
     return Container(
       width: double.infinity,
       constraints: const BoxConstraints(minHeight: 800),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: Colors.black,
         image: DecorationImage(
-          image: CachedNetworkImageProvider(
+          image: PesoCachedNetworkImageProvider(
             'https://images.unsplash.com/photo-1573164713988-8665fc963095?ixlib=rb-4.0.3&auto=format&fit=crop&w=1200&q=80',
           ),
           fit: BoxFit.cover,
@@ -876,8 +876,8 @@ class _LandingPageState extends State<LandingPage> {
               height: 400,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(20),
-                image: const DecorationImage(
-                  image: CachedNetworkImageProvider(
+                image: DecorationImage(
+                  image: PesoCachedNetworkImageProvider(
                     'https://images.unsplash.com/photo-1522071820081-009f0129c71c?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80',
                   ),
                   fit: BoxFit.cover,
@@ -1011,10 +1011,10 @@ class _LandingPageState extends State<LandingPage> {
   Widget _buildPesoPrograms(Color pesoGreen) {
     return Container(
       width: double.infinity,
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: Colors.black,
         image: DecorationImage(
-          image: CachedNetworkImageProvider(
+          image: PesoCachedNetworkImageProvider(
             'https://images.unsplash.com/photo-1552664730-d307ca884978?ixlib=rb-4.0.3&auto=format&fit=crop&w=1200&q=80',
           ),
           fit: BoxFit.cover,
@@ -1120,28 +1120,27 @@ class _LandingPageState extends State<LandingPage> {
                 name: 'Josh Lander Ferrera',
                 role: 'Lead Full Stack Engineer & Architect',
                 description: 'The driving force behind the platform architecture, bridging backend logic, AI LLM integrations, and the Flutter web application.',
-                imageUrl: 'https://upload.wikimedia.org/wikipedia/en/8/86/Einstein_tongue.jpg',
+                imageAsset: 'lib/assets/josh.png',
                 pesoGreen: pesoGreen,
               ),
               _buildDeveloperCard(
                 name: 'Lovely Anne C. Ilaya',
                 role: 'Full Stack & Lead UI/UX Designer',
                 description: 'Creates intuitive design systems and accessible web interfaces while contributing to full-stack frontend development.',
-                imageUrl: 'https://upload.wikimedia.org/wikipedia/commons/7/74/Jeon_Jung-kook_for_Dispatch_%22Boy_With_Luv%22_MV_behind_the_scene_shooting%2C_15_March_2019_04.jpg',
                 pesoGreen: pesoGreen,
               ),
               _buildDeveloperCard(
                 name: 'Edward Marcelino',
                 role: 'Full Stack Engineer (Core Functionalities)',
                 description: 'Bridges frontend interfaces and backend databases, maintaining API routing and system stability.',
-                imageUrl: 'https://upload.wikimedia.org/wikipedia/commons/d/d7/Henry_Cavill_by_Gage_Skidmore_2.jpg',
+                imageAsset: 'lib/assets/edward.png',
                 pesoGreen: pesoGreen,
               ),
               _buildDeveloperCard(
                 name: 'John Paul Cesneros',
                 role: 'Frontend Engineer & Documentation Lead',
                 description: 'Drives frontend UI implementation and technical documentation for municipal system compliance.',
-                imageUrl: 'https://i.kym-cdn.com/entries/icons/original/000/026/152/gigachad.jpg',
+                imageAsset: 'lib/assets/cesneros.png',
                 pesoGreen: pesoGreen,
               ),
             ],
@@ -1155,7 +1154,8 @@ class _LandingPageState extends State<LandingPage> {
     required String name,
     required String role,
     required String description,
-    required String imageUrl,
+    String? imageUrl,
+    String? imageAsset,
     required Color pesoGreen,
   }) {
     return Container(
@@ -1183,7 +1183,17 @@ class _LandingPageState extends State<LandingPage> {
             child: CircleAvatar(
               radius: 50,
               backgroundColor: Colors.grey.shade200,
-              backgroundImage: CachedNetworkImageProvider(imageUrl),
+              backgroundImage: imageAsset != null
+                  ? AssetImage(imageAsset)
+                  : imageUrl != null
+                      ? PesoCachedNetworkImageProvider(imageUrl)
+                      : null,
+              child: imageAsset == null && imageUrl == null
+                  ? Text(
+                      name.split(RegExp(r'\s+')).where((part) => part.isNotEmpty).take(2).map((part) => part[0].toUpperCase()).join(),
+                      style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w800, color: Color(0xFF64748B)),
+                    )
+                  : null,
             ),
           ),
           const SizedBox(height: 25),

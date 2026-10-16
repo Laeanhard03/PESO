@@ -2,6 +2,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import '../../peso_services/peso_image_cache_manager.dart';
 
 class UserJobFeedTab extends StatelessWidget {
   final String userName;
@@ -115,6 +116,7 @@ class UserJobFeedTab extends StatelessWidget {
                                     children: [
                                       CachedNetworkImage(
                                         imageUrl: job['image'],
+                                        cacheManager: PesoImageCacheManager.instance,
                                         fit: BoxFit.cover,
                                         placeholder: (context, url) =>
                                             Container(
@@ -297,7 +299,7 @@ class UserJobFeedTab extends StatelessWidget {
                               topRight: Radius.circular(30),
                             ),
                             image: DecorationImage(
-                              image: CachedNetworkImageProvider(
+                              image: PesoCachedNetworkImageProvider(
                                 selectedJob!['image'],
                               ),
                               fit: BoxFit.cover,

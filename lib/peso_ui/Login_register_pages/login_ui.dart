@@ -239,12 +239,22 @@ class _LoginFormState extends State<LoginForm> {
 
   Future<void> _openUserArea() async {
     if (!mounted) return;
+    var hasAdminClaim = false;
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser != null) {
+      try {
+        final token = await currentUser.getIdTokenResult();
+        hasAdminClaim = token.claims?['admin'] == true;
+      } catch (error) {
+        debugPrint('[AUTH] Could not read the admin claim for routing: $error');
+      }
+    }
     final role = await AuthService.getCurrentUserRole();
     if (!mounted) return;
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
-        builder: (_) => role == 'admin'
+        builder: (_) => hasAdminClaim || role == 'admin'
             ? const AdminDashboard()
             : const UserProfile(),
       ),

@@ -12,6 +12,12 @@ Last review: 2026-10-16
 - **Implemented, not live-verified:** Firestore and Storage rule files are present. Confirm their deployed versions and test cross-user isolation before production.
 - **Removed:** The mistaken end-user notepad UI and its Firestore read/write methods are removed. The intended feature is this functionality/verification note, not an in-app personal notepad.
 
+## Admin security gate and images
+
+- **Implemented in source; Firebase verification pending:** AdminDashboard stays locked until either a fresh Firebase email/password sign-in or verification of the already-authenticated Firebase session succeeds and a refreshed ID token contains the `admin: true` custom claim. A missing claim denies access. Admin logout signs out of Firebase. The `admin/admin` debug shortcut only opens the lock screen and cannot bypass this blocker.
+- **Implemented:** `lib/assets/josh.png`, `edward.png`, and `cesneros.png` are registered as Flutter assets and mapped to Josh Lander Ferrera, Edward Marcelino, and John Paul Cesneros on the Project Developers cards. Lovely Anne C. Ilaya uses initials until a matching named photo is supplied; unrelated placeholder portraits were removed.
+- **Implemented in source:** Network images share a cache manager configured for a 365-day stale period and 500 cached objects. On native builds, a background preloader downloads the app's built-in public images in small batches after startup. The Flutter web app registers `web/peso-image-cache-worker.js`, which pre-caches built-in public imagery and caches later public cross-origin image requests, excluding token/signed-URL query strings. The separate React workspace has its own registered worker at `react_workspace/public/peso-image-cache-worker.js` for the resume-builder portrait set and subsequent public image requests.
+- **Locally verified:** Flutter analyze passes with 27 info-level style/deprecation lints, both Flutter widget tests pass including the Admin security gate, React lint/build pass, and both image-worker scripts pass `node --check`. **Not yet verified end-to-end:** Confirm offline image rendering in a browser after each service worker activates and on a native target after images download. A first-ever visit still needs a connection to fetch remote imagery; bundled developer photos are always local. Browser storage can be cleared or evicted by the platform.
 ## Gemini service and credential security
 
 - **Implemented, not live-verified:** Firebase Functions v2 geminiGateway source with server-side GEMINI_API_KEY Secret Manager binding. The app source no longer bundles .env or secrets.json and no longer uses the old source-coded AES key.
@@ -27,14 +33,14 @@ Last review: 2026-10-16
 - **Implemented in source; deployment/live test pending:** Callable functions require the verified Firebase Authentication custom claim `admin: true`. The deployed admin UID must be explicitly configured; a Firestore profile role alone is not sufficient. User-facing clients cannot set their own custom claim.
 - **Implemented in source; deployment/live test pending:** Edit name/email/phone/location/education/employment/title/bio; disable or enable a job-seeker account; permanently delete a job-seeker auth account and attempt to clean its Storage prefix and Firestore document tree.
 - **Safety behavior:** The current administrator cannot delete or edit their own account from this screen. Accounts with the admin role/custom claim cannot be edited or deleted through these endpoints. Role changes are intentionally excluded from the edit payload.
-- **Local UI-only preview:** Flutter debug runs accept username admin and password admin at the login screen to open a clearly labeled dashboard preview. This creates no Firebase session, cannot access registered-user management, and is disabled in release builds. Never treat it as a real administrator login.
+- **Local UI-only preview:** Flutter debug runs accept username admin and password admin only to open the Admin security gate. Firebase verification is still required before any Admin tab appears; the shortcut creates no Firebase session and is disabled in release builds.
 - **Not yet verified:** These admin functions require deployment before they can be called. The existing administrator must have the Firebase Authentication custom claim `admin: true`. Run the one-time claim script only from a trusted workstation with credentials authorized to administer the project. No real account has been edited, disabled, or deleted as part of the source implementation. Deletion can return a cleanup warning if Cloud Storage or Firestore cleanup fails; review audit logs if that happens.
 
 ## UI areas that still contain demo or in-memory behavior
 
 - **Demo/mock:** Applicant KPIs, candidate records, concerns/feedback, job-ingestion batch history, DOLE SPRS export, and several platform analytics values are seeded or simulated in the current admin UI. The visible toast for generating an Excel export is not proof an Excel file was written; the handoff action is local state.
 - **Demo/mock:** Some job-feed/matching values shown by the UI may come from local samples rather than live marketplace queries. Verify each source before treating displayed counts as real production metrics.
-- **Locally verified:** The React workspace lint and production build pass; React source was not modified as part of the admin/notepad change. The build retains a Vite advisory that the largest JavaScript chunk is about 680 kB.
+- **Locally verified:** The React workspace lint and production build pass after registering the resume-builder public-image worker. The build retains a Vite advisory that the largest JavaScript chunk is about 680 kB.
 - **Known build note:** The React production build previously warned that the main JavaScript bundle exceeded Vite's 500 kB advisory threshold. That warning is a performance optimization concern, not proof the build failed.
 
 ## Still required before production
@@ -50,14 +56,14 @@ Last review: 2026-10-16
 
 ## Recent local verification record
 
-Verified locally on 2026-10-16 after the admin/notepad changes:
+Verified locally on 2026-10-16 after the admin-gate and offline-image-cache changes:
 
 - **Passed:** `functions`: `npm test` (16/16 tests), `npm run lint`, and module export checks for `geminiGateway`, `adminListUsers`, `adminUpdateUser`, and `adminDeleteUser`. The gateway and Flutter client timeouts now allow the bounded three-attempt upstream retry window.
-- **Passed:** `flutter analyze --no-fatal-infos` (21 info-level style/deprecation lints remain; no errors or warnings were reported).
-- **Passed:** `flutter test` (1/1 smoke test).
-- **Passed:** `flutter build web --release`.
+- **Passed:** `flutter analyze --no-fatal-infos` after the admin/cache edits (27 info-level style/deprecation lints remain; no errors or warnings were reported).
+- **Passed:** `flutter test` (2/2 widget tests, including the Admin Firebase security-gate test).
+- **Passed:** Fresh `flutter build web --release --no-wasm-dry-run` after the security-gate and image-cache changes; the built output contains `peso-image-cache-worker.js` and the three named developer portraits.
 - **Passed:** `git diff --check` for task-owned changes when excluding the pre-existing, out-of-scope `watcher.ps1` edit.
-- **Passed:** targeted source scan found no legacy notepad feature references; no old cipher-key marker was found in tracked working-tree source; the fresh `build/web` output contained no files named `.env`, `secrets.json`, service-account key, or PEM files.
+- **Passed:** targeted source scan found no legacy notepad references or old cipher-key marker in tracked source. Both image-worker scripts pass `node --check`, and both workers were copied into their respective built web outputs. No files named `.env`, `secrets.json`, service-account key, or PEM files were found in the earlier fresh Flutter web output. Browser offline integration is still pending.
 - **Not done:** No Firebase Functions deployment, live Gemini request, admin-claim grant, real-user edit/deletion, Firestore rules deployment, or Storage test was performed. These require separate production/project verification.
 - **Environment note:** Local Node was v25.2.1 while `functions/package.json` targets Node 22. Unit/lint checks passed locally; use Node 22 for deployment/runtime parity.
 

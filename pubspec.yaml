@@ -30,7 +30,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  cached_network_image: ^3.4.1 # Adds SQLite/IndexedDB offline image caching
+  cached_network_image: ^3.4.1 # Shared persistent image cache
+  flutter_cache_manager: ^3.4.2
   file_picker: ^8.1.2
 
   # The following adds the Cupertino Icons font to your application.
@@ -61,7 +62,8 @@ dev_dependencies:
 
 # The following section is specific to Flutter packages.
 flutter:
-
+  assets:
+    - lib/assets/
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
   # the material Icons class.

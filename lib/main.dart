@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import 'firebase_options.dart';
 import 'peso_services/firebase_setup.dart';
+import 'peso_services/peso_image_cache_manager.dart';
 import 'peso_ui/Landingpage/landingpage_ui.dart';
 
 Future<void> main() async {
@@ -26,6 +29,9 @@ Future<void> main() async {
   }
 
   runApp(const PesoApp());
+
+  // Pre-cache built-in remote imagery in the background after first paint.
+  if (!kIsWeb) unawaited(PesoImageCacheManager.preloadKnownImages());
 }
 
 class PesoApp extends StatelessWidget {

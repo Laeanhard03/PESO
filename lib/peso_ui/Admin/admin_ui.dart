@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'dart:ui';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../Landingpage/landingpage_ui.dart';
@@ -528,7 +529,7 @@ class _AnimatedCounterTextState extends State<AnimatedCounterText>
 // ROOT WIDGET
 // =====================================================================
 class AdminDashboard extends StatefulWidget {
-  /// Enables a visibly marked, non-authenticated local UI preview only.
+  /// Marks that the debug shortcut was used; the Firebase admin gate still applies.
   final bool developmentPreview;
 
   const AdminDashboard({super.key, this.developmentPreview = false});
@@ -539,14 +540,239 @@ class AdminDashboard extends StatefulWidget {
 
 class _AdminDashboardState extends State<AdminDashboard> {
   AdminTab _activeTab = AdminTab.analytics;
+  final _adminGateEmailController = TextEditingController();
+  final _adminGatePasswordController = TextEditingController();
+  bool _isVerifyingAdmin = false;
+  bool _firebaseAdminVerified = false;
+  bool _obscureAdminGatePassword = true;
+  String? _adminGateError;
   bool _isLoggingOut = false;
   final _scaffoldKey = GlobalKey<ScaffoldState>();
 
   late final List<Applicant> _applicants = _generateApplicants();
   late final List<Concern> _concerns = _generateConcerns(_applicants);
 
+  @override
+  void dispose() {
+    _adminGateEmailController.dispose();
+    _adminGatePasswordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _verifyExistingFirebaseAdministrator() async {
+    setState(() {
+      _isVerifyingAdmin = true;
+      _adminGateError = null;
+    });
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        if (mounted) setState(() => _adminGateError = 'No Firebase session is active. Sign in below with your administrator account.');
+        return;
+      }
+      final tokenResult = await user.getIdTokenResult(true);
+      if (tokenResult.claims?['admin'] != true) {
+        if (mounted) setState(() => _adminGateError = 'The current Firebase account lacks the admin: true custom claim. Use an authorized administrator account.');
+        return;
+      }
+      if (!mounted) return;
+      setState(() {
+        _firebaseAdminVerified = true;
+        _adminGateError = null;
+        _adminGatePasswordController.clear();
+      });
+    } catch (_) {
+      if (mounted) setState(() => _adminGateError = 'Firebase could not verify the current session. Sign in below and retry.');
+    } finally {
+      if (mounted) setState(() => _isVerifyingAdmin = false);
+    }
+  }
+  Future<void> _verifyFirebaseAdministrator() async {
+    final email = _adminGateEmailController.text.trim();
+    final password = _adminGatePasswordController.text;
+    if (email.isEmpty || password.isEmpty) {
+      setState(() => _adminGateError = 'Enter the email and password of your Firebase administrator account.');
+      return;
+    }
+    setState(() {
+      _isVerifyingAdmin = true;
+      _adminGateError = null;
+    });
+    try {
+      final credential = await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+      final user = credential.user;
+      if (user == null) {
+        if (mounted) setState(() => _adminGateError = 'Firebase could not confirm the signed-in account.');
+        return;
+      }
+      final tokenResult = await user.getIdTokenResult(true);
+      if (tokenResult.claims?['admin'] != true) {
+        await FirebaseAuth.instance.signOut();
+        if (!mounted) return;
+        setState(() => _adminGateError = 'Firebase sign-in worked, but this account is not authorized for Admin. The project owner must grant the admin: true custom claim, then you must sign in again.');
+        return;
+      }
+      if (!mounted) return;
+      setState(() {
+        _firebaseAdminVerified = true;
+        _adminGateError = null;
+        _adminGatePasswordController.clear();
+      });
+    } on FirebaseAuthException catch (error) {
+      if (!mounted) return;
+      final message = switch (error.code) {
+        'invalid-credential' || 'wrong-password' || 'user-not-found' => 'The Firebase email or password is incorrect.',
+        'too-many-requests' => 'Firebase temporarily blocked sign-in attempts. Wait a little and retry.',
+        'network-request-failed' => 'Firebase cannot be reached. Check your internet connection and retry.',
+        _ => 'Firebase administrator verification failed. Check your credentials and try again.',
+      };
+      setState(() => _adminGateError = message);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _adminGateError = 'The Firebase security check could not finish. Verify Firebase setup and try again.');
+    } finally {
+      if (mounted) setState(() => _isVerifyingAdmin = false);
+    }
+  }
+
+  Future<void> _leaveAdminGate() async {
+    try {
+      await FirebaseAuth.instance.signOut();
+    } catch (_) {
+      // Firebase may not be initialized when the local preview is opened.
+    }
+    if (!mounted) return;
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (_) => const LandingPage()),
+      (_) => false,
+    );
+  }
+
+  Widget _buildAdminSecurityGate() {
+    return Scaffold(
+      backgroundColor: _C.bg,
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: Container(
+              padding: const EdgeInsets.all(30),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: _C.slate200),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.07),
+                    blurRadius: 30,
+                    offset: const Offset(0, 12),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Icon(Icons.admin_panel_settings_outlined, size: 56, color: _C.primary),
+                  const SizedBox(height: 18),
+                  const Text(
+                    'Protected Admin Area',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: _C.slate900),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    widget.developmentPreview
+                        ? 'The admin/admin shortcut only opens this lock screen. Verify your existing Firebase administrator session or sign in below to unlock the dashboard.'
+                        : 'Verify your identity directly with Firebase. Access is granted only to an account carrying the verified admin: true custom claim.',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: _C.slate600, height: 1.5),
+                  ),
+                  const SizedBox(height: 24),
+                  OutlinedButton.icon(
+                    onPressed: _isVerifyingAdmin ? null : _verifyExistingFirebaseAdministrator,
+                    icon: const Icon(Icons.verified_user_outlined),
+                    label: const Text('Verify current Firebase session'),
+                    style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 15)),
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 14),
+                    child: Text('OR SIGN IN WITH FIREBASE', textAlign: TextAlign.center, style: TextStyle(color: _C.slate500, fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 1.1)),
+                  ),
+                  TextField(
+                    controller: _adminGateEmailController,
+                    enabled: !_isVerifyingAdmin,
+                    keyboardType: TextInputType.emailAddress,
+                    autofillHints: const [AutofillHints.username, AutofillHints.email],
+                    decoration: const InputDecoration(
+                      labelText: 'Firebase administrator email',
+                      prefixIcon: Icon(Icons.email_outlined),
+                      border: OutlineInputBorder(),
+                    ),
+                    onSubmitted: (_) => _verifyFirebaseAdministrator(),
+                  ),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: _adminGatePasswordController,
+                    enabled: !_isVerifyingAdmin,
+                    obscureText: _obscureAdminGatePassword,
+                    autofillHints: const [AutofillHints.password],
+                    decoration: InputDecoration(
+                      labelText: 'Firebase password',
+                      prefixIcon: const Icon(Icons.lock_outline),
+                      border: const OutlineInputBorder(),
+                      suffixIcon: IconButton(
+                        onPressed: () => setState(() => _obscureAdminGatePassword = !_obscureAdminGatePassword),
+                        icon: Icon(_obscureAdminGatePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+                        tooltip: _obscureAdminGatePassword ? 'Show password' : 'Hide password',
+                      ),
+                    ),
+                    onSubmitted: (_) => _verifyFirebaseAdministrator(),
+                  ),
+                  if (_adminGateError != null) ...[
+                    const SizedBox(height: 14),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(color: const Color(0xFFFFF1F2), borderRadius: BorderRadius.circular(10)),
+                      child: Text(_adminGateError!, style: const TextStyle(color: _C.rose600, height: 1.4)),
+                    ),
+                  ],
+                  const SizedBox(height: 20),
+                  FilledButton.icon(
+                    onPressed: _isVerifyingAdmin ? null : _verifyFirebaseAdministrator,
+                    icon: _isVerifyingAdmin
+                        ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                        : const Icon(Icons.verified_user_outlined),
+                    label: Text(_isVerifyingAdmin ? 'Verifying with Firebase...' : 'Verify and unlock Admin'),
+                    style: FilledButton.styleFrom(backgroundColor: _C.primary, padding: const EdgeInsets.symmetric(vertical: 16)),
+                  ),
+                  const SizedBox(height: 4),
+                  TextButton.icon(
+                    onPressed: _isVerifyingAdmin ? null : _leaveAdminGate,
+                    icon: const Icon(Icons.arrow_back),
+                    label: const Text('Back to PESO home'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _logout() async {
     setState(() => _isLoggingOut = true);
+    try {
+      await FirebaseAuth.instance.signOut();
+    } catch (error) {
+      debugPrint('[ADMIN] Firebase sign-out failed: $error');
+    }
     await Future.delayed(const Duration(milliseconds: 1400));
     if (!mounted) return;
     Navigator.pushReplacement(
@@ -557,6 +783,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
   @override
   Widget build(BuildContext context) {
+    if (!_firebaseAdminVerified) return _buildAdminSecurityGate();
     final navItem = kNavItems.firstWhere((n) => n.tab == _activeTab);
     final unresolvedConcerns = _concerns.where((c) => !c.resolved).length;
     final badgeCounts = <AdminTab, int>{
@@ -673,23 +900,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
       case AdminTab.analytics:
         return ApplicantAnalyticsSection(applicants: _applicants);
       case AdminTab.users:
-        if (widget.developmentPreview) {
-          return const Center(
-            child: Padding(
-              padding: EdgeInsets.all(32),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.lock_outline_rounded, size: 48, color: Color(0xFF64748B)),
-                  SizedBox(height: 16),
-                  Text('Live User Management Is Locked In Preview', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800), textAlign: TextAlign.center),
-                  SizedBox(height: 10),
-                  Text('The admin/admin shortcut only opens a local dashboard preview. Sign in through Firebase with an authorized administrator account to list, edit, enable, disable, or delete registered users.', textAlign: TextAlign.center),
-                ],
-              ),
-            ),
-          );
-        }
         return const AdminUserManagementSection();
       case AdminTab.concerns:
         return ConcernsSection(initialConcerns: _concerns);

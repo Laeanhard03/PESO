@@ -41,6 +41,23 @@
     For more details:
     * https://docs.flutter.dev/platform-integration/web/initialization
   -->
-  <script src="flutter_bootstrap.js" async></script>
+<script>
+  // Ask the active image worker to warm common public images without delaying app startup.
+  if ('serviceWorker' in navigator) {
+    let warmupRequested = false;
+    const requestImageWarmup = (worker) => {
+      if (!worker || warmupRequested) return;
+      warmupRequested = true;
+      worker.postMessage({ type: 'PRECACHE_PUBLIC_IMAGES' });
+    };
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      requestImageWarmup(navigator.serviceWorker.controller);
+    });
+    navigator.serviceWorker.ready.then((registration) => {
+      requestImageWarmup(navigator.serviceWorker.controller || registration.active);
+    }).catch((error) => console.warn('PESO background image warm-up is unavailable.', error));
+  }
+</script>
+<script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
