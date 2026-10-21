@@ -9,6 +9,7 @@ fi
 export PATH="${FLUTTER_ROOT}/bin:${PATH}"
 
 # The NSRP and resume screens are bundled inside this Flutter website.
+# GitHub main pushes deploy this one frontend through the peso Vercel project.
 # Relative workspace URL follows the current preview or production domain.
 DART_DEFINES=(
   --dart-define=PESO_NSRP_WORKSPACE_URL=/nsrp/

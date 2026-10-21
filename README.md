@@ -79,3 +79,7 @@ The private backend is a separate API service and is not a second frontend.
 
 Review tests and selectively stage source changes before pushing to `main`.
 Do not deploy local QA builds that contain Firebase Auth Emulator flags.
+
+If Vercel does not react to a push, verify the commit author email belongs to
+the GitHub account connected to the Vercel Hobby project. Placeholder Git
+identities are not reliable deployment authors.
