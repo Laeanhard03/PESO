@@ -61,7 +61,7 @@ development with C++” workload and a validated native strategy for the embedde
 React forms.
 
 
-## Single-frontend Vercel deployment
+## Single-project Vercel deployment
 
 The only public PESO frontend is the Vercel project `peso`, at
 `https://peso-psi.vercel.app/`. It connects to `Laeanhard03/PESO` and
@@ -70,12 +70,19 @@ is a static rollback checkpoint, not a production branch.
 
 The source folder `react_workspace/` is **not** a separate Vercel project:
 it provides the NSRP and resume screens embedded inside the Flutter app.
-`scripts/vercel_install_flutter.sh` installs both Flutter and Node dependencies;
+`scripts/vercel_install_flutter.sh` installs Flutter, React and backend Node dependencies;
 `scripts/vercel_build_flutter.sh` builds Flutter into `build/web`, builds Vite
 with `/nsrp/` as its public base and copies the generated assets into
 `build/web/nsrp`. The site serves the forms at `/nsrp/` and
 `/nsrp/resume`, with the parent Flutter app as their same-origin host.
-The private backend is a separate API service and is not a second frontend.
+The Node/Express backend runs as a Vercel Function in this same `peso` project,
+via `api/index.mjs` and the root `vercel.json` route `/api/:path*`.
+Production paths are `/` (Flutter), `/nsrp/` (React) and `/api/` (Express).
+`PESO_API_BASE_URL` and `PUBLIC_API_BASE_URL` are both the same HTTPS origin.
+MongoDB, Firebase service account and Gemini credentials are kept only in the
+Vercel project's Production environment, never in Flutter build code or Git.
+The Linux Go inference binary and unchanged trained model are shipped under
+`backend/mini_ai_runtime/` and loaded into the Function's writable `/tmp`.
 
 Review tests and selectively stage source changes before pushing to `main`.
 Do not deploy local QA builds that contain Firebase Auth Emulator flags.
@@ -83,3 +90,20 @@ Do not deploy local QA builds that contain Firebase Auth Emulator flags.
 If Vercel does not react to a push, verify the commit author email belongs to
 the GitHub account connected to the Vercel Hobby project. Placeholder Git
 identities are not reliable deployment authors.
+
+### One-project release check and rollback
+
+1. Commit only reviewed, tested files on `main`, then `git push origin main`.
+   The existing Vercel project `peso` follows that branch; no second project
+   or manual upload is needed when GitHub webhooks are healthy.
+2. In `peso` Deployments, confirm the new Git commit is **Ready** and assigned
+   to `peso-psi.vercel.app`. Verify `/`, `/nsrp/` and `/api/health`; unauthorized
+   `/api/jobs` and `/api/admin/users` should still respond with HTTP 401.
+3. To undo a bad deploy without rewriting Git history, use `git revert <bad-sha>`
+   on `main`, re-run tests and push the resulting revert commit. For a series
+   of commits, review each change and use an explicit restore commit based on
+   `backup/stable` if necessary. Never force-push `main` or automatically move
+   the `backup/stable` branch. Uncommitted local changes must be preserved.
+4. Backend secrets are configured in **the existing `peso` Vercel project**;
+   environment edits require a new deployment. Keep the dedicated original
+   backend deployment available only until the single-site API is verified.
