@@ -59,3 +59,23 @@ do not kill broad process-name matches.
 A native Flutter Windows build still needs the Visual Studio “Desktop
 development with C++” workload and a validated native strategy for the embedded
 React forms.
+
+
+## Single-frontend Vercel deployment
+
+The only public PESO frontend is the Vercel project `peso`, at
+`https://peso-psi.vercel.app/`. It connects to `Laeanhard03/PESO` and
+publishes pushes to `main` automatically. The GitHub branch `backup/stable`
+is a static rollback checkpoint, not a production branch.
+
+The source folder `react_workspace/` is **not** a separate Vercel project:
+it provides the NSRP and resume screens embedded inside the Flutter app.
+`scripts/vercel_install_flutter.sh` installs both Flutter and Node dependencies;
+`scripts/vercel_build_flutter.sh` builds Flutter into `build/web`, builds Vite
+with `/nsrp/` as its public base and copies the generated assets into
+`build/web/nsrp`. The site serves the forms at `/nsrp/` and
+`/nsrp/resume`, with the parent Flutter app as their same-origin host.
+The private backend is a separate API service and is not a second frontend.
+
+Review tests and selectively stage source changes before pushing to `main`.
+Do not deploy local QA builds that contain Firebase Auth Emulator flags.

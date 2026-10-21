@@ -3,6 +3,8 @@
   "buildCommand": "bash scripts/vercel_build_flutter.sh",
   "outputDirectory": "build/web",
   "rewrites": [
+    { "source": "/nsrp", "destination": "/nsrp/index.html" },
+    { "source": "/nsrp/:match*", "destination": "/nsrp/index.html" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

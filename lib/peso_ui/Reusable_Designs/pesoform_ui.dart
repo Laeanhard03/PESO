@@ -76,18 +76,15 @@ class _PesoRegistrationWizardState extends State<PesoRegistrationWizard> {
       final trimmed = value.trim();
       if (trimmed.isNotEmpty) query[key] = trimmed;
     });
-    // A hosted/mobile deployment must point to a reachable React workspace;
-    // localhost refers to the visitor's own device. Keep local Vite as the
-    // developer default and configure a separate HTTPS workspace at build time.
+    // Local development uses Vite. The hosted Flutter build configures /nsrp/
+    // on the same domain, avoiding a second Vercel frontend and stale origins.
     const configuredUrl = String.fromEnvironment(
       'PESO_NSRP_WORKSPACE_URL',
       defaultValue: '',
     );
-    final base = Uri.parse(
-      configuredUrl.trim().isEmpty
-          ? 'http://localhost:5173/'
-          : configuredUrl.trim(),
-    );
+    final base = configuredUrl.trim().isEmpty
+        ? Uri.parse('http://localhost:5173/')
+        : Uri.base.resolve(configuredUrl.trim());
     if (!const ['http', 'https'].contains(base.scheme) || base.host.isEmpty) {
       throw const FormatException('Invalid NSRP workspace URL.');
     }

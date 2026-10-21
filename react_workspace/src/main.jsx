@@ -6,6 +6,8 @@ import App from './App.jsx'
 import ResumeApp from './ResumeApp.jsx'
 
 // Cache public remote photos for offline resume-builder visits.
+const workspaceBase = import.meta.env.BASE_URL;
+
 if ('serviceWorker' in navigator) {
   let warmupRequested = false;
   const requestImageWarmup = (worker) => {
@@ -17,7 +19,7 @@ if ('serviceWorker' in navigator) {
     requestImageWarmup(navigator.serviceWorker.controller);
   });
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/peso-image-cache-worker.js')
+    navigator.serviceWorker.register(`${workspaceBase}peso-image-cache-worker.js`)
       .then(() => navigator.serviceWorker.ready)
       .then((registration) => requestImageWarmup(navigator.serviceWorker.controller || registration.active))
       .catch((error) => console.warn('PESO resume image cache worker could not register.', error));
@@ -25,13 +27,17 @@ if ('serviceWorker' in navigator) {
 }
 
 // Check the current URL path
-const currentPath = window.location.pathname;
+const currentPath = window.location.pathname.replace(/\/$/, '');
+const resumePath = new URL(
+  'resume',
+  new URL(workspaceBase, window.location.origin),
+).pathname;
 
 // Default to the PESO Form
-let ComponentToRender = App; 
+let ComponentToRender = App;
 
 // If Flutter asks for the resume page, swap the component
-if (currentPath === '/resume') {
+if (currentPath === resumePath) {
   ComponentToRender = ResumeApp;
 }
 

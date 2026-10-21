@@ -77,9 +77,16 @@ class _ResumeBuilderWizardState extends State<ResumeBuilderWizard> {
       defaultValue: '',
     );
     final configured = configuredUrl.trim();
-    final base = Uri.parse(
-      configured.isEmpty ? 'http://localhost:5173/' : configured,
-    ).replace(path: '/resume', queryParameters: query.isEmpty ? null : query);
+    final workspace = configured.isEmpty
+        ? Uri.parse('http://localhost:5173/')
+        : Uri.base.resolve(configured);
+    final workspacePath = workspace.path.endsWith('/')
+        ? workspace.path.substring(0, workspace.path.length - 1)
+        : workspace.path;
+    final base = workspace.replace(
+      path: '$workspacePath/resume',
+      queryParameters: query.isEmpty ? null : query,
+    );
     if (!const ['http', 'https'].contains(base.scheme) || base.host.isEmpty) {
       throw const FormatException('Invalid resume workspace URL.');
     }

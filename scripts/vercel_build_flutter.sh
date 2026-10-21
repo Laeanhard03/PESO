@@ -8,10 +8,10 @@ if [[ ! -x "${FLUTTER_ROOT}/bin/flutter" ]]; then
 fi
 export PATH="${FLUTTER_ROOT}/bin:${PATH}"
 
-# The React/Vite workspace is deployed independently on peso_aimatching.
-# Explicit origin keeps the Flutter-to-React postMessage bridge allowlisted.
+# The NSRP and resume screens are bundled inside this Flutter website.
+# Relative workspace URL follows the current preview or production domain.
 DART_DEFINES=(
-  --dart-define=PESO_NSRP_WORKSPACE_URL=https://pesoaimatching.vercel.app/
+  --dart-define=PESO_NSRP_WORKSPACE_URL=/nsrp/
 )
 
 # A browser user's localhost is their own device, not the cloud API. Require
@@ -31,3 +31,9 @@ if [[ -n "${PESO_API_BASE_URL:-}" ]]; then
 fi
 
 flutter build web --release "${DART_DEFINES[@]}"
+
+# Bundle the existing NSRP form and resume editor inside the Flutter website.
+# Vite's nested base keeps assets and its image worker under /nsrp/.
+npm run build --prefix react_workspace -- --base=/nsrp/
+mkdir -p build/web/nsrp
+cp -R react_workspace/dist/. build/web/nsrp/

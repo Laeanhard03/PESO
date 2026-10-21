@@ -24,3 +24,6 @@ flutter --version
 flutter config --no-analytics --enable-web
 flutter precache --web
 flutter pub get
+
+# Include NSRP and resume screens in the one Flutter Vercel project.
+npm ci --prefix react_workspace
