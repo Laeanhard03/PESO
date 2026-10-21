@@ -105,5 +105,9 @@ identities are not reliable deployment authors.
    `backup/stable` if necessary. Never force-push `main` or automatically move
    the `backup/stable` branch. Uncommitted local changes must be preserved.
 4. Backend secrets are configured in **the existing `peso` Vercel project**;
-   environment edits require a new deployment. Keep the dedicated original
-   backend deployment available only until the single-site API is verified.
+   environment edits require a new deployment. The original
+   standalone backend project `peso-jobkonek-api` has been deleted after the live
+   same-origin API health and authentication-boundary checks (2026-10-22).
+   Do not recreate separate React or backend Vercel projects. Authenticated
+   admin and applicant acceptance requires an owner-account browser test;
+   an unauthenticated HTTP 401 alone verifies access protection only.
