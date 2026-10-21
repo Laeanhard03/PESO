@@ -1,5 +1,20 @@
 const CACHE_NAME = 'peso-remote-images-v1';
+const BUNDLED_CACHE_NAME = 'peso-bundled-assets-v1';
 const MAX_CACHED_IMAGES = 300;
+
+const BUNDLED_ASSET_IMAGES = [
+  'assets/lib/assets/peso_hero_career.jpg',
+  'assets/lib/assets/peso_programs_workshop.jpg',
+  'assets/lib/assets/peso_about_team.jpg',
+  'assets/lib/assets/peso_gallery_conference.jpg',
+  'assets/lib/assets/peso_gallery_workspace.jpg',
+  'assets/lib/assets/peso_gallery_team.jpg',
+  'assets/lib/assets/peso_gallery_meeting.jpg',
+  'assets/lib/assets/peso_gallery_event.jpg',
+  'assets/lib/assets/peso_gallery_career.jpg',
+  'assets/lib/assets/peso_job_default.jpg',
+  'assets/lib/assets/peso_job_technology.jpg',
+];
 
 const BUILT_IN_PUBLIC_IMAGES = [
   'https://images.unsplash.com/photo-1542744173-8e7e53415bb0?ixlib=rb-4.0.3&auto=format&fit=crop&w=400&q=80',
@@ -35,26 +50,13 @@ const PRIVATE_QUERY_KEYS = new Set([
   'key'
 ]);
 
-function isPublicRemoteImageRequest(request) {
+function isBundledLocalImageRequest(request) {
   if (request.method !== 'GET') return false;
-
   const url = new URL(request.url);
-  if (url.protocol !== 'https:' && url.protocol !== 'http:') return false;
-  if (url.origin === self.location.origin) return false;
-
-  // Image packages may issue XHR/fetch requests with destination="" on web,
-  // so detect those by image Accept headers, extensions, or known image CDNs.
-  const accept = (request.headers.get('accept') || '').toLowerCase();
-  const pathname = url.pathname.toLowerCase();
-  const imageExtension = /\.(avif|bmp|gif|jpe?g|png|svg|webp)(?:$)/i.test(pathname);
-  const knownImageHost = /(^|\.)images\.unsplash\.com$|(^|\.)upload\.wikimedia\.org$|(^|\.)i\.kym-cdn\.com$/i.test(url.hostname);
-  const looksLikeImage = request.destination === 'image' || accept.includes('image/') || imageExtension || knownImageHost;
-  if (!looksLikeImage) return false;
-
-  for (const key of url.searchParams.keys()) {
-    if (PRIVATE_QUERY_KEYS.has(key.toLowerCase())) return false;
-  }
-  return true;
+  const scope = new URL(self.registration.scope);
+  if (url.origin !== scope.origin || !url.pathname.startsWith(scope.pathname)) return false;
+  const relativePath = url.pathname.slice(scope.pathname.length);
+  return /^assets\/lib\/assets\/peso_[a-z_]+\.jpg$/i.test(relativePath);
 }
 
 async function trimCache(cache) {
@@ -65,7 +67,6 @@ async function trimCache(cache) {
 }
 
 async function cacheImageResponse(cache, request, response) {
-  // Opaque responses are expected for public cross-origin images without CORS.
   if (!response || (!response.ok && response.type !== 'opaque')) return;
   try {
     await cache.put(request, response.clone());
@@ -73,6 +74,57 @@ async function cacheImageResponse(cache, request, response) {
   } catch (_) {
     // Cache quota or an unusual response must never break normal online images.
   }
+}
+
+async function warmBundledAssetImages() {
+  const cache = await caches.open(BUNDLED_CACHE_NAME);
+  await Promise.all(BUNDLED_ASSET_IMAGES.map(async (relativePath) => {
+    const url = new URL(relativePath, self.registration.scope).toString();
+    try {
+      const response = await fetch(new Request(url, { method: 'GET', cache: 'reload' }));
+      if (response.ok) await cache.put(url, response.clone());
+    } catch (_) {
+      // Local assets are also bundled with the app; failed warm-up is non-fatal.
+    }
+  }));
+}
+
+async function serveBundledAssetImage(request) {
+  const cache = await caches.open(BUNDLED_CACHE_NAME);
+  const cached = await cache.match(request, { ignoreSearch: true });
+  if (cached) return cached;
+  try {
+    const response = await fetch(request);
+    if (response.ok) {
+      try {
+        await cache.put(request, response.clone());
+      } catch (_) {
+        // Keep serving the fetched image if the browser denies cache storage.
+      }
+    }
+    return response;
+  } catch (_) {
+    const fallback = await cache.match(request, { ignoreSearch: true });
+    return fallback || Response.error();
+  }
+}
+
+function isPublicRemoteImageRequest(request) {
+  if (request.method !== 'GET') return false;
+  const url = new URL(request.url);
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return false;
+  if (url.origin === self.location.origin) return false;
+
+  const accept = (request.headers.get('accept') || '').toLowerCase();
+  const pathname = url.pathname.toLowerCase();
+  const imageExtension = /\.(avif|bmp|gif|jpe?g|png|svg|webp)(?:$)/i.test(pathname);
+  const knownImageHost = /(^|\.)images\.unsplash\.com$|(^|\.)upload\.wikimedia\.org$|(^|\.)i\.kym-cdn\.com$/i.test(url.hostname);
+  const looksLikeImage = request.destination === 'image' || accept.includes('image/') || imageExtension || knownImageHost;
+  if (!looksLikeImage) return false;
+  for (const key of url.searchParams.keys()) {
+    if (PRIVATE_QUERY_KEYS.has(key.toLowerCase())) return false;
+  }
+  return true;
 }
 
 async function fetchAndCachePublicImage(cache, url) {
@@ -103,7 +155,6 @@ async function warmBuiltInPublicImages() {
 }
 
 self.addEventListener('install', (event) => {
-  // Activate quickly; image warm-up is requested after the app is under control.
   event.waitUntil(self.skipWaiting());
 });
 
@@ -116,6 +167,7 @@ self.addEventListener('activate', (event) => {
         .map((name) => caches.delete(name))
     );
     await self.clients.claim();
+    await warmBundledAssetImages();
   })());
 });
 
@@ -124,14 +176,18 @@ self.addEventListener('message', (event) => {
     event.waitUntil(warmBuiltInPublicImages());
   }
 });
+
 self.addEventListener('fetch', (event) => {
+  if (isBundledLocalImageRequest(event.request)) {
+    event.respondWith(serveBundledAssetImage(event.request));
+    return;
+  }
   if (!isPublicRemoteImageRequest(event.request)) return;
 
   event.respondWith((async () => {
     const cache = await caches.open(CACHE_NAME);
     const cached = await cache.match(event.request, { ignoreVary: true });
     if (cached) return cached;
-
     try {
       const response = await fetch(event.request);
       await cacheImageResponse(cache, event.request, response);

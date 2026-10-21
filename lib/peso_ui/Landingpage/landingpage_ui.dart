@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
-import '../../peso_services/peso_image_cache_manager.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../Login_register_pages/auth_ui.dart';
 import '../Reusable_Designs/reusable_ui.dart';
+import '../Reusable_Designs/peso_images.dart';
 
 class LandingPage extends StatefulWidget {
   const LandingPage({super.key});
@@ -14,20 +15,23 @@ class LandingPage extends StatefulWidget {
 class _LandingPageState extends State<LandingPage> {
   final ScrollController _scrollController = ScrollController();
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  final TextEditingController _jobSearchController = TextEditingController();
 
   int _activePageIndex = 0;
+  String _selectedJobFilter = 'All roles';
   bool _isScrolled = false;
 
   @override
   void initState() {
     super.initState();
-    _scrollController.addListener(() {
-      if (_scrollController.offset > 50 && !_isScrolled) {
-        setState(() => _isScrolled = true);
-      } else if (_scrollController.offset <= 50 && _isScrolled) {
-        setState(() => _isScrolled = false);
-      }
-    });
+    _scrollController.addListener(_handleScroll);
+  }
+
+  void _handleScroll() {
+    final isScrolled = _scrollController.offset > 24;
+    if (isScrolled != _isScrolled && mounted) {
+      setState(() => _isScrolled = isScrolled);
+    }
   }
 
   void _scrollToTop() {
@@ -40,48 +44,85 @@ class _LandingPageState extends State<LandingPage> {
     }
   }
 
+  void _openJobSearch() {
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() => _activePageIndex = 1);
+    _scrollToTop();
+  }
+
   @override
   void dispose() {
     _scrollController.dispose();
+    _jobSearchController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final Color pesoGreen = const Color(0xFF2E7D32);
+    final width = MediaQuery.sizeOf(context).width;
+    final isMobile = width < PesoTokens.breakpointCompact;
 
     return Scaffold(
       key: _scaffoldKey,
-      extendBodyBehindAppBar: true,
+      extendBodyBehindAppBar: false,
       backgroundColor: Colors.white,
-      appBar: GlobalNavBar(
-        pesoGreen: pesoGreen,
-        activePageIndex: _activePageIndex,
+      appBar: AdaptiveNavBar(
+        activeIndex: _activePageIndex,
         isScrolled: _isScrolled,
         onTabSelected: (index) {
           setState(() => _activePageIndex = index);
           _scrollToTop();
         },
+        onRegisterTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => const AuthPage(initialIsLogin: false),
+          ),
+        ),
+        onLoginTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => const AuthPage(initialIsLogin: true),
+          ),
+        ),
+        showAuthActions: true,
       ),
+      bottomNavigationBar: isMobile
+          ? MobileBottomNavBar(
+              activeIndex: _activePageIndex,
+              onTabSelected: (index) {
+                setState(() => _activePageIndex = index);
+                _scrollToTop();
+              },
+            )
+          : null,
       body: SingleChildScrollView(
         controller: _scrollController,
         child: Column(
           children: [
             AnimatedSwitcher(
-              duration: const Duration(milliseconds: 600),
+              duration: MediaQuery.disableAnimationsOf(context)
+                  ? Duration.zero
+                  : const Duration(milliseconds: 320),
               switchInCurve: Curves.easeOutCubic,
               switchOutCurve: Curves.easeInCubic,
               transitionBuilder: (Widget child, Animation<double> animation) {
-                return FadeTransition(opacity: animation, child: child);
+                final slide = Tween<Offset>(
+                  begin: const Offset(0, 0.025),
+                  end: Offset.zero,
+                ).animate(animation);
+                return FadeTransition(
+                  opacity: animation,
+                  child: SlideTransition(position: slide, child: child),
+                );
               },
               child: Container(
                 key: ValueKey<int>(_activePageIndex),
-                child: _buildActiveContent(pesoGreen),
+                child: _buildActiveContent(),
               ),
             ),
-
             GlobalFooter(
-              pesoGreen: pesoGreen,
+              pesoGreen: PesoTokens.brandGreen,
               onTabSelected: (index) {
                 setState(() => _activePageIndex = index);
                 _scrollToTop();
@@ -94,105 +135,507 @@ class _LandingPageState extends State<LandingPage> {
     );
   }
 
-  Widget _buildActiveContent(Color pesoGreen) {
+  Widget _buildActiveContent() {
     switch (_activePageIndex) {
       case 0:
-        return _buildHomeContent(pesoGreen);
+        return _buildHomeContent();
       case 1:
-        return _buildDedicatedJobsPage(pesoGreen);
+        return _buildDedicatedJobsPage();
       case 2:
-        return _buildGalleryPage(pesoGreen);
+        return _buildGalleryPage();
       case 3:
-        return _buildHistoryPage(pesoGreen);
+        return _buildHistoryPage();
       case 4:
-        return _buildDedicatedAboutPage(pesoGreen);
+        return _buildDedicatedAboutPage();
       default:
-        return _buildHomeContent(pesoGreen);
+        return _buildHomeContent();
     }
   }
 
   // ==========================================
   // TAB 0: HOME PAGE
   // ==========================================
-  Widget _buildHomeContent(Color pesoGreen) {
+  Widget _buildHomeContent() {
     return Column(
       children: [
-        _buildHeroSection(pesoGreen),
-        _buildHowItWorks(pesoGreen),
-        _buildSearchAndFilters(pesoGreen, isDedicated: false),
-        _buildRecommendedJobs(pesoGreen),
-        _buildPesoPrograms(pesoGreen),
+        _ScrollReveal(
+          scrollController: _scrollController,
+          child: HeroSection(
+            onPrimaryTap: () {
+              setState(() => _activePageIndex = 1);
+              _scrollToTop();
+            },
+            onSecondaryTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const AuthPage(initialIsLogin: false),
+              ),
+            ),
+          ),
+        ),
+        _ScrollReveal(
+          scrollController: _scrollController,
+          child: _buildHowItWorks(),
+        ),
+        _homeSectionBridge(Colors.white, PesoTokens.surfaceNeutral),
+        _ScrollReveal(
+          scrollController: _scrollController,
+          child: _buildSearchAndFilters(isDedicated: false),
+        ),
+        _ScrollReveal(
+          scrollController: _scrollController,
+          child: _buildRecommendedJobs(),
+        ),
+        _homeSectionBridge(PesoTokens.surfaceNeutral, PesoTokens.brandGreen),
+        _ScrollReveal(
+          key: const ValueKey<String>('home-programs-scroll-reveal'),
+          scrollController: _scrollController,
+          child: _buildPesoPrograms(),
+        ),
       ],
+    );
+  }
+
+  // A shared, subtle color bridge makes the home page read as a continuous
+  // journey rather than unrelated full-bleed sections.
+  Widget _homeSectionBridge(Color from, Color to) {
+    final compact =
+        MediaQuery.sizeOf(context).width < PesoTokens.breakpointCompact;
+    return Container(
+      width: double.infinity,
+      height: compact ? 28 : 48,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [from, to],
+        ),
+      ),
     );
   }
 
   // ==========================================
   // TAB 1: DEDICATED JOBS PAGE
   // ==========================================
-  Widget _buildDedicatedJobsPage(Color pesoGreen) {
+  Widget _buildDedicatedJobsPage() {
+    final width = MediaQuery.sizeOf(context).width;
+    final isMobile = width < PesoTokens.breakpointCompact;
+    final searchQuery = _jobSearchController.text.trim().toLowerCase();
+    final visibleJobs = _landingJobs.where((job) {
+      final matchesSearch =
+          searchQuery.isEmpty ||
+          <String>[
+            job.title,
+            job.company,
+            job.location,
+            job.type,
+            ...job.tags,
+          ].any((value) => value.toLowerCase().contains(searchQuery));
+      final matchesFilter =
+          _selectedJobFilter == 'All roles' ||
+          (_selectedJobFilter == 'Entry level'
+              ? job.tags.contains('Entry Level')
+              : job.type == _selectedJobFilter);
+      return matchesSearch && matchesFilter;
+    }).toList();
+
     return Container(
-      color: Colors.grey.shade50,
-      padding: const EdgeInsets.only(top: 90),
+      color: PesoTokens.surfaceNeutral,
+      padding: EdgeInsets.fromLTRB(
+        isMobile ? PesoTokens.spacingMD : PesoTokens.spacing2XL,
+        isMobile ? PesoTokens.spacingLG : PesoTokens.spacing3XL,
+        isMobile ? PesoTokens.spacingMD : PesoTokens.spacing2XL,
+        PesoTokens.spacing3XL,
+      ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          AnimatedEntrance(
-            delay: 0,
-            child: _buildSearchAndFilters(pesoGreen, isDedicated: true),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1120),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                AnimatedEntrance(delay: 0, child: _buildJobsIntro(isMobile)),
+                const SizedBox(height: PesoTokens.spacingLG),
+                AnimatedEntrance(
+                  delay: 100,
+                  child: _buildJobsSearchAndFilters(isMobile),
+                ),
+                const SizedBox(height: PesoTokens.spacing3XL),
+                AnimatedEntrance(
+                  delay: 180,
+                  child: _buildJobsResults(visibleJobs, isMobile),
+                ),
+                const SizedBox(height: PesoTokens.spacing3XL),
+                AnimatedEntrance(
+                  delay: 260,
+                  child: _buildJobsCallToAction(isMobile),
+                ),
+              ],
+            ),
           ),
-          AnimatedEntrance(delay: 200, child: _buildRecommendedJobs(pesoGreen)),
         ],
       ),
+    );
+  }
+
+  Widget _buildJobsIntro(bool isMobile) {
+    return Container(
+      padding: EdgeInsets.all(
+        isMobile ? PesoTokens.spacingLG : PesoTokens.spacing3XL,
+      ),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [PesoTokens.brandGreenDark, PesoTokens.brandGreen],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(PesoTokens.radiusContainer),
+        boxShadow: PesoTokens.shadowMD,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: PesoTokens.spacingMD,
+              vertical: PesoTokens.spacingSM,
+            ),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(PesoTokens.radiusFull),
+            ),
+            child: Text(
+              'PESO MONTALBAN JOB BOARD',
+              style: PesoTokens.labelSmall.copyWith(
+                color: Colors.white,
+                letterSpacing: 1.1,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          const SizedBox(height: PesoTokens.spacingLG),
+          Text(
+            'Find work that moves you forward.',
+            style: PesoTokens.displaySmall.copyWith(
+              color: Colors.white,
+              fontSize: isMobile ? 32 : 42,
+              height: 1.12,
+            ),
+          ),
+          const SizedBox(height: PesoTokens.spacingSM),
+          Text(
+            'Explore local opportunities, compare the details, and sign in to check your fit and apply.',
+            style: PesoTokens.bodyLarge.copyWith(
+              color: Colors.white.withValues(alpha: 0.88),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildJobsSearchAndFilters(bool isMobile) {
+    const filters = <String>[
+      'All roles',
+      'Entry level',
+      'Full-Time',
+      'Part-Time',
+      'Internship',
+      'Contract',
+    ];
+
+    return Container(
+      padding: EdgeInsets.all(
+        isMobile ? PesoTokens.spacingMD : PesoTokens.spacingLG,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(PesoTokens.radiusCard),
+        border: Border.all(color: const Color(0xFFDCE5E0)),
+        boxShadow: PesoTokens.shadowSM,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextField(
+            controller: _jobSearchController,
+            onChanged: (_) => setState(() {}),
+            textInputAction: TextInputAction.search,
+            decoration: InputDecoration(
+              hintText: 'Search by role, organization, or location',
+              prefixIcon: const Icon(Icons.search_rounded),
+              suffixIcon: _jobSearchController.text.isEmpty
+                  ? null
+                  : IconButton(
+                      tooltip: 'Clear search',
+                      onPressed: () {
+                        _jobSearchController.clear();
+                        setState(() {});
+                      },
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+              filled: true,
+              fillColor: PesoTokens.surfaceNeutral,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(PesoTokens.radiusInput),
+                borderSide: BorderSide.none,
+              ),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: PesoTokens.spacingMD,
+                vertical: PesoTokens.spacingMD,
+              ),
+            ),
+          ),
+          const SizedBox(height: PesoTokens.spacingMD),
+          Wrap(
+            spacing: PesoTokens.spacingSM,
+            runSpacing: PesoTokens.spacingSM,
+            children: filters.map((filter) {
+              final selected = _selectedJobFilter == filter;
+              return ChoiceChip(
+                label: Text(filter),
+                selected: selected,
+                onSelected: (_) => setState(() => _selectedJobFilter = filter),
+                selectedColor: PesoTokens.brandGreenLight,
+                backgroundColor: Colors.white,
+                side: BorderSide(
+                  color: selected
+                      ? PesoTokens.brandGreen.withValues(alpha: 0.45)
+                      : const Color(0xFFDCE5E0),
+                ),
+                labelStyle: PesoTokens.labelMedium.copyWith(
+                  color: selected
+                      ? PesoTokens.brandGreenDark
+                      : PesoTokens.textSecondary,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+                ),
+                showCheckmark: false,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(PesoTokens.radiusFull),
+                ),
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildJobsResults(List<_LandingJob> jobs, bool isMobile) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Open opportunities',
+                    style: PesoTokens.headlineLarge.copyWith(
+                      fontSize: isMobile ? 25 : 32,
+                    ),
+                  ),
+                  const SizedBox(height: PesoTokens.spacingXS),
+                  Text(
+                    '${jobs.length} ${jobs.length == 1 ? 'role' : 'roles'} to explore',
+                    style: PesoTokens.bodyMedium.copyWith(
+                      color: PesoTokens.textMuted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(
+              Icons.tune_rounded,
+              color: PesoTokens.brandGreen,
+              size: 24,
+            ),
+          ],
+        ),
+        const SizedBox(height: PesoTokens.spacingLG),
+        if (jobs.isEmpty)
+          _buildJobsEmptyState()
+        else
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final cardWidth = constraints.maxWidth >= 1000
+                  ? (constraints.maxWidth - PesoTokens.spacingLG * 2) / 3
+                  : constraints.maxWidth >= 650
+                  ? (constraints.maxWidth - PesoTokens.spacingLG) / 2
+                  : constraints.maxWidth;
+              return Wrap(
+                spacing: PesoTokens.spacingLG,
+                runSpacing: PesoTokens.spacingLG,
+                children: jobs
+                    .map(
+                      (job) => SizedBox(
+                        width: cardWidth,
+                        child: _LandingJobCard(
+                          job: job,
+                          onApply: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  const AuthPage(initialIsLogin: true),
+                            ),
+                          ),
+                        ),
+                      ),
+                    )
+                    .toList(),
+              );
+            },
+          ),
+      ],
+    );
+  }
+
+  Widget _buildJobsEmptyState() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(PesoTokens.spacing3XL),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(PesoTokens.radiusCard),
+        border: Border.all(color: const Color(0xFFDCE5E0)),
+      ),
+      child: Column(
+        children: [
+          const Icon(
+            Icons.search_off_rounded,
+            size: 38,
+            color: PesoTokens.textMuted,
+          ),
+          const SizedBox(height: PesoTokens.spacingMD),
+          Text('No roles match your search', style: PesoTokens.headlineSmall),
+          const SizedBox(height: PesoTokens.spacingSM),
+          Text(
+            'Try another keyword or choose a different role type.',
+            textAlign: TextAlign.center,
+            style: PesoTokens.bodyMedium.copyWith(color: PesoTokens.textMuted),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildJobsCallToAction(bool isMobile) {
+    return Container(
+      padding: EdgeInsets.all(
+        isMobile ? PesoTokens.spacingLG : PesoTokens.spacing2XL,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(PesoTokens.radiusContainer),
+        border: Border.all(color: PesoTokens.brandGreenLight),
+      ),
+      child: isMobile
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _jobsCallToActionCopy(),
+                const SizedBox(height: PesoTokens.spacingLG),
+                _jobsSignInButton(),
+                const SizedBox(height: PesoTokens.spacingSM),
+                _jobsRegisterButton(),
+              ],
+            )
+          : Row(
+              children: [
+                Expanded(child: _jobsCallToActionCopy()),
+                const SizedBox(width: PesoTokens.spacingLG),
+                _jobsSignInButton(),
+                const SizedBox(width: PesoTokens.spacingSM),
+                _jobsRegisterButton(),
+              ],
+            ),
+    );
+  }
+
+  Widget _jobsCallToActionCopy() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Ready for your next step?', style: PesoTokens.headlineSmall),
+        const SizedBox(height: PesoTokens.spacingXS),
+        Text(
+          'Sign in to review your qualifications and continue with an application.',
+          style: PesoTokens.bodySmall.copyWith(color: PesoTokens.textMuted),
+        ),
+      ],
+    );
+  }
+
+  Widget _jobsSignInButton() {
+    return OutlinedButton(
+      onPressed: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const AuthPage(initialIsLogin: true)),
+      ),
+      child: const Text('Sign in'),
+    );
+  }
+
+  Widget _jobsRegisterButton() {
+    return FilledButton(
+      onPressed: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => const AuthPage(initialIsLogin: false),
+        ),
+      ),
+      style: FilledButton.styleFrom(
+        backgroundColor: PesoTokens.brandGreen,
+        foregroundColor: Colors.white,
+      ),
+      child: const Text('Create account'),
     );
   }
 
   // ==========================================
   // TAB 2: GALLERY PAGE
   // ==========================================
-  Widget _buildGalleryPage(Color pesoGreen) {
-    final List<String> images = [
-      'https://images.unsplash.com/photo-1542744173-8e7e53415bb0?ixlib=rb-4.0.3&auto=format&fit=crop&w=400&q=80',
-      'https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?ixlib=rb-4.0.3&auto=format&fit=crop&w=400&q=80',
-      'https://images.unsplash.com/photo-1528605105345-5344ea20e269?ixlib=rb-4.0.3&auto=format&fit=crop&w=400&q=80',
-      'https://images.unsplash.com/photo-1556761175-4b46a572b786?ixlib=rb-4.0.3&auto=format&fit=crop&w=400&q=80',
-      'https://images.unsplash.com/photo-1517048676732-d65bc937f952?ixlib=rb-4.0.3&auto=format&fit=crop&w=400&q=80',
-      'https://images.unsplash.com/photo-1573164713714-d95e436ab8d6?ixlib=rb-4.0.3&auto=format&fit=crop&w=400&q=80',
-    ];
+  Widget _buildGalleryPage() {
+    final width = MediaQuery.sizeOf(context).width;
+    final isMobile = width < PesoTokens.breakpointCompact;
+    final List<String> images = PesoImageAssets.gallery;
 
     return Container(
       color: Colors.white,
-      padding: const EdgeInsets.only(
-        top: 150,
-        bottom: 100,
-        left: 80,
-        right: 80,
+      padding: EdgeInsets.only(
+        top: isMobile ? PesoTokens.spacing3XL : PesoTokens.spacing4XL,
+        bottom: PesoTokens.spacing3XL,
+        left: isMobile ? PesoTokens.spacingMD : PesoTokens.spacing2XL,
+        right: isMobile ? PesoTokens.spacingMD : PesoTokens.spacing2XL,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const AnimatedEntrance(
+          AnimatedEntrance(
             delay: 0,
             child: Text(
               'PESO Montalban in Action',
-              style: TextStyle(
-                fontSize: 48,
-                fontWeight: FontWeight.w900,
-                color: Colors.black87,
-                letterSpacing: -1,
+              style: PesoTokens.displayMedium.copyWith(
+                fontSize: isMobile ? 36 : 48,
               ),
             ),
           ),
-          const SizedBox(height: 15),
+          const SizedBox(height: PesoTokens.spacingSM),
           AnimatedEntrance(
             delay: 100,
             child: Text(
               'A glimpse into our job fairs, training seminars, and community outreach programs.',
-              style: TextStyle(fontSize: 18, color: Colors.grey.shade600),
+              style: PesoTokens.bodyLarge.copyWith(color: PesoTokens.textMuted),
             ),
           ),
-          const SizedBox(height: 60),
+          const SizedBox(height: PesoTokens.spacing2XL),
           Wrap(
-            spacing: 20,
-            runSpacing: 20,
+            spacing: PesoTokens.spacingLG,
+            runSpacing: PesoTokens.spacingLG,
             children: List.generate(images.length, (index) {
               return AnimatedEntrance(
                 delay: 200 + (index * 100),
@@ -205,23 +648,17 @@ class _LandingPageState extends State<LandingPage> {
     );
   }
 
-  Widget _buildGalleryImageCard(String imageUrl) {
+  Widget _buildGalleryImageCard(String imagePath) {
+    final width = MediaQuery.sizeOf(context).width;
+    final isMobile = width < PesoTokens.breakpointCompact;
+
     return Container(
-      width: 400,
+      width: isMobile ? width - 32 : 400,
       height: 300,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.1),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
-          ),
-        ],
-        image: DecorationImage(
-          image: PesoCachedNetworkImageProvider(imageUrl),
-          fit: BoxFit.cover,
-        ),
+        borderRadius: BorderRadius.circular(PesoTokens.radiusContainer),
+        boxShadow: PesoTokens.shadowMD,
+        image: DecorationImage(image: AssetImage(imagePath), fit: BoxFit.cover),
       ),
     );
   }
@@ -229,146 +666,202 @@ class _LandingPageState extends State<LandingPage> {
   // ==========================================
   // TAB 3: HISTORY PAGE
   // ==========================================
-  Widget _buildHistoryPage(Color pesoGreen) {
-    return Container(
-      color: Colors.grey.shade50,
-      padding: const EdgeInsets.only(top: 150, bottom: 100),
-      child: Column(
-        children: [
-          const AnimatedEntrance(
-            delay: 0,
-            child: Text(
-              'Our Journey',
-              style: TextStyle(
-                fontSize: 48,
-                fontWeight: FontWeight.w900,
-                letterSpacing: -1,
-              ),
-            ),
-          ),
-          const SizedBox(height: 15),
-          AnimatedEntrance(
-            delay: 100,
-            child: Text(
-              'Tracing the milestones of PESO Montalban.',
-              style: TextStyle(fontSize: 18, color: Colors.grey.shade600),
-            ),
-          ),
-          const SizedBox(height: 80),
-          _buildTimelineNode(
-            '2018',
-            'PESO Office Established',
-            'The local government officially launched the Public Employment Service Office to bridge employers and local residents.',
-            pesoGreen,
-            200,
-          ),
-          _buildTimelineNode(
-            '2020',
-            'Pandemic Response Initiatives',
-            'Transitioned to online job boards and implemented TUPAD programs to assist displaced workers during lockdowns.',
-            Colors.blue,
-            300,
-          ),
-          _buildTimelineNode(
-            '2023',
-            'Record High Placements',
-            'Successfully placed over 5,000 Montalban residents in regular positions across Metro Manila and Rizal.',
-            Colors.orange,
-            400,
-          ),
-          _buildTimelineNode(
-            '2026',
-            'JobKonek AI Launch',
-            'Revolutionized job placement by introducing Generative AI skill extraction and DOLE SPRS matching integration.',
-            pesoGreen,
-            500,
-            isLast: true,
-          ),
-        ],
-      ),
-    );
-  }
+  Widget _buildHistoryPage() {
+    final width = MediaQuery.sizeOf(context).width;
+    final isMobile = width < PesoTokens.breakpointCompact;
 
-  Widget _buildTimelineNode(
-    String year,
-    String title,
-    String description,
-    Color accentColor,
-    int delayMs, {
-    bool isLast = false,
-  }) {
-    return AnimatedEntrance(
-      delay: delayMs,
-      child: SizedBox(
-        width: 800,
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Column(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: accentColor,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Text(
-                    year,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w900,
-                      fontSize: 18,
-                    ),
-                  ),
-                ),
-                if (!isLast)
-                  Container(
-                    width: 4,
-                    height: 120,
-                    margin: const EdgeInsets.symmetric(vertical: 10),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-              ],
-            ),
-            const SizedBox(width: 40),
-            Expanded(
-              child: Container(
-                margin: const EdgeInsets.only(top: 10),
-                padding: const EdgeInsets.all(35),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.grey.shade200),
-                ),
+    return Container(
+      color: PesoTokens.surfaceNeutral,
+      padding: EdgeInsets.fromLTRB(
+        isMobile ? PesoTokens.spacingMD : PesoTokens.spacing2XL,
+        isMobile ? PesoTokens.spacingLG : PesoTokens.spacing3XL,
+        isMobile ? PesoTokens.spacingMD : PesoTokens.spacing2XL,
+        PesoTokens.spacing3XL,
+      ),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1000),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              AnimatedEntrance(delay: 0, child: _buildHistoryIntro(isMobile)),
+              const SizedBox(height: PesoTokens.spacing3XL),
+              AnimatedEntrance(
+                delay: 100,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.black87,
+                      'Milestones along the way',
+                      style: PesoTokens.headlineLarge.copyWith(
+                        fontSize: isMobile ? 26 : 34,
                       ),
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: PesoTokens.spacingSM),
                     Text(
-                      description,
-                      style: TextStyle(
-                        fontSize: 16,
-                        height: 1.6,
-                        color: Colors.grey.shade600,
+                      'A look at how local employment support has grown and where it is headed.',
+                      style: PesoTokens.bodyMedium.copyWith(
+                        color: PesoTokens.textMuted,
                       ),
                     ),
+                    const SizedBox(height: PesoTokens.spacingLG),
+                    for (
+                      var index = 0;
+                      index < _historyMilestones.length;
+                      index++
+                    )
+                      _HistoryMilestone(
+                        milestone: _historyMilestones[index],
+                        isLast: index == _historyMilestones.length - 1,
+                      ),
                   ],
                 ),
               ),
-            ),
-          ],
+              const SizedBox(height: PesoTokens.spacingLG),
+              AnimatedEntrance(
+                delay: 200,
+                child: _buildHistoryClosing(isMobile),
+              ),
+            ],
+          ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildHistoryIntro(bool isMobile) {
+    return Container(
+      padding: EdgeInsets.all(
+        isMobile ? PesoTokens.spacingLG : PesoTokens.spacing3XL,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(PesoTokens.radiusContainer),
+        border: Border.all(color: PesoTokens.brandGreenLight),
+        boxShadow: PesoTokens.shadowSM,
+      ),
+      child: isMobile
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _historyIntroIcon(),
+                const SizedBox(height: PesoTokens.spacingLG),
+                _historyIntroCopy(isMobile),
+              ],
+            )
+          : Row(
+              children: [
+                _historyIntroIcon(),
+                const SizedBox(width: PesoTokens.spacing2XL),
+                Expanded(child: _historyIntroCopy(isMobile)),
+              ],
+            ),
+    );
+  }
+
+  Widget _historyIntroIcon() {
+    return Container(
+      width: 88,
+      height: 88,
+      decoration: BoxDecoration(
+        color: PesoTokens.brandGreenPale,
+        borderRadius: BorderRadius.circular(PesoTokens.radiusLG),
+      ),
+      child: const Icon(
+        Icons.account_balance_rounded,
+        size: 42,
+        color: PesoTokens.brandGreen,
+      ),
+    );
+  }
+
+  Widget _historyIntroCopy(bool isMobile) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'OUR STORY',
+          style: PesoTokens.labelMedium.copyWith(
+            color: PesoTokens.brandGreen,
+            letterSpacing: 1.2,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: PesoTokens.spacingSM),
+        Text(
+          'A bridge to opportunity.',
+          style: PesoTokens.displaySmall.copyWith(
+            fontSize: isMobile ? 31 : 40,
+            height: 1.1,
+          ),
+        ),
+        const SizedBox(height: PesoTokens.spacingSM),
+        Text(
+          'Tracing the milestones of PESO Montalban and its continuing work to connect residents with employment support.',
+          style: PesoTokens.bodyLarge.copyWith(color: PesoTokens.textMuted),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildHistoryClosing(bool isMobile) {
+    return Container(
+      padding: EdgeInsets.all(
+        isMobile ? PesoTokens.spacingLG : PesoTokens.spacing2XL,
+      ),
+      decoration: BoxDecoration(
+        color: PesoTokens.brandGreenDark,
+        borderRadius: BorderRadius.circular(PesoTokens.radiusContainer),
+      ),
+      child: isMobile
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _historyClosingCopy(),
+                const SizedBox(height: PesoTokens.spacingLG),
+                _historyJobsButton(),
+              ],
+            )
+          : Row(
+              children: [
+                Expanded(child: _historyClosingCopy()),
+                const SizedBox(width: PesoTokens.spacingLG),
+                _historyJobsButton(),
+              ],
+            ),
+    );
+  }
+
+  Widget _historyClosingCopy() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'The work continues.',
+          style: PesoTokens.headlineMedium.copyWith(color: Colors.white),
+        ),
+        const SizedBox(height: PesoTokens.spacingSM),
+        Text(
+          'Explore current opportunities and take your next step with PESO Montalban.',
+          style: PesoTokens.bodyMedium.copyWith(
+            color: Colors.white.withValues(alpha: 0.82),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _historyJobsButton() {
+    return FilledButton.icon(
+      onPressed: () {
+        setState(() => _activePageIndex = 1);
+        _scrollToTop();
+      },
+      icon: const Icon(Icons.work_outline_rounded),
+      label: const Text('Explore jobs'),
+      style: FilledButton.styleFrom(
+        backgroundColor: Colors.white,
+        foregroundColor: PesoTokens.brandGreenDark,
       ),
     );
   }
@@ -376,17 +869,13 @@ class _LandingPageState extends State<LandingPage> {
   // ==========================================
   // TAB 4: DEDICATED ABOUT PAGE
   // ==========================================
-  Widget _buildDedicatedAboutPage(Color pesoGreen) {
-    return Container(
-      color: Colors.white,
-      padding: const EdgeInsets.only(top: 90),
-      child: Column(
-        children: [
-          AnimatedEntrance(delay: 0, child: _buildAboutSection(pesoGreen)),
-          AnimatedEntrance(delay: 200, child: _buildWhyChooseUs(pesoGreen)),
-          AnimatedEntrance(delay: 400, child: _buildDevelopers(pesoGreen)),
-        ],
-      ),
+  Widget _buildDedicatedAboutPage() {
+    return Column(
+      children: [
+        AnimatedEntrance(delay: 0, child: _buildAboutSection()),
+        AnimatedEntrance(delay: 200, child: _buildWhyChooseUs()),
+        AnimatedEntrance(delay: 400, child: _buildDevelopers()),
+      ],
     );
   }
 
@@ -394,188 +883,50 @@ class _LandingPageState extends State<LandingPage> {
   // SHARED SECTIONS
   // ==========================================
 
-  Widget _buildHeroSection(Color pesoGreen) {
-    return Container(
-      width: double.infinity,
-      constraints: const BoxConstraints(minHeight: 800),
-      decoration: BoxDecoration(
-        color: Colors.black,
-        image: DecorationImage(
-          image: PesoCachedNetworkImageProvider(
-            'https://images.unsplash.com/photo-1573164713988-8665fc963095?ixlib=rb-4.0.3&auto=format&fit=crop&w=1200&q=80',
-          ),
-          fit: BoxFit.cover,
-          alignment: Alignment.center,
-        ),
-      ),
-      child: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.centerLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Colors.black.withValues(alpha: 0.9),
-              pesoGreen.withValues(alpha: 0.7),
-            ],
-          ),
-        ),
-        padding: const EdgeInsets.symmetric(vertical: 120, horizontal: 40),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const SizedBox(height: 50),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(30),
-                border: Border.all(color: Colors.white30),
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.auto_awesome, color: Colors.amber, size: 18),
-                  SizedBox(width: 8),
-                  Text(
-                    'AI Skill Matching & Qualification Engine',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 1,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 30),
-            const Text(
-              'Bridging Talent and Opportunity\nin Montalban.',
-              style: TextStyle(
-                fontSize: 64,
-                fontWeight: FontWeight.w900,
-                color: Colors.white,
-                height: 1.1,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 25),
-            const SizedBox(
-              width: 800,
-              child: Text(
-                'Experience a modern career bridge. JobKonek uses AI to parse your resume, match your skill set to ideal job roles, test qualification criteria, or provide local TESDA upskilling guidance if needed. Completely free for Montalban residents.',
-                style: TextStyle(
-                  fontSize: 20,
-                  color: Colors.white70,
-                  height: 1.5,
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ),
-            const SizedBox(height: 50),
-            // Agent Doctor 6 (2026-10-16): allow hero actions to wrap on narrow viewports.
-            Wrap(
-              alignment: WrapAlignment.center,
-              spacing: 20,
-              runSpacing: 16,
-              children: [
-                ElevatedButton(
-                  onPressed: () {
-                    setState(() => _activePageIndex = 1);
-                    _scrollToTop();
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: pesoGreen,
-                    elevation: 0,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 40,
-                      vertical: 22,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                  ),
-                  child: const Text(
-                    'Browse Job Board',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                ),
-                OutlinedButton(
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const AuthPage(initialIsLogin: false),
-                    ),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.white,
-                    side: const BorderSide(color: Colors.white, width: 2),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 40,
-                      vertical: 22,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                  ),
-                  child: const Text(
-                    'Register Profile',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  Widget _buildHowItWorks() {
+    final width = MediaQuery.sizeOf(context).width;
+    final isMobile = width < PesoTokens.breakpointCompact;
 
-  Widget _buildHowItWorks(Color pesoGreen) {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 100, horizontal: 40),
+      padding: EdgeInsets.symmetric(
+        vertical: isMobile ? PesoTokens.spacing2XL : PesoTokens.spacing4XL,
+        horizontal: isMobile ? PesoTokens.spacingMD : PesoTokens.spacing2XL,
+      ),
       color: Colors.white,
       child: Column(
         children: [
-          const Text(
-            'How JobKonek Works',
-            style: TextStyle(
-              fontSize: 36,
-              fontWeight: FontWeight.w900,
-              color: Colors.black87,
-            ),
-          ),
-          const SizedBox(height: 15),
-          const Text(
+          Text('How JobKonek Works', style: PesoTokens.headlineLarge),
+          const SizedBox(height: PesoTokens.spacingSM),
+          Text(
             'No manual waiting. Just AI skill matching and direct PESO routing.',
-            style: TextStyle(fontSize: 18, color: Colors.grey),
+            style: PesoTokens.bodyLarge.copyWith(color: PesoTokens.textMuted),
           ),
-          const SizedBox(height: 70),
+          const SizedBox(height: PesoTokens.spacing2XL),
           Wrap(
-            spacing: 30,
-            runSpacing: 40,
+            spacing: PesoTokens.spacingLG,
+            runSpacing: PesoTokens.spacingLG,
             alignment: WrapAlignment.center,
             children: [
-              _buildStepCard(
-                '01',
-                'Inclusive Profiling',
-                'Build your digital identity. Upload a PDF resume or write a bilingual bio (Tagalog/English) so our AI can extract your soft and technical skills.',
-                Icons.person_add_alt_1,
-                pesoGreen,
+              FeatureCard(
+                number: 1,
+                title: 'Inclusive Profiling',
+                description: 'Build your digital identity. Upload a PDF resume or write a bilingual bio (Tagalog/English) so our AI can extract your soft and technical skills.',
+                icon: Icons.person_add_alt_1_rounded,
+                accentColor: PesoTokens.brandGreen,
               ),
-              _buildStepCard(
-                '02',
-                'AI Skill Vetting',
-                'Select a target job to trigger an instant AI qualification check. The system analyzes your resume skills against employer requirements to measure job fit.',
-                Icons.auto_awesome,
-                Colors.blue[700]!,
+              FeatureCard(
+                number: 2,
+                title: 'AI Skill Vetting',
+                description: 'Select a target job to trigger an instant AI qualification check. The system analyzes your resume skills against employer requirements to measure job fit.',
+                icon: Icons.auto_awesome_rounded,
+                accentColor: PesoTokens.infoBlue,
               ),
-              _buildStepCard(
-                '03',
-                'Smart Routing',
-                'Fully qualified candidates are pre-vetted for DOLE SPRS extraction. Need upskilling? Get alternative job matches and TESDA course recommendations.',
-                Icons.alt_route,
-                Colors.orange[700]!,
+              FeatureCard(
+                number: 3,
+                title: 'Smart Routing',
+                description: 'Fully qualified candidates are pre-vetted for DOLE SPRS extraction. Need upskilling? Get alternative job matches and TESDA course recommendations.',
+                icon: Icons.alt_route_rounded,
+                accentColor: PesoTokens.warningAmber,
               ),
             ],
           ),
@@ -584,348 +935,283 @@ class _LandingPageState extends State<LandingPage> {
     );
   }
 
-  Widget _buildStepCard(
-    String stepNum,
-    String title,
-    String desc,
-    IconData icon,
-    Color color,
-  ) {
-    return Container(
-      width: 350,
-      padding: const EdgeInsets.all(35),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.grey.shade100),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(15),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(15),
-                ),
-                child: Icon(icon, size: 35, color: color),
-              ),
-              Text(
-                stepNum,
-                style: TextStyle(
-                  fontSize: 40,
-                  fontWeight: FontWeight.w900,
-                  color: Colors.grey.shade200,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 30),
-          Text(
-            title,
-            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 15),
-          Text(
-            desc,
-            style: TextStyle(
-              fontSize: 15,
-              height: 1.6,
-              color: Colors.grey.shade600,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget _buildSearchAndFilters({bool isDedicated = false}) {
+    final width = MediaQuery.sizeOf(context).width;
+    final isMobile = width < PesoTokens.breakpointCompact;
 
-  Widget _buildSearchAndFilters(Color pesoGreen, {bool isDedicated = false}) {
     return Container(
       width: double.infinity,
       padding: EdgeInsets.symmetric(
-        vertical: isDedicated ? 80 : 60,
-        horizontal: 80,
+        vertical: isDedicated ? PesoTokens.spacing3XL : PesoTokens.spacing2XL,
+        horizontal: isMobile ? PesoTokens.spacingMD : PesoTokens.spacing2XL,
       ),
-      color: Colors.grey.shade50,
+      color: PesoTokens.surfaceNeutral,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             isDedicated ? 'Live Job Board' : 'Featured PESO Listings',
-            style: const TextStyle(
-              fontSize: 48,
-              fontWeight: FontWeight.w900,
-              color: Colors.black87,
-              letterSpacing: -1,
+            style: PesoTokens.headlineLarge.copyWith(
+              fontSize: isMobile ? 32 : 48,
             ),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: PesoTokens.spacingSM),
           Text(
             'These jobs were bulk-uploaded by the PESO Admin. Login to check your skill qualification and apply.',
-            style: TextStyle(fontSize: 18, color: Colors.grey.shade600),
+            style: PesoTokens.bodyMedium.copyWith(color: PesoTokens.textMuted),
           ),
-          const SizedBox(height: 40),
+          const SizedBox(height: PesoTokens.spacingLG),
           Container(
-            height: 65,
+            padding: isMobile
+                ? const EdgeInsets.all(PesoTokens.spacingSM)
+                : EdgeInsets.zero,
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(15),
-              border: Border.all(color: Colors.grey.shade200),
+              borderRadius: BorderRadius.circular(PesoTokens.radiusCard),
+              border: Border.all(color: PesoTokens.brandGreenLight),
+              boxShadow: PesoTokens.shadowSM,
             ),
-            child: Row(
-              children: [
-                const Expanded(
-                  child: TextField(
-                    decoration: InputDecoration(
-                      hintText: 'Search roles in Montalban...',
-                      border: InputBorder.none,
-                      prefixIcon: Icon(Icons.search, color: Colors.grey),
-                      contentPadding: EdgeInsets.symmetric(vertical: 22),
-                    ),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.all(8.0),
-                  child: ElevatedButton(
-                    onPressed: () {},
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: pesoGreen,
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      padding: const EdgeInsets.symmetric(horizontal: 30),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
+            child: isMobile
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      TextField(
+                        controller: _jobSearchController,
+                        onSubmitted: (_) => _openJobSearch(),
+                        decoration: InputDecoration(
+                          hintText: 'Search roles in Montalban...',
+                          border: InputBorder.none,
+                          prefixIcon: Icon(
+                            Icons.search_rounded,
+                            color: PesoTokens.textMuted,
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                            vertical: PesoTokens.spacingMD,
+                          ),
+                        ),
                       ),
-                    ),
-                    child: const Text(
-                      'Search AI Matches',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
+                      const SizedBox(height: PesoTokens.spacingSM),
+                      FilledButton(
+                        onPressed: _openJobSearch,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: PesoTokens.brandGreen,
+                          foregroundColor: PesoTokens.textOnGreen,
+                          padding: const EdgeInsets.symmetric(
+                            vertical: PesoTokens.spacingMD,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(
+                              PesoTokens.radiusButton,
+                            ),
+                          ),
+                        ),
+                        child: Text(
+                          'Search jobs',
+                          style: PesoTokens.buttonMedium,
+                        ),
+                      ),
+                    ],
+                  )
+                : Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _jobSearchController,
+                          onSubmitted: (_) => _openJobSearch(),
+                          decoration: InputDecoration(
+                            hintText: 'Search roles in Montalban...',
+                            border: InputBorder.none,
+                            prefixIcon: Icon(
+                              Icons.search_rounded,
+                              color: PesoTokens.textMuted,
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              vertical: PesoTokens.spacingLG,
+                            ),
+                          ),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.all(PesoTokens.spacingSM),
+                        child: FilledButton(
+                          onPressed: _openJobSearch,
+                          style: FilledButton.styleFrom(
+                            backgroundColor: PesoTokens.brandGreen,
+                            foregroundColor: PesoTokens.textOnGreen,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: PesoTokens.spacingLG,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(
+                                PesoTokens.radiusButton,
+                              ),
+                            ),
+                          ),
+                          child: Text(
+                            'Search jobs',
+                            style: PesoTokens.buttonMedium,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-              ],
-            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildRecommendedJobs(Color pesoGreen) {
+  Widget _buildRecommendedJobs() {
+    final width = MediaQuery.sizeOf(context).width;
+    final isMobile = width < PesoTokens.breakpointCompact;
+
     return Container(
-      color: Colors.grey.shade50,
-      padding: const EdgeInsets.only(bottom: 80, left: 80, right: 80),
+      color: PesoTokens.surfaceNeutral,
+      padding: EdgeInsets.only(
+        bottom: PesoTokens.spacing3XL,
+        left: isMobile ? PesoTokens.spacingMD : PesoTokens.spacing2XL,
+        right: isMobile ? PesoTokens.spacingMD : PesoTokens.spacing2XL,
+      ),
       width: double.infinity,
       child: Wrap(
-        spacing: 25,
-        runSpacing: 25,
+        spacing: PesoTokens.spacingLG,
+        runSpacing: PesoTokens.spacingLG,
         alignment: WrapAlignment.start,
         children: [
-          _buildRoleCard(
-            'IT Support Intern',
-            'Montalban LGU',
-            ['Entry', 'Internship', 'Rosario'],
-            '₱10,000 - ₱12,000',
-            pesoGreen,
-          ),
-          _buildRoleCard(
-            'Software QA Tester',
-            'OmniCore',
-            ['Associate', 'Full-Time', 'San Jose'],
-            '₱20,000 - ₱25,000',
-            pesoGreen,
-          ),
-          _buildRoleCard(
-            'Data Encoder',
-            'Prime BPO',
-            ['Entry', 'Part-Time', 'San Mateo'],
-            '₱15,000 - ₱18,000',
-            pesoGreen,
-          ),
-          _buildRoleCard(
-            'Administrative Assistant',
-            'Local Gov',
-            ['Entry', 'Full-Time', 'Montalban'],
-            '₱12,000 - ₱15,000',
-            pesoGreen,
-          ),
-          _buildRoleCard(
-            'Network Technician',
-            'TechNova',
-            ['Mid', 'Contract', 'Rodriguez'],
-            '₱25,000 - ₱30,000',
-            pesoGreen,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRoleCard(
-    String title,
-    String company,
-    List<String> tags,
-    String salary,
-    Color pesoGreen,
-  ) {
-    return Container(
-      width: 420,
-      padding: const EdgeInsets.all(30),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            company,
-            style: const TextStyle(
-              color: Colors.blue,
-              fontWeight: FontWeight.bold,
-              fontSize: 15,
+          JobCard(
+            title: 'IT Support Intern',
+            company: 'Montalban LGU',
+            location: 'Rosario, Montalban',
+            salary: '₱10,000 - ₱12,000',
+            type: 'Internship',
+            tags: ['Entry Level', 'Internship', 'On-site'],
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const AuthPage(initialIsLogin: true),
+              ),
             ),
           ),
-          const SizedBox(height: 20),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: tags
-                .map(
-                  (tag) => Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade100,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      tag,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                )
-                .toList(),
+          JobCard(
+            title: 'Software QA Tester',
+            company: 'OmniCore',
+            location: 'San Jose, Montalban',
+            salary: '₱20,000 - ₱25,000',
+            type: 'Full-Time',
+            tags: ['Associate', 'Full-Time', 'Hybrid'],
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const AuthPage(initialIsLogin: true),
+              ),
+            ),
           ),
-          const SizedBox(height: 25),
-          const Divider(),
-          const SizedBox(height: 20),
-          // Agent Doctor 6 (2026-10-16): stack salary/actions when job cards are narrow.
-          Wrap(
-            alignment: WrapAlignment.spaceBetween,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            spacing: 12,
-            runSpacing: 12,
-            children: [
-              Text(
-                salary,
-                style: TextStyle(
-                  fontWeight: FontWeight.w900,
-                  color: pesoGreen,
-                  fontSize: 18,
-                ),
+          JobCard(
+            title: 'Data Encoder',
+            company: 'Prime BPO',
+            location: 'San Mateo, Rizal',
+            salary: '₱15,000 - ₱18,000',
+            type: 'Part-Time',
+            tags: ['Entry Level', 'Part-Time', 'On-site'],
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const AuthPage(initialIsLogin: true),
               ),
-              ElevatedButton.icon(
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const AuthPage(initialIsLogin: true),
-                  ),
-                ),
-                icon: const Icon(Icons.auto_awesome, size: 18),
-                label: const Text('Login to View Match'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: pesoGreen,
-                  foregroundColor: Colors.white,
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
+            ),
+          ),
+          JobCard(
+            title: 'Administrative Assistant',
+            company: 'Local Government',
+            location: 'Montalban, Rizal',
+            salary: '₱12,000 - ₱15,000',
+            type: 'Full-Time',
+            tags: ['Entry Level', 'Full-Time', 'On-site'],
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const AuthPage(initialIsLogin: true),
               ),
-            ],
+            ),
+          ),
+          JobCard(
+            title: 'Network Technician',
+            company: 'TechNova',
+            location: 'Rodriguez, Rizal',
+            salary: '₱25,000 - ₱30,000',
+            type: 'Contract',
+            tags: ['Mid Level', 'Contract', 'On-site'],
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const AuthPage(initialIsLogin: true),
+              ),
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildAboutSection(Color pesoGreen) {
+  Widget _buildAboutSection() {
+    final width = MediaQuery.sizeOf(context).width;
+    final isMobile = width < PesoTokens.breakpointCompact;
+
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 100, horizontal: 40),
+      padding: EdgeInsets.symmetric(
+        vertical: PesoTokens.spacing4XL,
+        horizontal: isMobile ? PesoTokens.spacingMD : PesoTokens.spacing2XL,
+      ),
       color: Colors.white,
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Expanded(
             child: Container(
-              height: 400,
+              height: isMobile ? 250 : 400,
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(20),
-                image: DecorationImage(
-                  image: PesoCachedNetworkImageProvider(
-                    'https://images.unsplash.com/photo-1522071820081-009f0129c71c?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80',
-                  ),
+                borderRadius: BorderRadius.circular(PesoTokens.radiusContainer),
+                image: const DecorationImage(
+                  image: AssetImage(PesoImageAssets.aboutBanner),
                   fit: BoxFit.cover,
                 ),
               ),
             ),
           ),
-          const SizedBox(width: 60),
+          if (!isMobile) const SizedBox(width: PesoTokens.spacing3XL),
+          if (isMobile) const SizedBox(height: PesoTokens.spacing2XL),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   'About JobKonek',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                    color: pesoGreen,
+                  style: PesoTokens.labelLarge.copyWith(
+                    color: PesoTokens.brandGreen,
                     letterSpacing: 2,
                   ),
                 ),
-                const SizedBox(height: 15),
-                const Text(
+                const SizedBox(height: PesoTokens.spacingLG),
+                Text(
                   'Eliminating Manual Bottlenecks for Montalban.',
-                  style: TextStyle(
-                    fontSize: 48,
-                    fontWeight: FontWeight.w900,
-                    color: Colors.black87,
-                    height: 1.1,
-                    letterSpacing: -1,
+                  style: PesoTokens.displayMedium.copyWith(
+                    fontSize: isMobile ? 36 : 48,
                   ),
                 ),
-                const SizedBox(height: 25),
+                const SizedBox(height: PesoTokens.spacingLG),
                 Text(
                   'JobKonek is an advanced digital initiative designed specifically for the Montalban PESO office. Recognizing that employers already use DOLE\'s PhilJobNet, our system acts strictly as an AI-driven skill pre-screening bridge for local residents.',
-                  style: TextStyle(
-                    fontSize: 16,
+                  style: PesoTokens.bodyLarge.copyWith(
+                    color: PesoTokens.textSecondary,
                     height: 1.6,
-                    color: Colors.grey.shade700,
                   ),
                 ),
-                const SizedBox(height: 15),
+                const SizedBox(height: PesoTokens.spacingMD),
                 Text(
                   'By taking offline Excel job postings and returning DOLE SPRS-formatted pre-vetted candidates, we optimize municipal placement while guiding jobseekers toward suitable roles or targeted upskilling.',
-                  style: TextStyle(
-                    fontSize: 16,
+                  style: PesoTokens.bodyLarge.copyWith(
+                    color: PesoTokens.textSecondary,
                     height: 1.6,
-                    color: Colors.grey.shade700,
                   ),
                 ),
               ],
@@ -936,37 +1222,41 @@ class _LandingPageState extends State<LandingPage> {
     );
   }
 
-  Widget _buildWhyChooseUs(Color pesoGreen) {
+  Widget _buildWhyChooseUs() {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 100, horizontal: 40),
-      color: Colors.grey.shade50,
+      padding: PesoTokens.horizontalPadding(context)
+          .add(EdgeInsets.symmetric(vertical: PesoTokens.spacing4XL)),
+      color: PesoTokens.surfaceNeutral,
       width: double.infinity,
       child: Column(
         children: [
-          const Text(
-            'The JobKonek Advantage',
-            style: TextStyle(fontSize: 36, fontWeight: FontWeight.w900),
-          ),
-          const SizedBox(height: 60),
+          Text('The JobKonek Advantage', style: PesoTokens.headlineLarge),
+          const SizedBox(height: PesoTokens.spacing2XL),
           Wrap(
-            spacing: 50,
-            runSpacing: 50,
+            spacing: PesoTokens.spacing2XL,
+            runSpacing: PesoTokens.spacing2XL,
             alignment: WrapAlignment.center,
             children: [
-              _buildFeature(
-                Icons.memory,
-                'AI Skill Matching Engine',
-                'Our intelligent AI engine automatically parses your profile and maps your technical skills directly against local job openings.',
+              FeatureCard(
+                number: 1,
+                title: 'AI Skill Matching Engine',
+                description: 'Our intelligent AI engine automatically parses your profile and maps your technical skills directly against local job openings.',
+                icon: Icons.memory_rounded,
+                accentColor: PesoTokens.infoBlue,
               ),
-              _buildFeature(
-                Icons.school,
-                'Actionable Upskilling',
-                'Missing key requirements isn\'t a dead end. Receive instant alternative job matches and local TESDA center course recommendations.',
+              FeatureCard(
+                number: 2,
+                title: 'Actionable Upskilling',
+                description: 'Missing key requirements isn\'t a dead end. Receive instant alternative job matches and local TESDA center course recommendations.',
+                icon: Icons.school_rounded,
+                accentColor: PesoTokens.warningAmber,
               ),
-              _buildFeature(
-                Icons.insert_chart_outlined,
-                'DOLE SPRS Compliant',
-                'Your qualification data is automatically batched, formatted, and emailed to PESO Admins for seamless regional reporting.',
+              FeatureCard(
+                number: 3,
+                title: 'DOLE SPRS Compliant',
+                description: 'Your qualification data is automatically batched, formatted, and emailed to PESO Admins for seamless regional reporting.',
+                icon: Icons.insert_chart_outlined_rounded,
+                accentColor: PesoTokens.brandGreen,
               ),
             ],
           ),
@@ -975,86 +1265,84 @@ class _LandingPageState extends State<LandingPage> {
     );
   }
 
-  Widget _buildFeature(IconData icon, String title, String subtitle) {
-    return SizedBox(
-      width: 300,
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.blue.shade50,
-              shape: BoxShape.circle,
-            ),
-            child: Icon(icon, size: 40, color: Colors.blue.shade700),
-          ),
-          const SizedBox(height: 25),
-          Text(
-            title,
-            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 15),
-          Text(
-            subtitle,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.grey.shade600,
-              height: 1.5,
-              fontSize: 15,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget _buildPesoPrograms() {
+    final width = MediaQuery.sizeOf(context).width;
+    final isMobile = width < PesoTokens.breakpointCompact;
 
-  Widget _buildPesoPrograms(Color pesoGreen) {
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
-        color: Colors.black,
-        image: DecorationImage(
-          image: PesoCachedNetworkImageProvider(
-            'https://images.unsplash.com/photo-1552664730-d307ca884978?ixlib=rb-4.0.3&auto=format&fit=crop&w=1200&q=80',
-          ),
+        color: PesoTokens.surfaceDark,
+        image: const DecorationImage(
+          image: AssetImage(PesoImageAssets.programsBanner),
           fit: BoxFit.cover,
         ),
       ),
       child: Container(
-        color: pesoGreen.withValues(alpha: 0.9),
-        padding: const EdgeInsets.symmetric(vertical: 100, horizontal: 40),
+        color: PesoTokens.brandGreen.withValues(alpha: 0.9),
+        padding: EdgeInsets.symmetric(
+          vertical: PesoTokens.spacing4XL,
+          horizontal: isMobile ? PesoTokens.spacingMD : PesoTokens.spacing2XL,
+        ),
         child: Column(
           children: [
-            const Text(
+            Text(
               'PESO Core Programs Support',
-              style: TextStyle(
-                fontSize: 36,
-                fontWeight: FontWeight.w900,
-                color: Colors.white,
-              ),
+              style: PesoTokens.headlineLarge.copyWith(color: Colors.white),
             ),
-            const SizedBox(height: 15),
-            const Text(
+            const SizedBox(height: PesoTokens.spacingSM),
+            Text(
               'Your digital portal for national employment assistance initiatives.',
-              style: TextStyle(color: Colors.white70, fontSize: 18),
+              style: PesoTokens.bodyLarge.copyWith(color: Colors.white70),
             ),
-            const SizedBox(height: 60),
+            const SizedBox(height: PesoTokens.spacing2XL),
             Wrap(
-              spacing: 30,
-              runSpacing: 30,
+              spacing: PesoTokens.spacingLG,
+              runSpacing: PesoTokens.spacingLG,
               alignment: WrapAlignment.center,
               children: [
-                _buildProgramCard(
-                  'SPES',
-                  'Special Program for Employment of Students',
+                ProgramCard(
+                  title: 'SPES',
+                  description: 'Special Program for Employment of Students',
+                  icon: Icons.school_rounded,
+                  accentColor: Colors.amber,
+                  stats: const [
+                    ProgramStat(label: 'Students/Year', value: '500+'),
+                    ProgramStat(label: 'LGU Partners', value: '12'),
+                  ],
+                  onTap: () => launchUrl(
+                    Uri.parse('https://tesda.gov.ph'),
+                    mode: LaunchMode.externalApplication,
+                  ),
                 ),
-                _buildProgramCard(
-                  'TUPAD',
-                  'Tulong Panghanapbuhay sa Ating Disadvantaged Workers',
+                ProgramCard(
+                  title: 'TUPAD',
+                  description:
+                      'Tulong Panghanapbuhay sa Ating Disadvantaged Workers',
+                  icon: Icons.work_history_rounded,
+                  accentColor: Colors.lightBlue,
+                  stats: const [
+                    ProgramStat(label: 'Beneficiaries', value: '1,200+'),
+                    ProgramStat(label: 'Barangays', value: '26'),
+                  ],
+                  onTap: () => launchUrl(
+                    Uri.parse('https://dole.gov.ph'),
+                    mode: LaunchMode.externalApplication,
+                  ),
                 ),
-                _buildProgramCard(
-                  'RA 11261',
-                  'First Time Jobseekers Assistance Verification',
+                ProgramCard(
+                  title: 'RA 11261',
+                  description: 'First Time Jobseekers Assistance Verification',
+                  icon: Icons.verified_user_rounded,
+                  accentColor: Colors.pinkAccent,
+                  stats: const [
+                    ProgramStat(label: 'Verified', value: '800+'),
+                    ProgramStat(label: 'Fee Waivers', value: '100%'),
+                  ],
+                  onTap: () => launchUrl(
+                    Uri.parse('https://www.tesda.gov.ph/ra-11261'),
+                    mode: LaunchMode.externalApplication,
+                  ),
                 ),
               ],
             ),
@@ -1064,56 +1352,19 @@ class _LandingPageState extends State<LandingPage> {
     );
   }
 
-  Widget _buildProgramCard(String title, String desc) {
-    return Container(
-      width: 320,
-      padding: const EdgeInsets.all(35),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white30),
-      ),
-      child: Column(
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 28,
-              fontWeight: FontWeight.w900,
-              color: Colors.white,
-              letterSpacing: 1,
-            ),
-          ),
-          const SizedBox(height: 15),
-          Text(
-            desc,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Colors.white70,
-              height: 1.5,
-              fontSize: 15,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDevelopers(Color pesoGreen) {
+  Widget _buildDevelopers() {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 100, horizontal: 40),
+      padding: PesoTokens.horizontalPadding(context)
+          .add(EdgeInsets.symmetric(vertical: PesoTokens.spacing4XL)),
       color: Colors.white,
       child: Column(
         children: [
-          const Text(
-            'Project Developers',
-            style: TextStyle(fontSize: 36, fontWeight: FontWeight.w900),
-          ),
-          const SizedBox(height: 60),
+          Text('Project Developers', style: PesoTokens.headlineLarge),
+          const SizedBox(height: PesoTokens.spacing2XL),
           Wrap(
-            spacing: 40,
-            runSpacing: 40,
+            spacing: PesoTokens.spacingLG,
+            runSpacing: PesoTokens.spacingLG,
             alignment: WrapAlignment.center,
             children: [
               _buildDeveloperCard(
@@ -1121,27 +1372,23 @@ class _LandingPageState extends State<LandingPage> {
                 role: 'Lead Full Stack Engineer & Architect',
                 description: 'The driving force behind the platform architecture, bridging backend logic, AI LLM integrations, and the Flutter web application.',
                 imageAsset: 'lib/assets/josh.png',
-                pesoGreen: pesoGreen,
               ),
               _buildDeveloperCard(
                 name: 'Lovely Anne C. Ilaya',
                 role: 'Full Stack & Lead UI/UX Designer',
                 description: 'Creates intuitive design systems and accessible web interfaces while contributing to full-stack frontend development.',
-                pesoGreen: pesoGreen,
               ),
               _buildDeveloperCard(
                 name: 'Edward Marcelino',
                 role: 'Full Stack Engineer (Core Functionalities)',
                 description: 'Bridges frontend interfaces and backend databases, maintaining API routing and system stability.',
                 imageAsset: 'lib/assets/edward.png',
-                pesoGreen: pesoGreen,
               ),
               _buildDeveloperCard(
                 name: 'John Paul Cesneros',
                 role: 'Frontend Engineer & Documentation Lead',
                 description: 'Drives frontend UI implementation and technical documentation for municipal system compliance.',
                 imageAsset: 'lib/assets/cesneros.png',
-                pesoGreen: pesoGreen,
               ),
             ],
           ),
@@ -1154,23 +1401,22 @@ class _LandingPageState extends State<LandingPage> {
     required String name,
     required String role,
     required String description,
-    String? imageUrl,
     String? imageAsset,
-    required Color pesoGreen,
   }) {
+    final initials = name
+        .split(RegExp(r'\s+'))
+        .where((p) => p.isNotEmpty)
+        .take(2)
+        .map((p) => p[0].toUpperCase())
+        .join();
+
     return Container(
       width: 350,
-      padding: const EdgeInsets.all(40),
+      padding: const EdgeInsets.all(PesoTokens.spacingLG),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(PesoTokens.radiusContainer),
+        boxShadow: PesoTokens.shadowMD,
       ),
       child: Column(
         children: [
@@ -1178,48 +1424,48 @@ class _LandingPageState extends State<LandingPage> {
             padding: const EdgeInsets.all(5),
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              border: Border.all(color: pesoGreen, width: 3),
+              border: Border.all(color: PesoTokens.brandGreen, width: 3),
             ),
             child: CircleAvatar(
               radius: 50,
-              backgroundColor: Colors.grey.shade200,
+              backgroundColor: PesoTokens.surfaceNeutral,
               backgroundImage: imageAsset != null
                   ? AssetImage(imageAsset)
-                  : imageUrl != null
-                      ? PesoCachedNetworkImageProvider(imageUrl)
-                      : null,
-              child: imageAsset == null && imageUrl == null
+                  : null,
+              child: imageAsset == null
                   ? Text(
-                      name.split(RegExp(r'\s+')).where((part) => part.isNotEmpty).take(2).map((part) => part[0].toUpperCase()).join(),
-                      style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w800, color: Color(0xFF64748B)),
+                      initials,
+                      style: PesoTokens.headlineMedium.copyWith(
+                        fontSize: 30,
+                        color: PesoTokens.textMuted,
+                        fontWeight: FontWeight.w800,
+                      ),
                     )
                   : null,
             ),
           ),
-          const SizedBox(height: 25),
+          const SizedBox(height: PesoTokens.spacingLG),
           Text(
             name,
             textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
+            style: PesoTokens.headlineSmall.copyWith(fontSize: 22),
           ),
-          const SizedBox(height: 5),
+          const SizedBox(height: PesoTokens.space1),
           Text(
             role,
             textAlign: TextAlign.center,
-            style: TextStyle(
-              color: pesoGreen,
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
+            style: PesoTokens.labelLarge.copyWith(
+              color: PesoTokens.brandGreen,
+              fontWeight: FontWeight.w700,
             ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: PesoTokens.spacingLG),
           Text(
             description,
             textAlign: TextAlign.center,
-            style: TextStyle(
+            style: PesoTokens.bodyMedium.copyWith(
+              color: PesoTokens.textSecondary,
               height: 1.6,
-              color: Colors.grey.shade700,
-              fontSize: 14,
             ),
           ),
         ],
@@ -1228,56 +1474,467 @@ class _LandingPageState extends State<LandingPage> {
   }
 }
 
-class AnimatedEntrance extends StatefulWidget {
-  final Widget child;
-  final int delay;
+const List<_LandingJob> _landingJobs = [
+  _LandingJob(
+    title: 'IT Support Intern',
+    company: 'Montalban LGU',
+    location: 'Rosario, Montalban',
+    salary: '₱10,000 - ₱12,000',
+    type: 'Internship',
+    tags: ['Entry Level', 'On-site'],
+  ),
+  _LandingJob(
+    title: 'Software QA Tester',
+    company: 'OmniCore',
+    location: 'San Jose, Montalban',
+    salary: '₱20,000 - ₱25,000',
+    type: 'Full-Time',
+    tags: ['Associate', 'Hybrid'],
+  ),
+  _LandingJob(
+    title: 'Data Encoder',
+    company: 'Prime BPO',
+    location: 'San Mateo, Rizal',
+    salary: '₱15,000 - ₱18,000',
+    type: 'Part-Time',
+    tags: ['Entry Level', 'On-site'],
+  ),
+  _LandingJob(
+    title: 'Administrative Assistant',
+    company: 'Local Government',
+    location: 'Montalban, Rizal',
+    salary: '₱12,000 - ₱15,000',
+    type: 'Full-Time',
+    tags: ['Entry Level', 'On-site'],
+  ),
+  _LandingJob(
+    title: 'Network Technician',
+    company: 'TechNova',
+    location: 'Rodriguez, Rizal',
+    salary: '₱25,000 - ₱30,000',
+    type: 'Contract',
+    tags: ['Mid Level', 'On-site'],
+  ),
+];
 
-  const AnimatedEntrance({super.key, required this.child, required this.delay});
+const List<_HistoryMilestoneData> _historyMilestones = [
+  _HistoryMilestoneData(
+    year: '2018',
+    title: 'PESO Office Established',
+    description: 'The local government officially launched the Public Employment Service Office to bridge employers and local residents.',
+    icon: Icons.account_balance_rounded,
+    color: PesoTokens.brandGreen,
+  ),
+  _HistoryMilestoneData(
+    year: '2020',
+    title: 'Pandemic Response Initiatives',
+    description: 'Transitioned to online job boards and implemented TUPAD programs to assist displaced workers during lockdowns.',
+    icon: Icons.diversity_1_rounded,
+    color: PesoTokens.infoBlue,
+  ),
+  _HistoryMilestoneData(
+    year: '2023',
+    title: 'Record High Placements',
+    description: 'Successfully placed over 5,000 Montalban residents in regular positions across Metro Manila and Rizal.',
+    icon: Icons.trending_up_rounded,
+    color: PesoTokens.warningAmber,
+  ),
+  _HistoryMilestoneData(
+    year: '2026',
+    title: 'JobKonek AI Launch',
+    description: 'Revolutionized job placement by introducing Generative AI skill extraction and DOLE SPRS matching integration.',
+    icon: Icons.auto_awesome_rounded,
+    color: PesoTokens.brandGreen,
+  ),
+];
 
-  @override
-  State<AnimatedEntrance> createState() => _AnimatedEntranceState();
+class _LandingJob {
+  const _LandingJob({
+    required this.title,
+    required this.company,
+    required this.location,
+    required this.salary,
+    required this.type,
+    required this.tags,
+  });
+
+  final String title;
+  final String company;
+  final String location;
+  final String salary;
+  final String type;
+  final List<String> tags;
 }
 
-class _AnimatedEntranceState extends State<AnimatedEntrance>
+class _LandingJobCard extends StatelessWidget {
+  const _LandingJobCard({required this.job, required this.onApply});
+
+  final _LandingJob job;
+  final VoidCallback onApply;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(PesoTokens.spacingLG),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(PesoTokens.radiusCard),
+        border: Border.all(color: const Color(0xFFDCE5E0)),
+        boxShadow: PesoTokens.shadowSM,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: PesoTokens.brandGreenPale,
+                  borderRadius: BorderRadius.circular(PesoTokens.radiusMD),
+                ),
+                child: const Icon(
+                  Icons.business_rounded,
+                  color: PesoTokens.brandGreen,
+                ),
+              ),
+              const SizedBox(width: PesoTokens.spacingMD),
+              Expanded(
+                child: Text(
+                  job.company,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: PesoTokens.labelLarge.copyWith(
+                    color: PesoTokens.textSecondary,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: PesoTokens.spacingSM,
+                  vertical: PesoTokens.space1,
+                ),
+                decoration: BoxDecoration(
+                  color: PesoTokens.brandGreenPale,
+                  borderRadius: BorderRadius.circular(PesoTokens.radiusFull),
+                ),
+                child: Text(
+                  job.type,
+                  style: PesoTokens.labelSmall.copyWith(
+                    color: PesoTokens.brandGreenDark,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: PesoTokens.spacingLG),
+          Text(
+            job.title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: PesoTokens.headlineSmall.copyWith(fontSize: 21),
+          ),
+          const SizedBox(height: PesoTokens.spacingSM),
+          Row(
+            children: [
+              const Icon(
+                Icons.location_on_outlined,
+                size: 17,
+                color: PesoTokens.textMuted,
+              ),
+              const SizedBox(width: PesoTokens.spacingXS),
+              Expanded(
+                child: Text(
+                  job.location,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: PesoTokens.bodySmall.copyWith(
+                    color: PesoTokens.textMuted,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: PesoTokens.spacingLG),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(PesoTokens.spacingMD),
+            decoration: BoxDecoration(
+              color: PesoTokens.surfaceNeutral,
+              borderRadius: BorderRadius.circular(PesoTokens.radiusMD),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'SALARY',
+                  style: PesoTokens.labelSmall.copyWith(
+                    letterSpacing: 0.8,
+                    color: PesoTokens.textMuted,
+                  ),
+                ),
+                const SizedBox(height: PesoTokens.space1),
+                Text(
+                  job.salary,
+                  style: PesoTokens.labelLarge.copyWith(
+                    color: PesoTokens.brandGreenDark,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: PesoTokens.spacingMD),
+          Wrap(
+            spacing: PesoTokens.spacingSM,
+            runSpacing: PesoTokens.spacingSM,
+            children: job.tags
+                .map(
+                  (tag) => Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: PesoTokens.spacingSM,
+                      vertical: PesoTokens.space1,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(
+                        PesoTokens.radiusFull,
+                      ),
+                      border: Border.all(color: const Color(0xFFDCE5E0)),
+                    ),
+                    child: Text(tag, style: PesoTokens.labelSmall),
+                  ),
+                )
+                .toList(),
+          ),
+          const SizedBox(height: PesoTokens.spacingMD),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: onApply,
+              icon: const Icon(Icons.arrow_forward_rounded, size: 18),
+              label: const Text('View and apply'),
+              style: TextButton.styleFrom(
+                foregroundColor: PesoTokens.brandGreen,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HistoryMilestoneData {
+  const _HistoryMilestoneData({
+    required this.year,
+    required this.title,
+    required this.description,
+    required this.icon,
+    required this.color,
+  });
+
+  final String year;
+  final String title;
+  final String description;
+  final IconData icon;
+  final Color color;
+}
+
+class _HistoryMilestone extends StatelessWidget {
+  const _HistoryMilestone({required this.milestone, required this.isLast});
+
+  final _HistoryMilestoneData milestone;
+  final bool isLast;
+
+  @override
+  Widget build(BuildContext context) {
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            width: 40,
+            child: Column(
+              children: [
+                Container(
+                  width: 16,
+                  height: 16,
+                  margin: const EdgeInsets.only(top: PesoTokens.spacingLG),
+                  decoration: BoxDecoration(
+                    color: milestone.color,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 3),
+                    boxShadow: [
+                      BoxShadow(
+                        color: milestone.color.withValues(alpha: 0.3),
+                        blurRadius: 8,
+                      ),
+                    ],
+                  ),
+                ),
+                if (!isLast)
+                  Expanded(
+                    child: Container(
+                      width: 2,
+                      margin: const EdgeInsets.symmetric(
+                        vertical: PesoTokens.spacingSM,
+                      ),
+                      color: const Color(0xFFDCE5E0),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: Container(
+              margin: const EdgeInsets.only(bottom: PesoTokens.spacingLG),
+              padding: const EdgeInsets.all(PesoTokens.spacingLG),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(PesoTokens.radiusCard),
+                border: Border.all(color: const Color(0xFFDCE5E0)),
+                boxShadow: PesoTokens.shadowSM,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: PesoTokens.spacingMD,
+                          vertical: PesoTokens.spacingXS,
+                        ),
+                        decoration: BoxDecoration(
+                          color: milestone.color.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(
+                            PesoTokens.radiusFull,
+                          ),
+                        ),
+                        child: Text(
+                          milestone.year,
+                          style: PesoTokens.labelLarge.copyWith(
+                            color: milestone.color,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      const Spacer(),
+                      Icon(milestone.icon, color: milestone.color, size: 21),
+                    ],
+                  ),
+                  const SizedBox(height: PesoTokens.spacingMD),
+                  Text(
+                    milestone.title,
+                    style: PesoTokens.headlineSmall.copyWith(fontSize: 21),
+                  ),
+                  const SizedBox(height: PesoTokens.spacingSM),
+                  Text(
+                    milestone.description,
+                    style: PesoTokens.bodyMedium.copyWith(
+                      color: PesoTokens.textSecondary,
+                      height: 1.55,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ScrollReveal extends StatefulWidget {
+  const _ScrollReveal({
+    super.key,
+    required this.child,
+    required this.scrollController,
+  });
+
+  final Widget child;
+  final ScrollController scrollController;
+
+  @override
+  State<_ScrollReveal> createState() => _ScrollRevealState();
+}
+
+class _ScrollRevealState extends State<_ScrollReveal>
     with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _fadeAnimation;
-  late Animation<Offset> _slideAnimation;
+  final GlobalKey _contentKey = GlobalKey();
+  late final AnimationController _controller;
+  late final Animation<double> _opacity;
+  late final Animation<Offset> _offset;
+  bool _hasRevealed = false;
 
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 600),
+      duration: const Duration(milliseconds: 520),
     );
-
-    _fadeAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
-
-    _slideAnimation = Tween<Offset>(
-      begin: const Offset(0, 0.2),
+    final animation = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeOutCubic,
+    );
+    _opacity = animation;
+    _offset = Tween<Offset>(
+      begin: const Offset(0, 0.045),
       end: Offset.zero,
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
+    ).animate(animation);
+    // ScrollNotification bubbles upward, never to a descendant of the
+    // Scrollable. Listen to the owning controller so sections that start below
+    // the viewport are revealed when the user reaches them.
+    widget.scrollController.addListener(_revealIfVisible);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _revealIfVisible());
+  }
 
-    Future.delayed(Duration(milliseconds: widget.delay), () {
-      if (mounted) _controller.forward();
-    });
+  @override
+  void didUpdateWidget(covariant _ScrollReveal oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.scrollController == widget.scrollController) return;
+    oldWidget.scrollController.removeListener(_revealIfVisible);
+    widget.scrollController.addListener(_revealIfVisible);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _revealIfVisible());
+  }
+
+  void _revealIfVisible() {
+    if (_hasRevealed || !mounted) return;
+    final renderObject = _contentKey.currentContext?.findRenderObject();
+    if (renderObject is! RenderBox || !renderObject.hasSize) return;
+    final top = renderObject.localToGlobal(Offset.zero).dy;
+    final bottom = top + renderObject.size.height;
+    final viewportHeight = MediaQuery.sizeOf(context).height;
+    if (top < viewportHeight * 0.9 && bottom > 0) {
+      _hasRevealed = true;
+      if (MediaQuery.disableAnimationsOf(context)) {
+        _controller.value = 1;
+      } else {
+        _controller.forward();
+      }
+    }
   }
 
   @override
   void dispose() {
+    widget.scrollController.removeListener(_revealIfVisible);
     _controller.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    if (MediaQuery.disableAnimationsOf(context)) return widget.child;
     return FadeTransition(
-      opacity: _fadeAnimation,
-      child: SlideTransition(position: _slideAnimation, child: widget.child),
+      opacity: _opacity,
+      child: SlideTransition(
+        position: _offset,
+        child: KeyedSubtree(key: _contentKey, child: widget.child),
+      ),
     );
   }
 }

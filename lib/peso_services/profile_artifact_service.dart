@@ -1,28 +1,28 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_storage/firebase_storage.dart';
+import 'peso_auth_session.dart';
+
 import 'package:flutter/foundation.dart';
-import 'package:url_launcher/url_launcher.dart';
+
+import 'document_popup.dart';
 
 import '../peso_models/profile_artifact.dart';
+import 'peso_api_client.dart';
 
 class ProfileArtifactSaveResult {
-  const ProfileArtifactSaveResult({required this.records, required this.warnings});
+  const ProfileArtifactSaveResult({
+    required this.records,
+    required this.warnings,
+  });
 
   final List<Map<String, dynamic>> records;
   final List<String> warnings;
 }
 
-/// Uploads private user documents to Cloud Storage and keeps only their
-/// metadata in users/{uid}/artifacts/{artifactId} in Firestore.
+/// Saves private resume/NSRP artifacts through the authenticated PESO API.
+/// The API verifies the active Firebase or PESO SMS session and stores bytes in MongoDB GridFS.
 class ProfileArtifactService {
   ProfileArtifactService._();
 
   static const int maxArtifactBytes = 20 * 1024 * 1024;
-
-  static FirebaseFirestore get _db => FirebaseFirestore.instance;
-  static FirebaseStorage get _storage => FirebaseStorage.instance;
 
   static Future<ProfileArtifactSaveResult> saveArtifacts(
     List<ProfileArtifactInput> artifacts,
@@ -31,72 +31,41 @@ class ProfileArtifactService {
       return const ProfileArtifactSaveResult(records: [], warnings: []);
     }
 
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
+    if (!await PesoAuthSession.hasAuthenticatedSession()) {
       throw StateError('Sign in before saving resume or NSRP documents.');
     }
 
     final records = <Map<String, dynamic>>[];
     final warnings = <String>[];
-    final collection = _db.collection('users').doc(user.uid).collection('artifacts');
 
-    for (var index = 0; index < artifacts.length; index++) {
-      final artifact = artifacts[index];
+    for (final artifact in artifacts) {
       if (artifact.bytes.length > maxArtifactBytes) {
-        warnings.add('${artifact.fileName} was not saved because it exceeds the 20 MB limit.');
+        warnings.add(
+          '${artifact.fileName} was not saved because it exceeds the 20 MB limit.',
+        );
         continue;
       }
       if (!_isAllowedMimeType(artifact.mimeType)) {
-        warnings.add('${artifact.fileName} was not saved because its file type is not supported.');
+        warnings.add(
+          '${artifact.fileName} was not saved because its file type is not supported.',
+        );
         continue;
       }
 
-      final safeName = _safeStorageName(artifact.fileName);
-      final artifactId = '${DateTime.now().microsecondsSinceEpoch}_${index}_$safeName';
-      final storagePath = 'users/${user.uid}/artifacts/$artifactId';
-      Reference? storageRef;
-      var uploaded = false;
-
       try {
-        storageRef = _storage.ref(storagePath);
-        await storageRef.putData(
-          artifact.bytes,
-          SettableMetadata(
-            contentType: artifact.mimeType,
-            customMetadata: {
-              'ownerUid': user.uid,
-              'category': artifact.category,
-              'originalFileName': artifact.fileName,
-            },
-          ),
+        final record = await PesoApiClient.uploadArtifact(
+          fileName: _safeFileName(artifact.fileName),
+          category: artifact.category,
+          mimeType: artifact.mimeType,
+          bytes: artifact.bytes,
         );
-        uploaded = true;
-
-        final record = <String, dynamic>{
-          'id': artifactId,
-          'category': artifact.category,
-          'fileName': artifact.fileName,
-          'mimeType': artifact.mimeType,
-          'sizeBytes': artifact.bytes.length,
-          'storagePath': storagePath,
-          'uploadedAt': FieldValue.serverTimestamp(),
-        };
-        await collection.doc(artifactId).set(record);
-        records.add({
-          ...record,
-          'uploadedAt': DateTime.now(),
-        });
+        records.add(record);
       } catch (error) {
-        // Avoid orphaned Storage objects if writing the metadata fails.
-        if (uploaded && storageRef != null) {
-          try {
-            await storageRef.delete();
-          } catch (_) {
-            // Preserve the original error as the actionable warning.
-          }
-        }
-        warnings.add('Could not save ${artifact.fileName}: ${_friendlyStorageError(error)}');
-        debugPrint('[ARTIFACT] ${artifact.fileName} upload failed: $error');
+        warnings.add(
+          'Could not save ${artifact.fileName}: ${_friendlyApiError(error)}',
+        );
+        // Avoid logging document data or any server-provided payload.
+        debugPrint('[ARTIFACT] Upload failed (${error.runtimeType}).');
       }
     }
 
@@ -104,76 +73,78 @@ class ProfileArtifactService {
   }
 
   static Future<List<Map<String, dynamic>>> getCurrentUserArtifacts() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return <Map<String, dynamic>>[];
+    if (!await PesoAuthSession.hasAuthenticatedSession()) {
+      return <Map<String, dynamic>>[];
+    }
 
-    final snapshot = await _db
-        .collection('users')
-        .doc(user.uid)
-        .collection('artifacts')
-        .get();
-
-    final records = snapshot.docs.map((doc) => <String, dynamic>{
-      'id': doc.id,
-      ...doc.data(),
-    }).toList();
-    records.sort((a, b) => _timestampMillis(b['uploadedAt']).compareTo(_timestampMillis(a['uploadedAt'])));
+    final records = await PesoApiClient.listArtifacts();
+    records.sort(
+      (a, b) =>
+          _timestampMillis(b['uploadedAt'])
+              .compareTo(_timestampMillis(a['uploadedAt'])),
+    );
     return records;
   }
 
-  /// Obtains a Storage URL only when the signed-in owner chooses to open a file.
-  /// URLs are deliberately not persisted in Firestore because they are bearer links.
+  /// Requests an owner-checked, short-lived API download link when opening a file.
+  /// The signed URL is never persisted in the profile record.
   static Future<void> openArtifact(Map<String, dynamic> artifact) async {
-    final storagePath = artifact['storagePath']?.toString() ?? '';
-    if (storagePath.isEmpty) throw StateError('This document has no Storage path.');
+    final artifactId = artifact['id']?.toString() ?? '';
+    if (artifactId.isEmpty) {
+      throw StateError('This document has no artifact ID.');
+    }
 
-    final url = await _storage.ref(storagePath).getDownloadURL();
-    final launched = await launchUrl(
-      Uri.parse(url),
-      mode: LaunchMode.platformDefault,
-      webOnlyWindowName: '_blank',
-    );
-    if (!launched) throw StateError('Your browser could not open the document.');
+    // Reserve the browser tab inside the original click event. Waiting for
+    // an async signed-link request before opening a tab triggers popup blockers.
+    final popup = DocumentPopup.open();
+    try {
+      final uri = await PesoApiClient.createArtifactLink(artifactId);
+      final launched = popup != null
+          ? await popup.navigate(uri)
+          : await DocumentPopupFallback().navigate(uri);
+      if (!launched)
+        throw StateError('Your browser could not open the document.');
+    } catch (_) {
+      popup?.close();
+      rethrow;
+    }
   }
 
   static bool _isAllowedMimeType(String mimeType) => const {
-        'application/pdf',
-        'image/jpeg',
-        'image/png',
-      }.contains(mimeType.toLowerCase());
+    'application/pdf',
+    'image/jpeg',
+    'image/png',
+  }.contains(mimeType.toLowerCase());
 
-  static String _safeStorageName(String value) {
+  static String _safeFileName(String value) {
     final base = value.split(RegExp(r'[/\\]')).last.trim();
     final safe = base.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
-    return safe.isEmpty ? 'document.pdf' : safe.substring(0, safe.length > 100 ? 100 : safe.length);
+    return safe.isEmpty
+        ? 'document.pdf'
+        : safe.substring(0, safe.length > 100 ? 100 : safe.length);
   }
 
   static int _timestampMillis(Object? value) {
-    if (value is Timestamp) return value.millisecondsSinceEpoch;
     if (value is DateTime) return value.millisecondsSinceEpoch;
+    if (value is num) return value.toInt();
+    if (value is String) {
+      return DateTime.tryParse(value)?.millisecondsSinceEpoch ?? 0;
+    }
     return 0;
   }
 
-  static String _friendlyStorageError(Object error) {
-    if (error is FirebaseException) {
-      if (error.code == 'unauthorized' || error.code == 'permission-denied') {
-        return 'Storage denied the upload. Check the deployed storage.rules.';
-      }
-      if (error.code == 'no-default-bucket') {
-        return 'No Storage bucket is configured. Create a Firebase Storage bucket and rerun flutterfire configure.';
-      }
-      if (error.code == 'bucket-not-found' || error.code == 'object-not-found') {
-        return 'The Firebase Storage bucket is not ready.';
-      }
-      if (error.code == 'unknown' && (error.message ?? '').toLowerCase().contains('billing')) {
-        return 'Firebase Cloud Storage may require the Blaze billing plan for this project.';
-      }
-      return error.message ?? error.code;
+  static String _friendlyApiError(Object error) {
+    if (error is PesoApiException) {
+      if (error.statusCode == 401)
+        return 'Your sign-in session expired. Sign in again.';
+      if (error.code == 'unsupported_file_type')
+        return 'That document type is not supported.';
+      if (error.statusCode == 503)
+        return 'The document service is not configured yet.';
+      if (error.statusCode == 0)
+        return 'The PESO data API is unavailable. Check your connection and try again.';
+      return error.message;
     }
-    final message = error.toString();
-    if (message.toLowerCase().contains('billing')) {
-      return 'Firebase Cloud Storage requires billing to be enabled for this project.';
-    }
-    return message;
+    return 'The document could not be saved. Check your connection and try again.';
   }
 }

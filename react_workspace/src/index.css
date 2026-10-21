@@ -1,1 +1,14 @@
 @import "tailwindcss";
+
+/* Applicant-only validation is shown only after attempting to continue. */
+[data-applicant-field][data-validation-error] {
+  background-color: #fff7ed !important;
+  outline: 3px solid #ef4444 !important;
+  outline-offset: 2px;
+  border-radius: 4px;
+  box-shadow: 0 0 0 5px rgba(239, 68, 68, 0.12) !important;
+}
+[data-applicant-field][data-validation-error]:focus {
+  outline-color: #b91c1c !important;
+  box-shadow: 0 0 0 6px rgba(239, 68, 68, 0.2) !important;
+}

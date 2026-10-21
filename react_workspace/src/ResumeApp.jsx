@@ -1,7 +1,27 @@
-import { useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import * as htmlToImage from "html-to-image";
 import { jsPDF } from "jspdf";
 import { sendToFlutter } from './flutterBridge.js';
+import { applicantCareerEntries, educationChoices, experienceChoices, skillsChoices, validateApplicantEssentials } from './applicantEssentials.js';
+
+// Registration values inherited from the Flutter shell (URL query string).
+// They replace the per-template sample name/contact text so applicants start
+// from their own registered details; sample text remains the fallback.
+const readInheritedProfile = () => {
+  const values = { firstName: '', lastName: '', fullName: '', email: '', phone: '' };
+  try {
+    const params = new URLSearchParams(window.location.search);
+    for (const key of ['firstName', 'lastName', 'email', 'phone']) {
+      values[key] = (params.get(key) || '').replace(/\s+/g, ' ').trim();
+    }
+  } catch {
+    // Query strings are optional; fall back to the template samples.
+  }
+  values.fullName = [values.firstName, values.lastName].filter(Boolean).join(' ');
+  return values;
+};
+
+const INHERITED_PROFILE = readInheritedProfile();
 
 // --- SVG Icons ---
 const PhoneIcon = () => (
@@ -30,24 +50,63 @@ const CheckIcon = () => (
 );
 
 // --- Reusable Editable Field ---
-const Editable = ({ defaultText, className = "", ...props }) => (
-  <span
-    contentEditable
-    suppressContentEditableWarning
-    data-template-default={typeof defaultText === 'string' ? defaultText : ''}
-    className={`outline-none hover:bg-amber-50 focus:bg-amber-100 transition-colors rounded px-0.5 ${className}`}
-    {...props}
-  >
-    {defaultText}
-  </span>
-);
+// `prefillKey` pulls an inherited registration value into the field.
+// `data-template-default` keeps the untouched sample text so the completion
+// extractor only reports the field once it differs from the sample.
+const Editable = ({ defaultText, className = "", prefillKey, ...props }) => {
+  const inherited = prefillKey ? INHERITED_PROFILE[prefillKey] : '';
+  return (
+    <span
+      contentEditable
+      suppressContentEditableWarning
+      data-template-default={typeof defaultText === 'string' ? defaultText : ''}
+      data-prefill-key={prefillKey || undefined}
+      className={`outline-none hover:bg-amber-50 focus:bg-amber-100 transition-colors rounded px-0.5 ${className}`}
+      {...props}
+    >
+      {inherited || defaultText}
+    </span>
+  );
+};
 
 export default function ResumeApp() {
   const [activeTemplate, setActiveTemplate] = useState("sally");
   const [zoom, setZoom] = useState(1);
+  const [fitScale, setFitScale] = useState(1);
+  const [canvasHeight, setCanvasHeight] = useState(1123);
   const [photo, setPhoto] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [careerEducation, setCareerEducation] = useState('');
+  const [experienceStatus, setExperienceStatus] = useState('');
+  const [skillsStage, setSkillsStage] = useState('');
+  const [careerSkills, setCareerSkills] = useState('');
+  const [missingEssentials, setMissingEssentials] = useState([]);
   const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    let delayedCheck = 0;
+    const updateCanvasFit = () => {
+      const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+      const wrapper = document.getElementById("zoom-wrapper");
+      setFitScale(Math.min(1, Math.max(0.25, (viewportWidth - 48) / 794)));
+      if (wrapper && wrapper.scrollHeight > 0) setCanvasHeight(wrapper.scrollHeight);
+    };
+
+    updateCanvasFit();
+    window.addEventListener("resize", updateCanvasFit);
+    const root = document.getElementById("root");
+    const observer = typeof ResizeObserver === "function"
+      ? new ResizeObserver(updateCanvasFit)
+      : null;
+    if (root && observer) observer.observe(root);
+    delayedCheck = window.setTimeout(updateCanvasFit, 120);
+
+    return () => {
+      window.removeEventListener("resize", updateCanvasFit);
+      if (observer) observer.disconnect();
+      if (delayedCheck) window.clearTimeout(delayedCheck);
+    };
+  }, []);
 
   const handlePhotoUpload = (e) => {
     const file = e.target.files[0];
@@ -59,6 +118,31 @@ export default function ResumeApp() {
 
   // Generate the PDF, extract editable resume content, and return both to Flutter.
   const handleCompleteResume = async () => {
+    // Unedited resume-template examples do not constitute applicant facts.
+    const readRealValue = key => {
+      const node = document.querySelector(`#resume-node [data-prefill-key="${key}"]`);
+      const value = String(node?.innerText || '').trim();
+      const template = String(node?.getAttribute('data-template-default') || '').trim();
+      return value && value !== template ? value : '';
+    };
+    const essentialSnapshot = {
+      firstName: readRealValue('firstName'),
+      lastName: readRealValue('lastName'),
+      fullName: readRealValue('fullName'),
+      email: readRealValue('email'),
+      phone: readRealValue('phone'),
+      education: careerEducation,
+      experience: experienceStatus,
+      skillsStage,
+      skills: careerSkills.trim(),
+    };
+    const missing = validateApplicantEssentials(essentialSnapshot, { nsrp: false });
+    if (missing.length) {
+      setMissingEssentials(missing);
+      document.getElementById('resume-applicant-essentials')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    setMissingEssentials([]);
     setIsProcessing(true);
     const zoomWrapper = document.getElementById('zoom-wrapper');
     const originalTransform = zoomWrapper?.style.transform ?? '';
@@ -68,16 +152,107 @@ export default function ResumeApp() {
       const element = document.getElementById('resume-node');
       if (!element) throw new Error('Resume canvas was not found.');
 
-      const image = await htmlToImage.toJpeg(element, {
+      let resumePdfBase64 = '';
+      let pdfWarning = '';
+      const exportOptions = {
         quality: 0.96,
         backgroundColor: '#ffffff',
         pixelRatio: 1.5,
-      });
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = (element.offsetHeight * pdfWidth) / element.offsetWidth;
-      pdf.addImage(image, 'JPEG', 0, 0, pdfWidth, pdfHeight);
-      pdf.save('JobKonek_Resume.pdf');
+      };
+
+      // Try rendering the live DOM first. If a remote image cannot be fetched
+      // by html-to-image, inline the loaded image via canvas and retry.
+      let renderedImage;
+      try {
+        renderedImage = await htmlToImage.toJpeg(element, exportOptions);
+      } catch (firstRenderError) {
+        const images = Array.from(element.querySelectorAll('img'));
+        const originals = images.map((img) => ({
+          img,
+          src: img.getAttribute('src'),
+          srcset: img.getAttribute('srcset'),
+          sizes: img.getAttribute('sizes'),
+          crossOrigin: img.getAttribute('crossorigin'),
+        }));
+        const placeholderSvg =
+          '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400">' +
+          '<rect width="400" height="400" fill="#e5eee8"/>' +
+          '<circle cx="200" cy="140" r="65" fill="#2e7d32"/>' +
+          '<rect x="95" y="225" width="210" height="175" rx="65" fill="#2e7d32"/>' +
+          '</svg>';
+        const placeholder = 'data:image/svg+xml;charset=utf-8,' +
+          encodeURIComponent(placeholderSvg);
+
+        try {
+          if (images.length === 0) throw firstRenderError;
+          for (const img of images) {
+            let localSource = placeholder;
+            if (img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) {
+              try {
+                const canvas = document.createElement('canvas');
+                canvas.width = img.naturalWidth;
+                canvas.height = img.naturalHeight;
+                const canvasContext = canvas.getContext('2d');
+                if (canvasContext) {
+                  canvasContext.drawImage(img, 0, 0);
+                  localSource = canvas.toDataURL('image/png');
+                }
+              } catch {
+                // A cross-origin-tainted image gets a local placeholder.
+              }
+            }
+            img.removeAttribute('srcset');
+            img.removeAttribute('sizes');
+            img.removeAttribute('crossorigin');
+            img.src = localSource;
+          }
+
+          await Promise.all(images.map((img) =>
+            typeof img.decode === 'function'
+              ? img.decode().catch(() => {})
+              : Promise.resolve(),
+          ));
+          renderedImage = await htmlToImage.toJpeg(element, exportOptions);
+        } catch (fallbackError) {
+          pdfWarning = 'the PDF image render failed (' +
+            (fallbackError instanceof Error ? fallbackError.message : String(fallbackError)) + ')';
+          console.warn('[RESUME] PDF render failed; continuing with editable fields:', fallbackError);
+        } finally {
+          for (const original of originals) {
+            const restore = (name, value) => {
+              if (value == null) original.img.removeAttribute(name);
+              else original.img.setAttribute(name, value);
+            };
+            restore('src', original.src);
+            restore('srcset', original.srcset);
+            restore('sizes', original.sizes);
+            restore('crossorigin', original.crossOrigin);
+          }
+        }
+      }
+
+      if (renderedImage) {
+        try {
+          const pdf = new jsPDF('p', 'mm', 'a4');
+          const pdfWidth = pdf.internal.pageSize.getWidth();
+          const pdfHeight = (element.offsetHeight * pdfWidth) / element.offsetWidth;
+          pdf.addImage(renderedImage, 'JPEG', 0, 0, pdfWidth, pdfHeight);
+          const dataUri = pdf.output('datauristring');
+          resumePdfBase64 = dataUri.includes(',')
+            ? dataUri.substring(dataUri.indexOf(',') + 1)
+            : '';
+          try {
+            pdf.save('JobKonek_Resume.pdf');
+          } catch (downloadError) {
+            pdfWarning = 'the PDF was rendered but the browser could not download it';
+            console.warn('[RESUME] PDF download failed:', downloadError);
+          }
+        } catch (pdfError) {
+          pdfWarning = 'the PDF could not be assembled (' +
+            (pdfError instanceof Error ? pdfError.message : String(pdfError)) + ')';
+          console.error('[RESUME] PDF assembly failed; continuing with editable fields:', pdfError);
+        }
+      }
 
       const normalize = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
       const editables = Array.from(document.querySelectorAll('[contenteditable="true"]'));
@@ -105,33 +280,48 @@ export default function ResumeApp() {
         delete savedField.context;
         return savedField;
       });
+      fields.push(...applicantCareerEntries(essentialSnapshot).map(entry => ({
+        section: 'Applicant career details',
+        label: entry.label,
+        value: entry.value,
+        fieldKey: entry.fieldKey,
+      })));
       const plainText = fields.map((field) => `${field.section} — ${field.label}: ${field.value}`).join('\n');
       const resumeData = {
         documentType: 'Resume Builder',
         template: activeTemplate,
         fields,
+        applicantEssentials: {
+          education: careerEducation,
+          experience: experienceStatus,
+          skillsStage,
+          skills: skillsStage === skillsChoices[0] ? careerSkills.trim() : '',
+        },
         plainText,
         aiText: plainText,
         completedAt: new Date().toISOString(),
       };
-      const dataUri = pdf.output('datauristring');
-      const base64 = dataUri.includes(',') ? dataUri.substring(dataUri.indexOf(',') + 1) : '';
-      const delivered = sendToFlutter({
-        status: 'completed',
+      const delivered = sendToFlutter({        status: 'completed',
         kind: 'resume_builder',
         data: plainText,
         aiText: plainText,
         resumeData,
-        artifact: base64 ? {
+        artifact: resumePdfBase64 ? {
           fileName: 'JobKonek_Resume.pdf',
           category: 'resume_builder',
           mimeType: 'application/pdf',
-          base64,
+          base64: resumePdfBase64,
         } : null,
       });
 
       if (!delivered) {
-        alert('The resume PDF was downloaded, but no Flutter app was detected to save the resume data. Open the resume builder from PESO JobKonek to sync it to your profile.');
+        const missingBridgeMessage = resumePdfBase64
+          ? 'The resume PDF was generated, but no Flutter app was detected to save the resume data. Open the resume builder from PESO JobKonek to sync it to your profile.'
+          : 'The resume details were extracted, but no Flutter app was detected to save them. Open the resume builder from PESO JobKonek to sync it to your profile.';
+        alert(pdfWarning ? missingBridgeMessage + '\\n' + pdfWarning : missingBridgeMessage);
+      } else if (pdfWarning) {
+        alert('Your resume details were sent to PESO JobKonek, but ' +
+          pdfWarning + '. The saved resume fields can still be processed by AI.');
       }
     } catch (error) {
       console.error('Resume PDF or data extraction failed:', error);
@@ -156,7 +346,7 @@ export default function ResumeApp() {
       {/* Top Toolbar */}
       <header className="print:hidden sticky top-0 z-50 bg-white border-b border-neutral-200 px-6 py-3 flex flex-wrap items-center justify-between shadow-sm gap-4">
         {/* Template Selectors */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 min-w-0">
           <span className="text-xs font-bold uppercase tracking-wider text-neutral-400 mr-1">Design:</span>
           {[
             { id: "sally", label: "1. Teal Wave" },
@@ -179,7 +369,7 @@ export default function ResumeApp() {
         </div>
 
         {/* Zoom Controls & Actions */}
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center bg-neutral-100 rounded-lg p-1 border border-neutral-200 text-xs">
             <button
               onClick={() => setZoom((prev) => Math.max(0.4, prev - 0.1))}
@@ -224,24 +414,78 @@ export default function ResumeApp() {
             className="px-4 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-md shadow transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isProcessing ? (
-              <span>Processing PDF...</span>
+              <span>Preparing PDF & continuing...</span>
             ) : (
               <>
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
-                Download PDF & Upload
+                Download PDF & Continue
               </>
             )}
           </button>
         </div>
       </header>
 
+      {/* Required applicant-owned background, separate from editable sample
+          template text. New entrants can truthfully select no experience. */}
+      <section id="resume-applicant-essentials" className="mx-auto mt-4 mb-3 w-[min(94vw,900px)] rounded-2xl border border-emerald-200 bg-white shadow p-5">
+        <h2 className="font-extrabold text-lg text-emerald-950">Complete your real resume basics</h2>
+        <p className="text-sm text-slate-600 mt-2">
+          Replace the sample name and contact on your resume, then add your actual education and career background.
+          No prior job, certification, TIN, SSS or other government number is required.
+          If you are starting out, select the new entrant options—do not claim skills you do not have.
+        </p>
+        {missingEssentials.length > 0 && (
+          <div role="alert" data-testid="resume-missing" className="bg-amber-50 border border-amber-400 text-amber-950 p-3 mt-3 rounded-lg">
+            <strong>Complete these details before continuing:</strong>
+            <ul className="text-sm list-disc pl-5 mt-1">
+              {missingEssentials.map(item => <li key={item.key}>{item.label}</li>)}
+            </ul>
+          </div>
+        )}
+        <div className="grid sm:grid-cols-2 gap-3 mt-4">
+          <label className="text-sm font-semibold">Highest schooling
+            <select aria-label="Resume highest education" value={careerEducation}
+              onChange={event => { setCareerEducation(event.target.value); setMissingEssentials([]); }}
+              className="mt-1 w-full border border-gray-300 rounded-lg p-3 bg-white">
+              <option value="">Choose your education</option>
+              {educationChoices.map(v => <option key={v} value={v}>{v}</option>)}
+            </select>
+          </label>
+          <label className="text-sm font-semibold">Work experience
+            <select aria-label="Resume work experience" value={experienceStatus}
+              onChange={event => { setExperienceStatus(event.target.value); setMissingEssentials([]); }}
+              className="mt-1 w-full border border-gray-300 rounded-lg p-3 bg-white">
+              <option value="">Select your situation</option>
+              {experienceChoices.map(v => <option key={v} value={v}>{v}</option>)}
+            </select>
+          </label>
+          <label className="text-sm font-semibold sm:col-span-2">Skills and training
+            <select aria-label="Resume skills stage" value={skillsStage}
+              onChange={event => { setSkillsStage(event.target.value); setMissingEssentials([]); }}
+              className="mt-1 w-full border border-gray-300 rounded-lg p-3 bg-white">
+              <option value="">Select your situation</option>
+              {skillsChoices.map(v => <option key={v} value={v}>{v}</option>)}
+            </select>
+          </label>
+          {skillsStage === skillsChoices[0] && (
+            <label className="text-sm font-semibold sm:col-span-2">Skills you can honestly describe
+              <textarea aria-label="Resume applicant skills" rows={2} value={careerSkills}
+                onChange={event => { setCareerSkills(event.target.value); setMissingEssentials([]); }}
+                className="mt-1 w-full border border-gray-300 rounded-lg p-3"
+                placeholder="e.g. Customer service, basic carpentry or computer skills" />
+            </label>
+          )}
+        </div>
+      </section>
+
       {/* Canvas Workspace */}
-      <main className="flex-1 overflow-auto p-6 flex justify-center items-start bg-neutral-200/70">
+      <main className="flex-1 overflow-auto p-2 sm:p-6 flex justify-center items-start bg-neutral-200/70">
         <div
           id="zoom-wrapper"
           style={{
-            transform: `scale(${zoom})`,
+            transform: `scale(${zoom * fitScale})`,
             transformOrigin: "top center",
+            marginBottom: `${canvasHeight * (zoom * fitScale - 1)}px`,
             transition: "transform 0.15s ease-out",
           }}
         >
@@ -282,10 +526,10 @@ function TemplateSally({ photo }) {
         {/* Name and Title */}
         <div className="absolute top-4 left-56 pl-6 z-10">
           <h1 className="text-3xl font-bold text-neutral-900 tracking-tight">
-            <Editable defaultText="Sally" />
+            <Editable defaultText="Sally" prefillKey="firstName" />
           </h1>
           <h2 className="text-4xl font-extrabold text-neutral-900 tracking-tight leading-none mb-3">
-            <Editable defaultText="Branders" />
+            <Editable defaultText="Branders" prefillKey="lastName" />
           </h2>
           <div className="bg-[#0a8296] text-white font-semibold text-xs tracking-wider uppercase px-4 py-1.5 inline-block">
             <Editable defaultText="JOB TITLE" />
@@ -303,8 +547,8 @@ function TemplateSally({ photo }) {
               <Editable defaultText="CONTACTO" />
             </h3>
             <ul className="space-y-2 text-neutral-700 text-xs">
-              <li className="flex items-center"><MailIcon /> <Editable defaultText="sally.branders@gmail.com" /></li>
-              <li className="flex items-center"><PhoneIcon /> <Editable defaultText="+1 232 555 55 55" /></li>
+              <li className="flex items-center"><MailIcon /> <Editable defaultText="sally.branders@gmail.com" prefillKey="email" /></li>
+              <li className="flex items-center"><PhoneIcon /> <Editable defaultText="+1 232 555 55 55" prefillKey="phone" /></li>
               <li className="flex items-center"><PinIcon /> <Editable defaultText="NY, USA" /></li>
               <li className="flex items-center"><GlobeIcon /> <Editable defaultText="linkedin/sally.branders" /></li>
             </ul>
@@ -436,8 +680,8 @@ function TemplateEmily({ photo }) {
 
           <section className="space-y-2 text-neutral-800">
             <div className="flex items-start"><PinIcon /><Editable defaultText="450 Sunrise Avenue, Solaris City, Mars" /></div>
-            <div className="flex items-start"><PhoneIcon /><Editable defaultText="+1 234 567 8900" /></div>
-            <div className="flex items-start"><MailIcon /><Editable defaultText="emily.carter@futuremail.com" /></div>
+            <div className="flex items-start"><PhoneIcon /><Editable defaultText="+1 234 567 8900" prefillKey="phone" /></div>
+            <div className="flex items-start"><MailIcon /><Editable defaultText="emily.carter@futuremail.com" prefillKey="email" /></div>
             <div className="flex items-start"><GlobeIcon /><Editable defaultText="linkedin.com/in/emily-carter" /></div>
           </section>
 
@@ -484,10 +728,10 @@ function TemplateEmily({ photo }) {
         {/* Name Title Block */}
         <div>
           <h1 className="text-4xl tracking-widest font-light text-neutral-900 leading-none mb-1">
-            <Editable defaultText="EMILY" />
+            <Editable defaultText="EMILY" prefillKey="firstName" />
           </h1>
           <h1 className="text-5xl tracking-widest font-extralight text-neutral-800 leading-none mb-3">
-            <Editable defaultText="CARTER" />
+            <Editable defaultText="CARTER" prefillKey="lastName" />
           </h1>
           <h2 className="text-xl font-medium text-neutral-800 mb-8 tracking-wide">
             <Editable defaultText="Software Engineer" />
@@ -610,7 +854,7 @@ function TemplateRichard({ photo }) {
         </div>
         <div className="text-left w-3/5">
           <h1 className="text-3xl font-extrabold tracking-wider uppercase mb-1">
-            <Editable defaultText="RICHARD SANCHEZ" />
+            <Editable defaultText="RICHARD SANCHEZ" prefillKey="fullName" />
           </h1>
           <h2 className="text-xs tracking-widest text-neutral-300 uppercase font-light">
             <Editable defaultText="MARKETING MANAGER" />
@@ -627,8 +871,8 @@ function TemplateRichard({ photo }) {
               <Editable defaultText="CONTACT" />
             </h3>
             <ul className="space-y-2 text-neutral-600 text-xs">
-              <li className="flex items-center"><PhoneIcon /><Editable defaultText="+123-456-7890" /></li>
-              <li className="flex items-center"><MailIcon /><Editable defaultText="hello@reallygreatsite.com" /></li>
+              <li className="flex items-center"><PhoneIcon /><Editable defaultText="+123-456-7890" prefillKey="phone" /></li>
+              <li className="flex items-center"><MailIcon /><Editable defaultText="hello@reallygreatsite.com" prefillKey="email" /></li>
               <li className="flex items-center"><PinIcon /><Editable defaultText="123 Anywhere St., Any City" /></li>
               <li className="flex items-center"><GlobeIcon /><Editable defaultText="www.reallygreatsite.com" /></li>
             </ul>
@@ -789,11 +1033,11 @@ function TemplateDian({ photo }) {
             </li>
             <li className="flex items-center">
               <PhoneIcon />
-              <span><Editable defaultText="808.555.0118" /></span>
+              <span><Editable defaultText="808.555.0118" prefillKey="phone" /></span>
             </li>
             <li className="flex items-center">
               <MailIcon />
-              <span><Editable defaultText="dian@example.com" /></span>
+              <span><Editable defaultText="dian@example.com" prefillKey="email" /></span>
             </li>
             <li className="flex items-center">
               <GlobeIcon />
@@ -824,7 +1068,7 @@ function TemplateDian({ photo }) {
       {/* Right Column */}
       <div className="w-[62%] p-10 space-y-6">
         <h1 className="text-3xl font-extrabold tracking-tight uppercase text-neutral-900 border-b pb-4">
-          <Editable defaultText="DIAN NUGRAHA" />
+          <Editable defaultText="DIAN NUGRAHA" prefillKey="fullName" />
         </h1>
 
         {/* Experience */}

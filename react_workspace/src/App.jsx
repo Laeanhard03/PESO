@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as htmlToImage from "html-to-image";
 import { jsPDF } from "jspdf";
 import { sendToFlutter } from './flutterBridge.js';
+import { applicantCareerEntries, educationChoices, experienceChoices, skillsChoices, validateApplicantEssentials } from './applicantEssentials.js';
+import pesoformicon from './assets/pesoformicon.png';
 
 const GreenLabel = ({ children, className = '' }) => (
   <span className={`bg-green-200/60 px-1 font-bold ${className}`}>{children}</span>
@@ -9,13 +11,360 @@ const GreenLabel = ({ children, className = '' }) => (
 
 export default function App() {
   const [zoomLevel, setZoomLevel] = useState(1);
+  const [fitScale, setFitScale] = useState(1);
+  const [contentHeight, setContentHeight] = useState(2400);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [careerEducation, setCareerEducation] = useState('');
+  const [experienceStatus, setExperienceStatus] = useState('');
+  const [skillsStage, setSkillsStage] = useState('');
+  const [careerSkills, setCareerSkills] = useState('');
+  const [missingEssentials, setMissingEssentials] = useState([]);
+  const [validationOpen, setValidationOpen] = useState(false);
+  const signatureCanvasRef = useRef(null);
+  const [isSigning, setIsSigning] = useState(false);
+  const [hasSignature, setHasSignature] = useState(false);
+  const zoomRef = useRef(1);
+  const fitScaleRef = useRef(1);
+  const heightRef = useRef(2400);
+  const pinchRef = useRef(null);
+  const previewScale = zoomLevel * fitScale;
+
+  useEffect(() => { zoomRef.current = zoomLevel; }, [zoomLevel]);
+
+  const beginSignature = event => {
+    const canvas = signatureCanvasRef.current;
+    if (!canvas) return;
+    event.preventDefault();
+    const bounds = canvas.getBoundingClientRect();
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    const x = (event.clientX - bounds.left) * canvas.width / bounds.width;
+    const y = (event.clientY - bounds.top) * canvas.height / bounds.height;
+    canvas.setPointerCapture(event.pointerId);
+    context.lineCap = 'round';
+    context.lineJoin = 'round';
+    context.fillStyle = '#17352b';
+    context.beginPath();
+    context.arc(x, y, 1.5, 0, Math.PI * 2);
+    context.fill();
+    context.beginPath();
+    context.moveTo(x, y);
+    setHasSignature(true);
+    setIsSigning(true);
+  };
+
+  const drawSignature = event => {
+    const canvas = signatureCanvasRef.current;
+    if (!isSigning || !canvas) return;
+    const bounds = canvas.getBoundingClientRect();
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    const x = (event.clientX - bounds.left) * canvas.width / bounds.width;
+    const y = (event.clientY - bounds.top) * canvas.height / bounds.height;
+    context.lineWidth = 3;
+    context.lineCap = 'round';
+    context.lineJoin = 'round';
+    context.strokeStyle = '#17352b';
+    context.lineTo(x, y);
+    context.stroke();
+    setHasSignature(true);
+  };
+
+  const clearSignature = () => {
+    const canvas = signatureCanvasRef.current;
+    if (!canvas) return;
+    canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
+    setHasSignature(false);
+    setIsSigning(false);
+  };
+
+  // Only mark fields invalid after a submit attempt, never on initial load.
+  useEffect(() => {
+    const invalidKeys = new Set(missingEssentials.map(item => item.key));
+    document.querySelectorAll('[data-applicant-field]').forEach(control => {
+      const invalid = invalidKeys.has(control.getAttribute('data-applicant-field'));
+      if (invalid) {
+        control.setAttribute('data-validation-error', '');
+        control.setAttribute('aria-invalid', 'true');
+      } else {
+        control.removeAttribute('data-validation-error');
+        control.removeAttribute('aria-invalid');
+      }
+    });
+    // The alert already disappears when missingEssentials becomes empty.
+    // Do not synchronously update React state inside this DOM-sync effect.
+  }, [missingEssentials]);
+
+  // The printable NSRP fields are intentionally uncontrolled. Track edits at
+  // the document level so the red highlight clears as each item is corrected.
+  useEffect(() => {
+    const handleFieldChange = event => {
+      const key = event.target?.getAttribute?.('data-applicant-field');
+      if (!key) return;
+      // These fields are controlled by React. Updating state during a native
+      // select's capture-phase input event resets its DOM value before React's
+      // onChange can commit the user's keyboard/mouse choice.
+      if (['education', 'experience', 'skillsStage', 'skills'].includes(key)) return;
+      const value = field => document.querySelector(
+        '[data-applicant-field="' + field + '"]')?.value?.trim() || '';
+      setMissingEssentials(previous => {
+        if (previous.length === 0) return previous;
+        const remaining = previous.filter(item => {
+        if (item.key === 'firstName' && (key === 'firstName' || key === 'lastName')) {
+          return !(value('firstName') && value('lastName'));
+        }
+        if (item.key === 'email' && (key === 'email' || key === 'phone')) {
+          return !(value('email') || value('phone'));
+        }
+        return item.key !== key || !String(event.target.value || '').trim();
+        });
+        return remaining.length === previous.length ? previous : remaining;
+      });
+    };
+    document.addEventListener('input', handleFieldChange, true);
+    document.addEventListener('change', handleFieldChange, true);
+    return () => {
+      document.removeEventListener('input', handleFieldChange, true);
+      document.removeEventListener('change', handleFieldChange, true);
+    };
+  }, []);
+
+  useEffect(() => {
+    let delayedCheck = 0;
+    const updatePreviewFit = () => {
+      const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+      const wrapper = document.getElementById('zoom-wrapper');
+      const nextFit = Math.min(1, Math.max(0.25, (viewportWidth - 32) / 850));
+      fitScaleRef.current = nextFit;
+      setFitScale(previous => Math.abs(previous - nextFit) > 0.001 ? nextFit : previous);
+      if (wrapper && wrapper.scrollHeight > 0) {
+        const nextHeight = wrapper.scrollHeight;
+        heightRef.current = nextHeight;
+        setContentHeight(previous => Math.abs(previous - nextHeight) > 1
+          ? nextHeight : previous);
+      }
+    };
+
+    updatePreviewFit();
+    window.addEventListener('resize', updatePreviewFit);
+    const wrapper = document.getElementById('zoom-wrapper');
+    const observer = typeof ResizeObserver === 'function'
+      ? new ResizeObserver(updatePreviewFit)
+      : null;
+    if (wrapper && observer) observer.observe(wrapper);
+    delayedCheck = window.setTimeout(updatePreviewFit, 120);
+
+    return () => {
+      window.removeEventListener('resize', updatePreviewFit);
+      if (observer) observer.disconnect();
+      if (delayedCheck) window.clearTimeout(delayedCheck);
+    };
+  }, []);
+
+  // Two-finger zoom is applied to the form itself, not the browser viewport.
+  // The shell takes the *scaled layout size* while the inner form stays 850px.
+  // On every pinch, recompute the focal position and keep it under the fingers.
+  // Single-finger scrolling, text inputs, and signature drawing still work.
+  useEffect(() => {
+    const viewport = document.getElementById('nsrp-preview-viewport');
+    const form = document.getElementById('zoom-wrapper');
+    const shell = document.getElementById('nsrp-zoom-shell');
+    if (!viewport || !form || !shell) return;
+    const midpoint = touches => ({
+      x: (touches[0].clientX + touches[1].clientX) / 2,
+      y: (touches[0].clientY + touches[1].clientY) / 2,
+      distance: Math.hypot(
+        touches[0].clientX - touches[1].clientX,
+        touches[0].clientY - touches[1].clientY,
+      ),
+    });
+    const onTouchStart = event => {
+      if (event.touches.length !== 2) return;
+      pinchRef.current = midpoint(event.touches);
+      event.preventDefault();
+    };
+    const onTouchMove = event => {
+      if (event.touches.length !== 2 || !pinchRef.current) return;
+      event.preventDefault();
+      const next = midpoint(event.touches);
+      if (next.distance < 10 || pinchRef.current.distance < 10) return;
+      const oldScale = zoomRef.current * fitScaleRef.current;
+      const oldRect = form.getBoundingClientRect();
+      const anchorX = (next.x - oldRect.left) / oldScale;
+      const anchorY = (next.y - oldRect.top) / oldScale;
+      const ratio = next.distance / pinchRef.current.distance;
+      const nextZoom = Math.min(3, Math.max(0.5, zoomRef.current * ratio));
+      pinchRef.current = next;
+      zoomRef.current = nextZoom;
+      const scale = nextZoom * fitScaleRef.current;
+      shell.style.width = (850 * scale) + 'px';
+      shell.style.height = (heightRef.current * scale) + 'px';
+      form.style.transform = 'scale(' + scale + ')';
+      const moved = form.getBoundingClientRect();
+      viewport.scrollLeft += moved.left + anchorX * scale - next.x;
+      window.scrollBy(0, moved.top + anchorY * scale - next.y);
+    };
+    const onTouchEnd = event => {
+      if (event.touches.length >= 2 || !pinchRef.current) return;
+      pinchRef.current = null;
+      setZoomLevel(zoomRef.current);
+    };
+    viewport.addEventListener('touchstart', onTouchStart, { passive: false });
+    viewport.addEventListener('touchmove', onTouchMove, { passive: false });
+    viewport.addEventListener('touchend', onTouchEnd);
+    viewport.addEventListener('touchcancel', onTouchEnd);
+    return () => {
+      viewport.removeEventListener('touchstart', onTouchStart);
+      viewport.removeEventListener('touchmove', onTouchMove);
+      viewport.removeEventListener('touchend', onTouchEnd);
+      viewport.removeEventListener('touchcancel', onTouchEnd);
+    };
+  }, []);
+
+  // Inherit the registration values passed by the Flutter shell as query
+  // parameters into the matching NSRP Form 1 fields.
+  useEffect(() => {
+    let params;
+    try {
+      params = new URLSearchParams(window.location.search);
+    } catch {
+      return;
+    }
+    const inherited = {
+      lastName: (params.get('lastName') || '').trim(),
+      firstName: (params.get('firstName') || '').trim(),
+      middleName: (params.get('middleName') || '').trim(),
+      email: (params.get('email') || '').trim(),
+      phone: (params.get('phone') || '').trim(),
+    };
+    document.querySelectorAll('[data-prefill]').forEach((element) => {
+      const value = inherited[element.getAttribute('data-prefill')];
+      if (value && !element.value) element.value = value;
+    });
+  }, []);
+
+  // Rehydrate saved NSRP form controls on editing. Data stays in the
+  // authenticated parent iframe exchange, never in a query string.
+  useEffect(() => {
+    const prefill = event => {
+      if (event.source !== window.parent && event.source !== window) return;
+      let data;
+      try { data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data; }
+      catch { return; }
+      if (data?.source !== 'peso-flutter' || data?.event !== 'nsrp-prefill') return;
+      const entries = data.formData?.entries;
+      if (!Array.isArray(entries)) return;
+      // Match the exact control set and ordering used when serializing NSRP.
+      // Applicant-career selects live outside the printable zoom wrapper and
+      // must NOT shift saved index 1 (surname) onto the education dropdown.
+      const controls = Array.from(document.querySelectorAll(
+        '#zoom-wrapper input, #zoom-wrapper select, #zoom-wrapper textarea',
+      )).filter(control => !['hidden', 'submit', 'button', 'reset', 'file']
+        .includes((control.type || '').toLowerCase()));
+      entries.slice(0, 400).forEach(entry => {
+        const i = Number(entry?.index) - 1;
+        if (!Number.isInteger(i) || i < 0 || i >= controls.length) return;
+        const input = controls[i];
+        const type = (input.type || '').toLowerCase();
+        if (type === 'checkbox' || type === 'radio') {
+          input.checked = entry.checked === true || entry.value === 'Selected';
+        } else if (typeof entry.value === 'string') {
+          const proto = input instanceof HTMLTextAreaElement
+            ? HTMLTextAreaElement.prototype : input instanceof HTMLSelectElement
+              ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
+          const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+          if (setter) setter.call(input, entry.value.slice(0, 5000));
+          else input.value = entry.value.slice(0, 5000);
+        }
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      // Career choices are controlled by React state and serialized separately
+      // from the numbered printable controls. Restore them by named keys.
+      const career = data.formData?.applicantEssentials || {};
+      const legacyValue = label => entries.find(entry =>
+        entry?.type === 'applicant_essential' && entry.label === label)?.value || '';
+      const choose = (choices, value, legacy) => choices.includes(value)
+        ? value : choices.includes(legacy) ? legacy : '';
+      const education = choose(educationChoices, career.education, legacyValue('Highest education attained'));
+      const experience = choose(experienceChoices, career.experience, legacyValue('Work experience status'));
+      const stage = choose(skillsChoices, career.skillsStage, legacyValue('Career readiness stage'));
+      const savedSkills = typeof career.skills === 'string'
+        ? career.skills : legacyValue('Other skills acquired');
+      setCareerEducation(education);
+      setExperienceStatus(experience);
+      setSkillsStage(stage);
+      setCareerSkills(stage === skillsChoices[0] ? savedSkills.slice(0, 5000) : '');
+
+      // Preserve an applicant's drawn signature when they reopen the form.
+      const signature = data.formData?.signatureDataUrl;
+      if (typeof signature === 'string' && /^data:image\/png;base64,/.test(signature)
+          && signature.length < 200000) {
+        const canvas = signatureCanvasRef.current;
+        const image = new Image();
+        image.onload = () => {
+          if (!canvas) return;
+          const context = canvas.getContext('2d');
+          if (!context) return;
+          context.clearRect(0, 0, canvas.width, canvas.height);
+          context.drawImage(image, 0, 0, canvas.width, canvas.height);
+          setHasSignature(true);
+        };
+        image.src = signature;
+      }
+    };
+    window.addEventListener('message', prefill);
+    sendToFlutter({ status: 'ready', kind: 'nsrp_form' });
+    return () => window.removeEventListener('message', prefill);
+  }, []);
+
+  // Commit native selects exclusively through their React handlers, after
+  // Chrome has finished changing the selected option.
+  const commitCareerChoice = (key, value, updateState) => {
+    updateState(value);
+    if (!value.trim()) return;
+    setMissingEssentials(previous => {
+      if (!previous.some(item => item.key === key ||
+        (key === 'skillsStage' && value !== skillsChoices[0] && item.key === 'skills')))
+        return previous;
+      return previous.filter(item => item.key !== key &&
+        !(key === 'skillsStage' && value !== skillsChoices[0] && item.key === 'skills'));
+    });
+  };
 
   const handleZoomIn = () => setZoomLevel(prev => Math.min(prev + 0.1, 2));
   const handleZoomOut = () => setZoomLevel(prev => Math.max(prev - 0.1, 0.5));
   const handleResetZoom = () => setZoomLevel(1);
 
   const handleCompleteRegistration = async () => {
+    const readField = key => document.querySelector(`[data-applicant-field="${key}"]`)?.value?.trim() || '';
+    const applicantEssentials = {
+      firstName: readField('firstName'),
+      lastName: readField('lastName'),
+      email: readField('email'),
+      phone: readField('phone'),
+      city: readField('city'),
+      preferredOccupation: readField('preferredOccupation'),
+      education: careerEducation,
+      experience: experienceStatus,
+      skillsStage,
+      skills: careerSkills.trim(),
+    };
+    const missing = validateApplicantEssentials(applicantEssentials);
+    if (missing.length) {
+      setMissingEssentials(missing);
+      setValidationOpen(true);
+      const firstField = document.querySelector(`[data-applicant-field="${missing[0].key}"]`);
+      if (firstField) {
+        firstField.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        firstField.focus({ preventScroll: true });
+      } else {
+        document.getElementById('applicant-essentials')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      return;
+    }
+    setMissingEssentials([]);
+    setValidationOpen(false);
     setIsProcessing(true);
 
     const zoomWrapper = document.getElementById('zoom-wrapper');
@@ -106,7 +455,7 @@ export default function App() {
         return `Form field ${index + 1}`;
       };
 
-      const controls = Array.from(document.querySelectorAll('input, select, textarea')).filter((control) => {
+      const controls = Array.from(document.querySelectorAll('#zoom-wrapper input, #zoom-wrapper select, #zoom-wrapper textarea')).filter((control) => {
         const type = (control.type || '').toLowerCase();
         return !['hidden', 'submit', 'button', 'reset', 'file'].includes(type);
       });
@@ -124,12 +473,16 @@ export default function App() {
       // Save the full form privately for the user, but omit identity numbers
       // and nearby labels that may identify them before sending text to Gemini.
       const sensitiveLabel = /\b(tin|sss|gsis|philhealth|pag-?ibig|passport|household\s*id|tax\s*id|government\s*id|national\s*id|voter'?s?\s*id|driver'?s?\s*license|umid)\b/i;
-      const aiEntries = entries.filter((entry) => !sensitiveLabel.test(`${entry.label} ${entry.fieldKey} ${entry.context}`));
+      const careerEntries = applicantCareerEntries(applicantEssentials).map(
+        (entry, index) => ({ ...entry, index: controls.length + index + 1, type: 'applicant_essential' }),
+      );
+      const allEntries = [...entries, ...careerEntries];
+      const aiEntries = allEntries.filter((entry) => !sensitiveLabel.test(`${entry.label} ${entry.fieldKey} ${entry.context || ''}`));
       const aiText = [
         'NSRP FORM 1 - COMPLETED VALUES',
         ...aiEntries.map((entry) => `${entry.label}: ${entry.value}`),
       ].join('\n');
-      const storedEntries = entries.map((entry) => {
+      const storedEntries = allEntries.map((entry) => {
         const storedEntry = { ...entry };
         delete storedEntry.fieldKey;
         delete storedEntry.context;
@@ -138,7 +491,18 @@ export default function App() {
       const formData = {
         documentType: 'NSRP Form 1',
         entries: storedEntries,
+        applicantEssentials: {
+          education: careerEducation,
+          experience: experienceStatus,
+          skillsStage,
+          skills: skillsStage === skillsChoices[0] ? careerSkills.trim() : '',
+          preferredOccupation: applicantEssentials.preferredOccupation,
+          city: applicantEssentials.city,
+        },
         completedAt: new Date().toISOString(),
+        signatureDataUrl: hasSignature && signatureCanvasRef.current
+          ? signatureCanvasRef.current.toDataURL('image/png')
+          : null,
         aiText,
       };
 
@@ -174,18 +538,131 @@ export default function App() {
     <div className="min-h-screen bg-gray-200 py-8 flex flex-col items-center font-sans overflow-x-hidden">
       
       {/* Zoom Controls */}
-      <div className="fixed top-0 left-0 w-full bg-slate-800 p-3 flex justify-center gap-4 z-50 shadow-lg">
-        <span className="text-white font-semibold my-auto">Form Viewer Controls:</span>
-        <button onClick={handleZoomOut} className="bg-white px-4 py-1 rounded hover:bg-gray-100 font-bold">- Zoom Out</button>
-        <button onClick={handleResetZoom} className="bg-white px-4 py-1 rounded hover:bg-gray-100 font-bold">Reset (100%)</button>
-        <button onClick={handleZoomIn} className="bg-white px-4 py-1 rounded hover:bg-gray-100 font-bold">+ Zoom In</button>
+      <div className="fixed top-0 left-0 w-full bg-gradient-to-r from-emerald-950 via-emerald-800 to-teal-800 px-3 py-3 flex flex-wrap items-center justify-center gap-2 sm:gap-3 z-50 shadow-lg border-b border-emerald-700">
+        <div className="flex items-center gap-2 mr-2">
+          <span className="rounded-lg bg-white/15 px-2.5 py-1.5 text-white text-xs font-black tracking-wide">NSRP FORM 1</span>
+          <span className="text-white/85 text-xs sm:text-sm font-semibold">Review &amp; edit</span>
+        </div>
+        <div className="rounded-xl bg-white/10 p-1 flex items-center gap-1" aria-label="Form zoom controls">
+          <button onClick={handleZoomOut} aria-label="Zoom out" className="bg-white text-emerald-900 px-3 py-1.5 rounded-lg hover:bg-emerald-50 font-bold text-sm">-</button>
+          <button onClick={handleResetZoom} className="bg-white text-emerald-900 px-3 py-1.5 rounded-lg hover:bg-emerald-50 font-bold text-sm">100%</button>
+          <button onClick={handleZoomIn} aria-label="Zoom in" className="bg-white text-emerald-900 px-3 py-1.5 rounded-lg hover:bg-emerald-50 font-bold text-sm">+</button>
+        </div>
+        <button onClick={clearSignature} disabled={!hasSignature} className="rounded-lg bg-white/15 px-3 py-1.5 text-white text-xs font-semibold hover:bg-white/25 disabled:opacity-45 disabled:cursor-not-allowed">
+          Clear signature
+        </button>
       </div>
+      {validationOpen && missingEssentials.length > 0 && (
+        <aside role="alertdialog" aria-label="Incomplete required information"
+          data-testid="applicant-missing" className="fixed z-[70] top-20 right-3 left-3 sm:left-auto sm:w-[390px] rounded-2xl border border-amber-200 bg-white text-slate-900 p-4 shadow-2xl shadow-amber-900/15">
+          <div className="flex items-start gap-3">
+            <div className="rounded-full bg-amber-100 text-amber-700 p-2 font-black" aria-hidden="true">!</div>
+            <div className="min-w-0 flex-1">
+              <h3 className="font-extrabold text-base">A few details are still needed</h3>
+              <p className="text-xs text-slate-600 mt-1">Select a field to jump to it. Missing fields are highlighted below.</p>
+            </div>
+            <button aria-label="Dismiss validation notification" onClick={() => setValidationOpen(false)} className="text-slate-500 hover:text-slate-900 font-bold px-2">×</button>
+          </div>
+          <ul className="mt-3 max-h-52 overflow-y-auto space-y-1.5">
+            {missingEssentials.map(item => (
+              <li key={item.key}>
+                <button className="text-left text-sm w-full rounded-lg bg-amber-50 hover:bg-amber-100 p-2.5 text-amber-950"
+                  onClick={() => {
+                    const target = document.querySelector('[data-applicant-field="' + item.key + '"]');
+                    target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    target?.focus({ preventScroll: true });
+                  }}>
+                  • {item.label}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </aside>
+      )}
 
-      <div 
-        id="zoom-wrapper"
-        className="transition-transform duration-200 origin-top mt-12 pb-24"
-        style={{ transform: `scale(${zoomLevel})` }}
+      {/* Applicant-only matching essentials. These controls do not alter the
+          official printable form's assessor or government-ID fields. */}
+      <section id="applicant-essentials" className="mt-24 w-[min(94vw,850px)] bg-white rounded-2xl shadow p-5 sm:p-7 border border-emerald-200">
+        <div className="text-xs font-bold tracking-wider text-emerald-700">BEFORE CONTINUING</div>
+        <h2 className="font-bold text-xl text-slate-900 mt-1">Your career information</h2>
+        <p className="text-sm text-slate-600 mt-2">
+          Please complete your name, an email or mobile number, city and one preferred occupation in the form below.
+          Then confirm these details. You may select no experience or still learning; do not invent qualifications.
+          TIN, SSS, PhilHealth, Pag-IBIG, certificates you do not hold, and PESO assessor fields are not required here.
+        </p>
+        {missingEssentials.length > 0 && (
+          <p className="mt-4 text-sm text-amber-800 font-semibold" aria-live="polite">
+            {missingEssentials.length} required {missingEssentials.length === 1 ? 'detail needs' : 'details need'} attention. Follow the highlighted fields.
+          </p>
+        )}
+        <div className="grid sm:grid-cols-2 gap-4 mt-4">
+          <label className="text-sm font-semibold text-slate-800">
+            Highest education / currently studying
+            <select aria-label="Highest education" data-testid="career-education-select" data-applicant-field="education"
+              value={careerEducation} onChange={event => commitCareerChoice('education', event.currentTarget.value, setCareerEducation)}
+              className="mt-1 w-full border border-slate-300 rounded-lg p-3 bg-white text-slate-900">
+              <option value="">Select your actual education</option>
+              {educationChoices.map(choice => <option key={choice} value={choice}>{choice}</option>)}
+            </select>
+            <output data-testid="career-education-selected" aria-live="polite" className="mt-1 block text-xs font-medium text-emerald-800">
+              {careerEducation ? `Selected: ${careerEducation}` : 'No education selected yet'}
+            </output>
+          </label>
+          <label className="text-sm font-semibold text-slate-800">
+            Work experience
+            <select aria-label="Work experience status" data-testid="career-experience-select" data-applicant-field="experience"
+              value={experienceStatus} onChange={event => commitCareerChoice('experience', event.currentTarget.value, setExperienceStatus)}
+              className="mt-1 w-full border border-slate-300 rounded-lg p-3 bg-white text-slate-900">
+              <option value="">Select your situation</option>
+              {experienceChoices.map(choice => <option key={choice} value={choice}>{choice}</option>)}
+            </select>
+            <output data-testid="career-experience-selected" aria-live="polite" className="mt-1 block text-xs font-medium text-emerald-800">
+              {experienceStatus ? `Selected: ${experienceStatus}` : 'No experience status selected yet'}
+            </output>
+          </label>
+          <label className="text-sm font-semibold text-slate-800 sm:col-span-2">
+            Skills or training
+            <select aria-label="Skills stage" data-testid="career-skills-select" data-applicant-field="skillsStage"
+              value={skillsStage} onChange={event => commitCareerChoice('skillsStage', event.currentTarget.value, setSkillsStage)}
+              className="mt-1 w-full border border-slate-300 rounded-lg p-3 bg-white text-slate-900">
+              <option value="">Select your situation</option>
+              {skillsChoices.map(choice => <option key={choice} value={choice}>{choice}</option>)}
+            </select>
+            <output data-testid="career-skills-selected" aria-live="polite" className="mt-1 block text-xs font-medium text-emerald-800">
+              {skillsStage ? `Selected: ${skillsStage}` : 'No skills stage selected yet'}
+            </output>
+          </label>
+          {skillsStage === skillsChoices[0] && (
+            <label className="text-sm font-semibold text-slate-800 sm:col-span-2">
+              What skills or training have you actually completed?
+              <textarea aria-label="Applicant skills" data-applicant-field="skills" rows={2}
+                value={careerSkills} onChange={event => commitCareerChoice('skills', event.currentTarget.value, setCareerSkills)}
+                placeholder="e.g. Carpentry, MS Excel, customer service"
+                className="mt-1 w-full border border-slate-300 rounded-lg p-3"/>
+            </label>
+          )}
+        </div>
+        <p className="text-xs text-slate-500 mt-3">Optional or PESO-only fields can be completed later. Only your own verified statements are saved as applicant qualifications.</p>
+        <p className="text-xs text-slate-500 mt-2" aria-live="polite">
+          {hasSignature ? 'Signature added. Use “Clear signature” above to start again.' : 'You can draw your signature with a mouse, touchpad, or touchscreen in the signature box on page 2.'}
+        </p>
+      </section>
+
+      <div
+        id="nsrp-preview-viewport"
+        data-testid="nsrp-pinch-viewport"
+        className="mt-24 w-full"
+        style={{ overflowX: 'auto', touchAction: 'pan-x pan-y', overscrollBehaviorX: 'contain' }}
       >
+        <div
+          id="nsrp-zoom-shell"
+          style={{ width: (850 * previewScale) + 'px', height: (contentHeight * previewScale) + 'px', margin: '0 auto', position: 'relative' }}
+        >
+          <div
+            id="zoom-wrapper"
+            className="origin-top-left pb-24"
+            style={{ width: '850px', transform: `scale(${previewScale})`, transformOrigin: 'top left' }}
+          >
         
         {/* ======================= PAGE 1 ======================= */}
         <div id="peso-page-1" className="w-[850px] bg-white shadow-sm mb-8 border border-gray-400 p-8 text-xs text-black">
@@ -202,7 +679,7 @@ export default function App() {
               <span className="font-bold">REGISTRATION FORM</span>
             </div>
             <div className="w-1/4 border-l border-black p-2 flex justify-center items-center">
-              <div className="w-12 h-16 border border-gray-400 rounded-b-full flex items-center justify-center text-[8px] text-center">DOLE/PESO Logo</div>
+              <img src={pesoformicon} alt="PESO Form icon" className="h-16 w-12 object-contain" />
             </div>
           </div>
 
@@ -216,9 +693,9 @@ export default function App() {
 
           <div className="border border-black flex flex-col">
             <div className="flex border-b border-black divide-x divide-black">
-              <div className="w-1/4 p-1"><GreenLabel>SURNAME</GreenLabel><input type="text" className="w-full outline-none uppercase mt-1" /></div>
-              <div className="w-1/4 p-1"><GreenLabel>FIRST NAME</GreenLabel><input type="text" className="w-full outline-none uppercase mt-1" /></div>
-              <div className="w-1/4 p-1"><GreenLabel>MIDDLE NAME</GreenLabel><input type="text" className="w-full outline-none uppercase mt-1" /></div>
+              <div className="w-1/4 p-1"><GreenLabel>SURNAME</GreenLabel><input type="text" data-prefill="lastName" data-applicant-field="lastName" data-field="Surname" aria-label="Surname" className="w-full outline-none uppercase mt-1" /></div>
+              <div className="w-1/4 p-1"><GreenLabel>FIRST NAME</GreenLabel><input type="text" data-prefill="firstName" data-applicant-field="firstName" data-field="First name" aria-label="First name" className="w-full outline-none uppercase mt-1" /></div>
+              <div className="w-1/4 p-1"><GreenLabel>MIDDLE NAME</GreenLabel><input type="text" data-prefill="middleName" className="w-full outline-none uppercase mt-1" /></div>
               <div className="w-1/4 p-1"><GreenLabel>SUFFIX</GreenLabel> (Ex: Sr., Jr., III, etc.)<input type="text" className="w-full outline-none uppercase mt-1" /></div>
             </div>
 
@@ -255,7 +732,7 @@ export default function App() {
                       <div className="p-1 flex"><span className="w-24 text-[10px]">House No./Street</span><input type="text" className="w-full outline-none" /></div>
                       <div className="p-1 flex"><span className="w-24 text-[10px]">Village</span><input type="text" className="w-full outline-none" /></div>
                       <div className="p-1 flex"><span className="w-24 text-[10px]">Barangay</span><input type="text" className="w-full outline-none" /></div>
-                      <div className="p-1 flex"><span className="w-24 text-[10px]"><GreenLabel>Municipality/City</GreenLabel></span><input type="text" className="w-full outline-none" /></div>
+                      <div className="p-1 flex"><span className="w-24 text-[10px]"><GreenLabel>Municipality/City</GreenLabel></span><input type="text" data-applicant-field="city" data-field="Municipality/City" aria-label="City or municipality" className="w-full outline-none" /></div>
                       <div className="p-1 flex"><span className="w-24 text-[10px]">Province</span><input type="text" className="w-full outline-none" /></div>
                   </div>
               </div>
@@ -270,9 +747,9 @@ export default function App() {
               </div>
               <div className="w-1/2 flex flex-col divide-y divide-black">
                   <div className="flex"><div className="w-1/2 p-1"><GreenLabel>HEIGHT</GreenLabel></div><div className="w-1/2 p-1"><input type="text" className="w-full outline-none" /></div></div>
-                  <div className="flex"><div className="w-1/2 p-1"><GreenLabel>EMAIL ADDRESS</GreenLabel></div><div className="w-1/2 p-1"><input type="text" className="w-full outline-none" /></div></div>
+                  <div className="flex"><div className="w-1/2 p-1"><GreenLabel>EMAIL ADDRESS</GreenLabel></div><div className="w-1/2 p-1"><input type="text" data-prefill="email" data-applicant-field="email" data-field="Email address" aria-label="Email address" className="w-full outline-none" /></div></div>
                   <div className="flex"><div className="w-1/2 p-1"><GreenLabel>LANDLINE NUMBER</GreenLabel></div><div className="w-1/2 p-1"><input type="text" className="w-full outline-none" /></div></div>
-                  <div className="flex"><div className="w-1/2 p-1"><GreenLabel>CELLPHONE NUMBER</GreenLabel></div><div className="w-1/2 p-1"><input type="text" className="w-full outline-none" /></div></div>
+                  <div className="flex"><div className="w-1/2 p-1"><GreenLabel>CELLPHONE NUMBER</GreenLabel></div><div className="w-1/2 p-1"><input type="text" data-prefill="phone" data-applicant-field="phone" data-field="Cellphone number" aria-label="Cellphone number" className="w-full outline-none" /></div></div>
               </div>
             </div>
 
@@ -357,7 +834,7 @@ export default function App() {
             <div className="flex divide-x divide-black">
                 <div className="w-1/2 divide-y divide-black">
                     {[1,2,3,4].map(num => (
-                        <div key={num} className="flex p-1 h-8"><span className="w-4">{num}.</span><input type="text" className="w-full outline-none"/></div>
+                        <div key={num} className="flex p-1 h-8"><span className="w-4">{num}.</span><input type="text" data-applicant-field={num === 1 ? 'preferredOccupation' : undefined} data-field="Preferred occupation" aria-label={`Preferred occupation ${num}`} className="w-full outline-none"/></div>
                     ))}
                 </div>
                 <div className="w-1/2 flex divide-x divide-black">
@@ -568,6 +1045,20 @@ export default function App() {
              <label className="flex items-center gap-2"><input type="checkbox" className="w-4 h-4"/> OTHERS:</label>
           </div>
 
+          <div data-testid="print-career-information" className="border border-emerald-800 p-2 text-[10px] mb-3">
+            <div className="font-bold text-emerald-900">APPLICANT CAREER INFORMATION</div>
+            <div className="grid grid-cols-3 gap-2 mt-1">
+              <div><span className="font-bold">Education:</span> {careerEducation || 'Not provided'}</div>
+              <div><span className="font-bold">Work experience:</span> {experienceStatus || 'Not provided'}</div>
+              <div><span className="font-bold">Career stage:</span> {skillsStage || 'Not provided'}</div>
+              {skillsStage === skillsChoices[0] && careerSkills.trim() && (
+                <div className="col-span-3">
+                  <span className="font-bold">Skills or training:</span> {careerSkills.trim()}
+                </div>
+              )}
+            </div>
+          </div>
+
           <div className="text-center font-bold mb-2">CERTIFICATION/AUTHORIZATION</div>
           <p className="text-justify indent-8 mb-8">
             This is to certify that all data/information that I have provided in this form are true to the best of my knowledge. This is also to authorized the DOLE to include my profile in the PESO Employment Information System, which is a subsystem of the PhilJobNet. It is understood that my name shall be made available to employers who have access to the Registry. I am also aware that DOLE is not obliged to seek employment on my behalf.
@@ -575,7 +1066,19 @@ export default function App() {
 
           <div className="flex justify-between px-12 mb-8">
             <div className="flex flex-col items-center w-64">
-                <input type="text" className="w-full border-b border-black outline-none text-center" />
+                <canvas
+                  ref={signatureCanvasRef}
+                  width={640}
+                  height={150}
+                  aria-label="Draw your signature"
+                  data-testid="applicant-signature-canvas"
+                  onPointerDown={beginSignature}
+                  onPointerMove={drawSignature}
+                  onPointerUp={() => setIsSigning(false)}
+                  onPointerCancel={() => setIsSigning(false)}
+                  onLostPointerCapture={() => setIsSigning(false)}
+                  className="w-full h-20 border-b border-black touch-none cursor-crosshair"
+                />
                 <span className="font-bold"><GreenLabel>Signature of Applicant</GreenLabel></span>
             </div>
             <div className="flex flex-col items-center w-48">
@@ -631,16 +1134,18 @@ export default function App() {
             className="bg-green-700 text-white font-black text-xl py-4 px-12 rounded-xl hover:bg-green-800 shadow-xl shadow-green-900/30 transition-transform hover:scale-105 flex items-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isProcessing ? (
-              <span>Processing PDF...</span>
+              <span>Preparing PDF & continuing...</span>
             ) : (
               <>
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
-                Download Form & Submit to AI
+                Download Form & Continue
               </>
             )}
           </button>
         </div>
 
+          </div>
+        </div>
       </div>
     </div>
   );

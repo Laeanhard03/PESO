@@ -1,5 +1,13 @@
+import 'dart:typed_data';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
+
+import '../../peso_services/peso_api_client.dart';
+import '../User/user_profile_avatar.dart';
+
+import '../../peso_services/app_toast.dart';
 
 import '../../peso_services/auth_service.dart';
 
@@ -7,18 +15,47 @@ class RegisterForm extends StatefulWidget {
   final Color pesoGreen;
   final bool isLight;
   final VoidCallback onSwitchToLogin;
-  final VoidCallback onProceedToOnboarding;
+
+  /// Optional test seam for browser popup cancellation.
+  final Future<void> Function()? googleSignIn;
+
+  /// Registration values handed to the onboarding step so the resume builder,
+  /// the AI extractor, and the NSRP form inherit the registered applicant's
+  /// names (and contact values) instead of asking for them again.
+  final ValueChanged<Map<String, String>> onProceedToOnboarding;
+  final ValueChanged<RegistrationVerificationRequest>
+  onEmailVerificationRequired;
 
   const RegisterForm({
     super.key,
     required this.pesoGreen,
     required this.isLight,
     required this.onSwitchToLogin,
+    this.googleSignIn,
     required this.onProceedToOnboarding,
+    required this.onEmailVerificationRequired,
   });
 
   @override
   State<RegisterForm> createState() => _RegisterFormState();
+}
+
+class RegistrationVerificationRequest {
+  const RegistrationVerificationRequest({
+    required this.identity,
+    required this.avatarStyle,
+    this.photoBytes,
+    this.photoName,
+    this.verificationEmailSent = false,
+    this.verificationEmailError,
+  });
+
+  final Map<String, String> identity;
+  final String avatarStyle;
+  final Uint8List? photoBytes;
+  final String? photoName;
+  final bool verificationEmailSent;
+  final String? verificationEmailError;
 }
 
 class _RegisterFormState extends State<RegisterForm> {
@@ -29,7 +66,13 @@ class _RegisterFormState extends State<RegisterForm> {
   final TextEditingController _phoneController = TextEditingController();
 
   bool _isLoading = false;
+  bool _googlePending = false;
+  int _googleRequestId = 0;
   bool _obscurePassword = true;
+  int _registrationStep = 0;
+  String _avatarStyle = 'person';
+  Uint8List? _pendingPhoto;
+  String? _pendingPhotoName;
 
   @override
   void dispose() {
@@ -43,13 +86,9 @@ class _RegisterFormState extends State<RegisterForm> {
 
   void _showMessage(String message, {bool isError = true}) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: isError ? Colors.redAccent : widget.pesoGreen,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+    isError
+        ? AppToast.error(context, message)
+        : AppToast.success(context, message);
   }
 
   String _friendlyError(Object error) {
@@ -70,9 +109,77 @@ class _RegisterFormState extends State<RegisterForm> {
       return error.message ?? 'Registration failed. Please try again.';
     }
     if (error is StateError || error is ArgumentError) {
-      return error.toString().replaceFirst('Bad state: ', '').replaceFirst('Invalid argument(s): ', '');
+      return error
+          .toString()
+          .replaceFirst('Bad state: ', '')
+          .replaceFirst('Invalid argument(s): ', '');
     }
     return 'Something went wrong. Please try again. ($error)';
+  }
+
+  Future<void> _chooseRegistrationPhoto() async {
+    try {
+      final picked = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['jpg', 'jpeg', 'png'],
+        withData: true,
+      );
+      if (!mounted || picked == null || picked.files.isEmpty) return;
+      final file = picked.files.single;
+      final bytes = file.bytes;
+      if (bytes == null || bytes.length > 3 * 1024 * 1024 || bytes.isEmpty) {
+        _showMessage('Choose a JPG or PNG under 3 MB.');
+        return;
+      }
+      setState(() {
+        _pendingPhoto = bytes;
+        _pendingPhotoName = file.name;
+        _avatarStyle = 'photo';
+      });
+    } catch (error) {
+      _showMessage(
+        'Could not load that photo. Choose another JPG or PNG: $error',
+      );
+    }
+  }
+
+  Future<void> _persistRegistrationAvatar() async {
+    if (_pendingPhoto == null && _avatarStyle == 'person') return;
+    try {
+      if (_pendingPhoto != null) {
+        await PesoApiClient.uploadArtifact(
+          fileName: _pendingPhotoName ?? 'profile.jpg',
+          category: 'profile_photo',
+          mimeType: (_pendingPhotoName ?? '').toLowerCase().endsWith('.png')
+              ? 'image/png'
+              : 'image/jpeg',
+          bytes: _pendingPhoto!,
+        );
+      } else {
+        await PesoApiClient.updateProfile({'avatarStyle': _avatarStyle});
+      }
+    } catch (error) {
+      if (mounted) {
+        _showMessage(
+          'Account created, but the avatar could not be saved: $error. You can update it in My Account.',
+        );
+      }
+    }
+  }
+
+  void _continueToAvatar() {
+    if (_firstNameController.text.trim().isEmpty ||
+        _lastNameController.text.trim().isEmpty ||
+        _emailController.text.trim().isEmpty ||
+        _passwordController.text.isEmpty) {
+      _showMessage('Complete your name, email, and password first.');
+      return;
+    }
+    if (_passwordController.text.length < 6) {
+      _showMessage('Password must be at least 6 characters.');
+      return;
+    }
+    setState(() => _registrationStep = 1);
   }
 
   Future<void> _registerUser() async {
@@ -81,7 +188,10 @@ class _RegisterFormState extends State<RegisterForm> {
     final email = _emailController.text.trim();
     final password = _passwordController.text;
 
-    if (firstName.isEmpty || lastName.isEmpty || email.isEmpty || password.isEmpty) {
+    if (firstName.isEmpty ||
+        lastName.isEmpty ||
+        email.isEmpty ||
+        password.isEmpty) {
       _showMessage('First name, last name, email, and password are required.');
       return;
     }
@@ -92,17 +202,47 @@ class _RegisterFormState extends State<RegisterForm> {
 
     setState(() => _isLoading = true);
     try {
+      final phoneNumber = _phoneController.text.trim().isEmpty
+          ? ''
+          : AuthService.normalizePhoneNumber(_phoneController.text);
       await AuthService.registerWithEmail(
         firstName: firstName,
         lastName: lastName,
         email: email,
         password: password,
-        phoneNumber: _phoneController.text.trim().isEmpty
-            ? null
-            : AuthService.normalizePhoneNumber(_phoneController.text),
       );
-      _showMessage('Account created. Your profile has been saved.', isError: false);
-      widget.onProceedToOnboarding();
+      var verificationSent = true;
+      String? verificationError;
+      try {
+        await AuthService.sendEmailVerification();
+      } catch (error) {
+        verificationSent = false;
+        verificationError = _friendlyError(error);
+        _showMessage(
+          'Your account was created, but the verification email could not be sent: $error',
+        );
+      }
+      if (verificationSent) {
+        _showMessage(
+          'Verification email sent. Verify your email to continue.',
+          isError: false,
+        );
+      }
+      widget.onEmailVerificationRequired(
+        RegistrationVerificationRequest(
+          identity: <String, String>{
+            'firstName': firstName,
+            'lastName': lastName,
+            'email': email,
+            'phone': phoneNumber,
+          },
+          avatarStyle: _avatarStyle,
+          photoBytes: _pendingPhoto,
+          photoName: _pendingPhotoName,
+          verificationEmailSent: verificationSent,
+          verificationEmailError: verificationError,
+        ),
+      );
     } catch (error) {
       _showMessage(_friendlyError(error));
     } finally {
@@ -110,24 +250,93 @@ class _RegisterFormState extends State<RegisterForm> {
     }
   }
 
+  void _cancelGoogle() {
+    if (!_googlePending) return;
+    ++_googleRequestId;
+    setState(() {
+      _googlePending = false;
+      _isLoading = false;
+    });
+    _showMessage('Google sign-in cancelled. You can try again or use email.');
+  }
+
   Future<void> _registerWithGoogle() async {
-    setState(() => _isLoading = true);
+    if (_isLoading) return;
+    final requestId = ++_googleRequestId;
+    setState(() {
+      _isLoading = true;
+      _googlePending = true;
+    });
     try {
-      await AuthService.signInWithGoogle();
-      if (mounted) widget.onProceedToOnboarding();
+      await (widget.googleSignIn?.call() ?? AuthService.signInWithGoogle());
+      // Closing or cancelling the popup must not navigate later.
+      if (!mounted || requestId != _googleRequestId) return;
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null && !user.emailVerified) {
+        String? verificationError;
+        try {
+          await AuthService.sendEmailVerification();
+        } catch (error) {
+          verificationError = _friendlyError(error);
+        }
+        widget.onEmailVerificationRequired(
+          RegistrationVerificationRequest(
+            identity: _identityFromFirebaseUser(),
+            avatarStyle: _avatarStyle,
+            photoBytes: _pendingPhoto,
+            photoName: _pendingPhotoName,
+            verificationEmailSent: verificationError == null,
+            verificationEmailError: verificationError,
+          ),
+        );
+      } else if (mounted && requestId == _googleRequestId) {
+        if (user != null) await AuthService.ensureUserProfile(user);
+        await _persistRegistrationAvatar();
+        widget.onProceedToOnboarding(_identityFromFirebaseUser());
+      }
     } catch (error) {
-      _showMessage(_friendlyError(error));
+      if (mounted && requestId == _googleRequestId) {
+        _showMessage(_friendlyError(error));
+      }
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted && requestId == _googleRequestId) {
+        setState(() {
+          _isLoading = false;
+          _googlePending = false;
+        });
+      }
     }
+  }
+
+  /// Google sign-up does not type a name, so inherit the Google profile name
+  /// that AuthService stored on the Firebase account.
+  Map<String, String> _identityFromFirebaseUser() {
+    final user = FirebaseAuth.instance.currentUser;
+    final parts = (user?.displayName ?? '')
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((part) => part.isNotEmpty)
+        .toList();
+    return <String, String>{
+      'firstName': parts.isNotEmpty ? parts.first : '',
+      'lastName': parts.length > 1 ? parts.sublist(1).join(' ') : '',
+      'email': (user?.email ?? '').trim(),
+      'phone': (user?.phoneNumber ?? '').trim(),
+    };
   }
 
   @override
   Widget build(BuildContext context) {
     final Color textColor = widget.isLight ? Colors.black87 : Colors.white;
-    final Color subtitleColor = widget.isLight ? Colors.black54 : Colors.white70;
-    final Color fieldBg = widget.isLight ? Colors.grey.shade100 : Colors.white.withValues(alpha: 0.05);
-    final Color borderColor = widget.isLight ? Colors.grey.shade300 : Colors.white.withValues(alpha: 0.1);
+    final Color subtitleColor = widget.isLight
+        ? Colors.black54
+        : Colors.white70;
+    final Color fieldBg = widget.isLight
+        ? Colors.grey.shade100
+        : Colors.white.withValues(alpha: 0.05);
+    final Color borderColor = widget.isLight
+        ? Colors.grey.shade300
+        : Colors.white.withValues(alpha: 0.1);
     final Color hintColor = widget.isLight ? Colors.black38 : Colors.white38;
 
     return Column(
@@ -139,91 +348,256 @@ class _RegisterFormState extends State<RegisterForm> {
           children: [
             _stepIndicator(widget.pesoGreen),
             const SizedBox(width: 8),
-            _stepIndicator(Colors.grey.shade300),
+            _stepIndicator(
+              _registrationStep == 1 ? widget.pesoGreen : Colors.grey.shade300,
+            ),
           ],
         ),
         const SizedBox(height: 20),
         Text(
           'Create Account',
-          style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900, color: textColor),
+          style: TextStyle(
+            fontSize: 32,
+            fontWeight: FontWeight.w900,
+            color: textColor,
+          ),
           textAlign: TextAlign.center,
         ),
         const SizedBox(height: 5),
         Text(
-          'Step 1: Your basic information',
+          _registrationStep == 0
+              ? 'Step 1 of 2: Your account details'
+              : 'Step 2 of 2: Choose your profile image',
           style: TextStyle(color: subtitleColor, fontSize: 16),
           textAlign: TextAlign.center,
         ),
         const SizedBox(height: 30),
-        Row(
-          children: [
-            Expanded(
-              child: _buildTextField(
-                'First Name', Icons.person_outline, _firstNameController,
-                fieldBg, borderColor, textColor, hintColor,
+        if (_registrationStep == 0) ...[
+          Row(
+            children: [
+              Expanded(
+                child: _buildTextField(
+                  'First Name',
+                  Icons.person_outline,
+                  _firstNameController,
+                  fieldBg,
+                  borderColor,
+                  textColor,
+                  hintColor,
+                ),
               ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _buildTextField(
-                'Last Name', null, _lastNameController,
-                fieldBg, borderColor, textColor, hintColor,
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildTextField(
+                  'Last Name',
+                  null,
+                  _lastNameController,
+                  fieldBg,
+                  borderColor,
+                  textColor,
+                  hintColor,
+                ),
               ),
+            ],
+          ),
+          const SizedBox(height: 15),
+          _buildTextField(
+            'Email Address',
+            Icons.email_outlined,
+            _emailController,
+            fieldBg,
+            borderColor,
+            textColor,
+            hintColor,
+            keyboardType: TextInputType.emailAddress,
+          ),
+          const SizedBox(height: 15),
+          _buildTextField(
+            'Phone Number (optional)',
+            Icons.phone_android,
+            _phoneController,
+            fieldBg,
+            borderColor,
+            textColor,
+            hintColor,
+            keyboardType: TextInputType.phone,
+            helperText:
+                'Philippine numbers are automatically formatted with +63.',
+          ),
+          const SizedBox(height: 15),
+          _buildTextField(
+            'Password (at least 6 characters)',
+            Icons.lock_outline,
+            _passwordController,
+            fieldBg,
+            borderColor,
+            textColor,
+            hintColor,
+            isPassword: true,
+          ),
+          const SizedBox(height: 28),
+        ],
+        if (_registrationStep == 1) ...[
+          Container(
+            key: const Key('registration-avatar-choices'),
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: fieldBg,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: borderColor),
             ),
-          ],
-        ),
-        const SizedBox(height: 15),
-        _buildTextField(
-          'Email Address', Icons.email_outlined, _emailController,
-          fieldBg, borderColor, textColor, hintColor,
-          keyboardType: TextInputType.emailAddress,
-        ),
-        const SizedBox(height: 15),
-        _buildTextField(
-          'Phone Number (optional)', Icons.phone_android, _phoneController,
-          fieldBg, borderColor, textColor, hintColor,
-          keyboardType: TextInputType.phone,
-          helperText: 'Philippine numbers are automatically formatted with +63.',
-        ),
-        const SizedBox(height: 15),
-        _buildTextField(
-          'Password (at least 6 characters)', Icons.lock_outline, _passwordController,
-          fieldBg, borderColor, textColor, hintColor,
-          isPassword: true,
-        ),
+            child: Column(
+              children: [
+                CircleAvatar(
+                  radius: 44,
+                  backgroundColor: widget.pesoGreen.withValues(alpha: 0.12),
+                  backgroundImage: _pendingPhoto == null
+                      ? null
+                      : MemoryImage(_pendingPhoto!),
+                  child: _pendingPhoto == null
+                      ? Icon(
+                          pesoAvatarIcon(_avatarStyle),
+                          color: widget.pesoGreen,
+                          size: 42,
+                        )
+                      : null,
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  'Choose an avatar or add a profile photo',
+                  style: TextStyle(
+                    color: textColor,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  'You can change this any time in your account settings.',
+                  style: TextStyle(color: subtitleColor, fontSize: 13),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 18),
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final style in pesoAvatarStyles)
+                      ChoiceChip(
+                        avatar: Icon(pesoAvatarIcon(style), size: 17),
+                        label: Text(style == 'person' ? 'Classic' : style),
+                        selected:
+                            _avatarStyle == style && _pendingPhoto == null,
+                        onSelected: _isLoading
+                            ? null
+                            : (_) => setState(() {
+                                _avatarStyle = style;
+                                _pendingPhoto = null;
+                                _pendingPhotoName = null;
+                              }),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: _isLoading ? null : _chooseRegistrationPhoto,
+                  icon: const Icon(Icons.add_a_photo_outlined),
+                  label: Text(
+                    _pendingPhoto == null
+                        ? 'Upload a profile photo'
+                        : 'Choose a different photo',
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
         const SizedBox(height: 28),
+        if (_registrationStep == 1)
+          OutlinedButton(
+            onPressed: _isLoading
+                ? null
+                : () => setState(() => _registrationStep = 0),
+            child: const Text('Back to account details'),
+          ),
         ElevatedButton(
-          onPressed: _isLoading ? null : _registerUser,
+          onPressed: _isLoading
+              ? null
+              : (_registrationStep == 0 ? _continueToAvatar : _registerUser),
           style: ElevatedButton.styleFrom(
             backgroundColor: widget.pesoGreen,
             padding: const EdgeInsets.symmetric(vertical: 22),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(15),
+            ),
             elevation: 0,
           ),
           child: _isLoading
-              ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3))
-              : const Text('Create Account and Continue', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+              ? const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(
+                    color: Colors.white,
+                    strokeWidth: 3,
+                  ),
+                )
+              : Text(
+                  _registrationStep == 0
+                      ? 'Continue to profile photo'
+                      : 'Create account and verify email',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
         ),
         const SizedBox(height: 15),
-        OutlinedButton.icon(
-          onPressed: _isLoading ? null : _registerWithGoogle,
-          icon: const Icon(Icons.g_mobiledata, size: 28),
-          label: const Text('Continue with Google'),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: textColor,
-            side: BorderSide(color: borderColor),
-            padding: const EdgeInsets.symmetric(vertical: 17),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        if (_registrationStep == 0)
+          OutlinedButton.icon(
+            onPressed: _googlePending
+                ? _cancelGoogle
+                : (_isLoading ? null : _registerWithGoogle),
+            icon: Icon(
+              _googlePending ? Icons.close_rounded : Icons.g_mobiledata,
+              size: 28,
+            ),
+            label: Text(
+              _googlePending
+                  ? 'Cancel Google sign-in / unlock form'
+                  : 'Continue with Google',
+            ),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: _googlePending ? Colors.orangeAccent : textColor,
+              side: BorderSide(color: borderColor),
+              padding: const EdgeInsets.symmetric(vertical: 17),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+            ),
           ),
-        ),
         const SizedBox(height: 25),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
+        Wrap(
+          alignment: WrapAlignment.center,
+          spacing: 4,
+          runSpacing: 4,
           children: [
-            Text('Already have an account? ', style: TextStyle(color: subtitleColor, fontSize: 15)),
+            Text(
+              'Already have an account? ',
+              style: TextStyle(color: subtitleColor, fontSize: 15),
+            ),
             GestureDetector(
               onTap: widget.onSwitchToLogin,
-              child: Text('Login Here', style: TextStyle(color: widget.pesoGreen, fontWeight: FontWeight.bold, fontSize: 15)),
+              child: Text(
+                'Login Here',
+                style: TextStyle(
+                  color: widget.pesoGreen,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 15,
+                ),
+              ),
             ),
           ],
         ),
@@ -232,10 +606,13 @@ class _RegisterFormState extends State<RegisterForm> {
   }
 
   Widget _stepIndicator(Color color) => Container(
-        width: 30,
-        height: 4,
-        decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(2)),
-      );
+    width: 30,
+    height: 4,
+    decoration: BoxDecoration(
+      color: color,
+      borderRadius: BorderRadius.circular(2),
+    ),
+  );
 
   Widget _buildTextField(
     String hint,
@@ -250,26 +627,50 @@ class _RegisterFormState extends State<RegisterForm> {
     String? helperText,
   }) {
     return TextField(
+      key: isPassword ? const Key('registration-password-field') : null,
       controller: controller,
       obscureText: isPassword && _obscurePassword,
-      keyboardType: keyboardType,
+      keyboardType: isPassword ? TextInputType.visiblePassword : keyboardType,
+      textInputAction: isPassword ? TextInputAction.done : TextInputAction.next,
+      autocorrect: false,
+      enableSuggestions: !isPassword,
+      enableInteractiveSelection: true,
+      autofillHints: isPassword ? const [AutofillHints.newPassword] : null,
       style: TextStyle(color: textColor, fontSize: 16),
       decoration: InputDecoration(
         hintText: hint,
         hintStyle: TextStyle(color: hintColor),
         helperText: helperText,
         helperStyle: TextStyle(color: hintColor, fontSize: 11),
-        prefixIcon: icon != null ? Icon(icon, color: hintColor, size: 22) : null,
+        prefixIcon: icon != null
+            ? Icon(icon, color: hintColor, size: 22)
+            : null,
         filled: true,
         fillColor: background,
-        contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 18),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide(color: borderColor)),
-        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide(color: borderColor)),
-        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide(color: widget.pesoGreen, width: 2)),
+        contentPadding: const EdgeInsets.symmetric(
+          vertical: 18,
+          horizontal: 18,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(15),
+          borderSide: BorderSide(color: borderColor),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(15),
+          borderSide: BorderSide(color: borderColor),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(15),
+          borderSide: BorderSide(color: widget.pesoGreen, width: 2),
+        ),
         suffixIcon: isPassword
             ? IconButton(
-                icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility, color: hintColor),
-                onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                icon: Icon(
+                  _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                  color: hintColor,
+                ),
+                onPressed: () =>
+                    setState(() => _obscurePassword = !_obscurePassword),
               )
             : null,
       ),

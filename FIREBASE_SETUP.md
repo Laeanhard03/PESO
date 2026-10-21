@@ -1,6 +1,8 @@
 # Firebase + Firestore setup for JobKonek
 
-The app now uses Firebase Authentication for sign-in and Cloud Firestore as its flexible NoSQL profile store. The source archive cannot create or configure a Firebase project on your behalf, so complete this setup once before testing real registration, Google sign-in, or SMS login.
+> **Current architecture notice (2026-10-17):** This file contains legacy Firestore setup notes. The current app keeps Firebase Authentication for sign-in, verification, and ID tokens; the separate Node API and MongoDB Atlas own ongoing profiles, onboarding/NSRP data, AI profile fields, preferences, assessment outcomes, and document storage. See [docs/ARCHITECTURE_AUTH_MONGODB.md](docs/ARCHITECTURE_AUTH_MONGODB.md) and [backend/ADMIN_API.md](backend/ADMIN_API.md). Do **not** create/deploy Firestore rules as part of the current admin/profile migration. The Firestore steps below are legacy/reference only.
+
+The current app uses Firebase Authentication for account sign-in, verification, password reset, and ID tokens. Configure those Authentication providers for the current architecture; use backend/MONGODB_BACKEND_SETUP.md to configure the separate MongoDB-backed API for profile and document data.
 
 ## 1. Connect the Flutter app
 
@@ -29,7 +31,7 @@ In Firebase Console → **Authentication** → **Sign-in method**, enable:
 
 For Android, register the app and add the required SHA-1/SHA-256 fingerprints in Firebase project settings. For iOS, finish the platform-specific phone-auth/APNs setup required by Firebase. SMS delivery is subject to Firebase quotas, anti-abuse controls, and any billing requirements. Use Firebase Console test phone numbers while developing where possible.
 
-## 3. Create Firestore and deploy rules
+## 3. Legacy reference only ? Create Firestore and deploy rules (not required by the current architecture)
 
 1. In Firebase Console → **Firestore Database**, create a database.
 2. From the Flutter project root, install/use the Firebase CLI if necessary, sign into the intended account, and associate this folder with your Firebase project:
@@ -40,9 +42,9 @@ For Android, register the app and add the required SHA-1/SHA-256 fingerprints in
    firebase deploy --only firestore:rules
    ```
 
-The supplied `firestore.rules` allows each user to access only `users/{their-auth-uid}` and prevents clients from changing the stored `role` field. The app creates ordinary accounts with the role `job_seeker`. To grant staff/admin access, assign the `role: "admin"` field through a trusted Firebase Console/Admin SDK workflow; do not expose an admin code in the client.
+Legacy only: these rules described the former Firestore profile store. The current application checks the server-controlled Firebase Authentication custom claim admin: true; ongoing profile and document data is handled by the Node API and MongoDB. Do not follow this legacy role-field advice for current admin access.
 
-## 4. Data model
+## 4. Legacy Firestore data model (new app data belongs in MongoDB)
 
 User profile documents live at `users/{uid}`. They can contain regular fields such as `firstName`, `lastName`, `phoneNumber`, `location`, `educationLevel`, `employmentStatus`, and nested maps/lists for flexible AI data:
 
@@ -52,10 +54,10 @@ User profile documents live at `users/{uid}`. They can contain regular fields su
 - `preferences`: language and notification settings.
 - `providerIds`, `emailVerified`, `phoneVerified`, and timestamps.
 
-Email/password registration, Google sign-in, and SMS sign-in all ensure a profile document exists. The **My Account** view is opened by clicking the name/avatar at the top right of the user dashboard. Saving changes updates Firestore; AI profile, preferences, and assessment outcomes are also written to Firestore.
+Email/password registration, Google sign-in, and SMS sign-in all ensure a profile document exists. The **My Account** view is opened by clicking the name/avatar at the top right of the user dashboard. These statements describe the old Firestore implementation; the current data-write path is the authenticated Node API backed by MongoDB.
 
 ## Security reminders
 
 - The downloadable archive uses empty placeholders for `.env` and `lib/peso_logic/secrets.json`; your original local API keys are not included. The placeholders keep the declared Flutter assets present. Never commit real `.env`, API keys, OAuth client secrets, or service-account JSON to GitHub.
 - For local prototype testing, add your own `GEMINI_API_KEY` to `.env` on your machine (the real `.env` is ignored by Git). However, any key packaged into a Flutter Web frontend can be extracted by visitors. For a deployed website, proxy AI requests through a trusted backend/Cloud Function and rotate any key that was previously exposed publicly.
-- Do not use an email address or a client-editable Firestore field as proof that someone is an admin. This app keeps the role field unchanged in client profile edits, but a production admin system should use server-controlled custom claims and enforce them in rules.
+- Admin authorization is based on the verified Firebase Authentication custom claim admin: true and is checked again on the Node API. A MongoDB profile role field or email address alone must never grant admin access.

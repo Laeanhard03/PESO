@@ -1,8 +1,10 @@
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 
+import '../../peso_services/app_toast.dart';
+
 import '../../peso_services/auth_service.dart';
+import '../../peso_services/peso_role_policy.dart';
 import '../Admin/admin_ui.dart';
 import '../User/user_ui.dart';
 
@@ -11,11 +13,17 @@ class LoginForm extends StatefulWidget {
   final bool isLight;
   final VoidCallback onSwitchToRegister;
 
+  /// Optional test seam for an unresolved browser popup.
+  final Future<void> Function()? googleSignIn;
+  final ValueChanged<String>? onEmailVerificationRequired;
+
   const LoginForm({
     super.key,
     required this.pesoGreen,
     required this.isLight,
     required this.onSwitchToRegister,
+    this.googleSignIn,
+    this.onEmailVerificationRequired,
   });
 
   @override
@@ -27,6 +35,8 @@ class _LoginFormState extends State<LoginForm> {
   final TextEditingController _passwordController = TextEditingController();
 
   bool _isLoading = false;
+  bool _googlePending = false;
+  int _googleRequestId = 0;
   bool _obscurePassword = true;
 
   @override
@@ -38,13 +48,9 @@ class _LoginFormState extends State<LoginForm> {
 
   void _showMessage(String message, {bool isError = true}) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: isError ? Colors.redAccent : widget.pesoGreen,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+    isError
+        ? AppToast.error(context, message)
+        : AppToast.success(context, message);
   }
 
   String _friendlyError(Object error) {
@@ -74,152 +80,83 @@ class _LoginFormState extends State<LoginForm> {
       }
       return error.message ?? 'Authentication failed. Please try again.';
     }
-    if (error is StateError || error is ArgumentError) return error.toString().replaceFirst('Bad state: ', '').replaceFirst('Invalid argument(s): ', '');
+    if (error is StateError || error is ArgumentError)
+      return error
+          .toString()
+          .replaceFirst('Bad state: ', '')
+          .replaceFirst('Invalid argument(s): ', '');
     return 'Something went wrong. Please try again. ($error)';
   }
 
   Future<void> _loginUser() async {
-    // This shortcut exists only in Flutter debug builds. It previews the UI;
-    // Firebase callable functions still enforce real administrator identity.
-    if (kDebugMode &&
-        _emailController.text.trim().toLowerCase() == 'admin' &&
-        _passwordController.text == 'admin') {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => const AdminDashboard(developmentPreview: true),
-        ),
-      );
-      return;
-    }
-
-    if (_emailController.text.trim().isEmpty || _passwordController.text.isEmpty) {
+    if (_emailController.text.trim().isEmpty ||
+        _passwordController.text.isEmpty) {
       _showMessage('Email and password are required.');
       return;
     }
 
     setState(() => _isLoading = true);
     try {
-      await AuthService.signInWithEmail(
+      final credential = await AuthService.signInWithEmail(
         email: _emailController.text,
         password: _passwordController.text,
       );
+      if (credential.user != null && !credential.user!.emailVerified) {
+        widget.onEmailVerificationRequired?.call(
+          credential.user!.email ?? _emailController.text.trim(),
+        );
+        return;
+      }
+      if (credential.user != null) {
+        await AuthService.ensureUserProfile(credential.user!);
+      }
       await _openUserArea();
     } catch (error) {
       _showMessage(_friendlyError(error));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  void _cancelGoogle() {
+    if (!_googlePending) return;
+    ++_googleRequestId;
+    setState(() {
+      _googlePending = false;
+      _isLoading = false;
+    });
+    _showMessage('Google sign-in cancelled. You can try again or use email.');
   }
 
   Future<void> _loginWithGoogle() async {
-    setState(() => _isLoading = true);
+    if (_isLoading) return;
+    final requestId = ++_googleRequestId;
+    setState(() {
+      _isLoading = true;
+      _googlePending = true;
+    });
     try {
-      await AuthService.signInWithGoogle();
-      await _openUserArea();
-    } catch (error) {
-      _showMessage(_friendlyError(error));
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
-  Future<void> _loginWithSms() async {
-    final phoneController = TextEditingController(text: '+63');
-    final phone = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Sign in with SMS'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Enter your mobile number. Include the country code.'),
-            const SizedBox(height: 12),
-            TextField(
-              controller: phoneController,
-              keyboardType: TextInputType.phone,
-              autofocus: true,
-              decoration: const InputDecoration(
-                labelText: 'Phone number',
-                hintText: '+639171234567',
-                border: OutlineInputBorder(),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, phoneController.text.trim()),
-            child: const Text('Send code'),
-          ),
-        ],
-      ),
-    );
-    phoneController.dispose();
-    if (phone == null || phone.trim().isEmpty || !mounted) return;
-
-    final normalizedPhone = AuthService.normalizePhoneNumber(phone);
-    setState(() => _isLoading = true);
-    try {
-      await AuthService.sendPhoneCode(normalizedPhone);
-
-      final currentUser = FirebaseAuth.instance.currentUser;
-      if (currentUser != null && currentUser.phoneNumber == normalizedPhone) {
-        await AuthService.ensureUserProfile(currentUser, phoneNumber: normalizedPhone);
-        await _openUserArea();
+      await (widget.googleSignIn?.call() ?? AuthService.signInWithGoogle());
+      // Closing or cancelling the popup must not navigate later.
+      if (!mounted || requestId != _googleRequestId) return;
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null && !user.emailVerified) {
+        widget.onEmailVerificationRequired?.call(user.email ?? '');
         return;
       }
-
-      if (!mounted) return;
-      final codeController = TextEditingController();
-      final smsCode = await showDialog<String>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('Enter verification code'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Enter the code sent to $normalizedPhone.'),
-              const SizedBox(height: 12),
-              TextField(
-                controller: codeController,
-                keyboardType: TextInputType.number,
-                autofocus: true,
-                maxLength: 8,
-                decoration: const InputDecoration(
-                  labelText: 'SMS code',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, codeController.text.trim()),
-              child: const Text('Verify and sign in'),
-            ),
-          ],
-        ),
-      );
-      codeController.dispose();
-      if (smsCode == null || smsCode.isEmpty || !mounted) return;
-
-      await AuthService.confirmPhoneCode(smsCode);
+      if (user != null) await AuthService.ensureUserProfile(user);
       await _openUserArea();
     } catch (error) {
-      _showMessage(_friendlyError(error));
+      if (mounted && requestId == _googleRequestId) {
+        _showMessage(_friendlyError(error));
+      }
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted && requestId == _googleRequestId) {
+        setState(() {
+          _isLoading = false;
+          _googlePending = false;
+        });
+      }
     }
   }
 
@@ -231,7 +168,10 @@ class _LoginFormState extends State<LoginForm> {
     }
     try {
       await AuthService.sendPasswordReset(email);
-      _showMessage('Password reset instructions were sent if the account exists.', isError: false);
+      _showMessage(
+        'Password reset instructions were sent if the account exists.',
+        isError: false,
+      );
     } catch (error) {
       _showMessage(_friendlyError(error));
     }
@@ -239,25 +179,24 @@ class _LoginFormState extends State<LoginForm> {
 
   Future<void> _openUserArea() async {
     if (!mounted) return;
-    var hasAdminClaim = false;
-    final currentUser = FirebaseAuth.instance.currentUser;
-    if (currentUser != null) {
-      try {
-        final token = await currentUser.getIdTokenResult();
-        hasAdminClaim = token.claims?['admin'] == true;
-      } catch (error) {
-        debugPrint('[AUTH] Could not read the admin claim for routing: $error');
-      }
-    }
+
+    // Firebase proves identity; the authenticated PESO API resolves the
+    // MongoDB application role. If that lookup fails, AuthService fails
+    // closed to a regular-user role.
     final role = await AuthService.getCurrentUserRole();
     if (!mounted) return;
+
+    if (shouldOpenAdminArea(role)) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const AdminDashboard()),
+      );
+      return;
+    }
+
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(
-        builder: (_) => hasAdminClaim || role == 'admin'
-            ? const AdminDashboard()
-            : const UserProfile(),
-      ),
+      MaterialPageRoute(builder: (_) => const UserProfile()),
     );
   }
 
@@ -272,7 +211,11 @@ class _LoginFormState extends State<LoginForm> {
       children: [
         Text(
           'Welcome Back',
-          style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900, color: textColor),
+          style: TextStyle(
+            fontSize: 32,
+            fontWeight: FontWeight.w900,
+            color: textColor,
+          ),
           textAlign: TextAlign.center,
         ),
         const SizedBox(height: 5),
@@ -302,83 +245,121 @@ class _LoginFormState extends State<LoginForm> {
             onPressed: _isLoading ? null : _forgotPassword,
             child: Text(
               'Forgot Password?',
-              style: TextStyle(color: subtitleColor, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                color: subtitleColor,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ),
-        if (kDebugMode)
-          const Padding(
-            padding: EdgeInsets.only(top: 4, bottom: 4),
-            child: Text(
-              'Local preview only: username admin, password admin. Live account management needs a Firebase administrator login.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.amberAccent, fontSize: 12),
-            ),
-          ),
         const SizedBox(height: 10),
         ElevatedButton(
           onPressed: _isLoading ? null : _loginUser,
           style: ElevatedButton.styleFrom(
             backgroundColor: widget.pesoGreen,
             padding: const EdgeInsets.symmetric(vertical: 22),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(15),
+            ),
             elevation: 0,
           ),
           child: _isLoading
-              ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3))
-              : const Text('Secure Login', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+              ? const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(
+                    color: Colors.white,
+                    strokeWidth: 3,
+                  ),
+                )
+              : const Text(
+                  'Secure Login',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
         ),
         const SizedBox(height: 18),
         Row(
           children: [
-            Expanded(child: Divider(color: Colors.white.withValues(alpha: 0.25))),
+            Expanded(
+              child: Divider(color: Colors.white.withValues(alpha: 0.25)),
+            ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Text('OR CONTINUE WITH', style: TextStyle(color: subtitleColor, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1)),
+              child: Text(
+                'OR CONTINUE WITH',
+                style: TextStyle(
+                  color: subtitleColor,
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1,
+                ),
+              ),
             ),
-            Expanded(child: Divider(color: Colors.white.withValues(alpha: 0.25))),
+            Expanded(
+              child: Divider(color: Colors.white.withValues(alpha: 0.25)),
+            ),
           ],
         ),
         const SizedBox(height: 18),
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: _isLoading ? null : _loginWithGoogle,
-                icon: const Icon(Icons.g_mobiledata, size: 28),
-                label: const Text('Google'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.white,
-                  side: BorderSide(color: Colors.white.withValues(alpha: 0.35)),
-                  padding: const EdgeInsets.symmetric(vertical: 17),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                ),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton(
+            onPressed: _isLoading ? null : _loginWithGoogle,
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.white,
+              side: BorderSide(color: Colors.white.withValues(alpha: 0.35)),
+              minimumSize: const Size(0, 56),
+              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+              alignment: Alignment.center,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
               ),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: _isLoading ? null : _loginWithSms,
-                icon: const Icon(Icons.sms_outlined, size: 20),
-                label: const Text('SMS Code'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.white,
-                  side: BorderSide(color: Colors.white.withValues(alpha: 0.35)),
-                  padding: const EdgeInsets.symmetric(vertical: 17),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                ),
-              ),
+            child: Row(
+              key: const ValueKey<String>('google-sign-in-content'),
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.g_mobiledata, size: 30),
+                const SizedBox(width: 8),
+                const Text('Google'),
+              ],
             ),
-          ],
+          ),
         ),
+        if (_googlePending) ...[
+          const SizedBox(height: 10),
+          TextButton.icon(
+            onPressed: _cancelGoogle,
+            icon: const Icon(Icons.close_rounded, size: 18),
+            label: const Text('Cancel Google sign-in / unlock form'),
+            style: TextButton.styleFrom(foregroundColor: Colors.orangeAccent),
+          ),
+        ],
         const SizedBox(height: 30),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
+        Wrap(
+          alignment: WrapAlignment.center,
+          spacing: 4,
+          runSpacing: 4,
           children: [
-            const Text("Don't have an account? ", style: TextStyle(color: Colors.white70, fontSize: 15)),
+            const Text(
+              "Don't have an account? ",
+              style: TextStyle(color: Colors.white70, fontSize: 15),
+            ),
             GestureDetector(
               onTap: widget.onSwitchToRegister,
-              child: Text('Register Here', style: TextStyle(color: Colors.greenAccent[400], fontWeight: FontWeight.bold, fontSize: 15)),
+              child: Text(
+                'Register Here',
+                style: TextStyle(
+                  color: Colors.greenAccent[400],
+                  fontWeight: FontWeight.bold,
+                  fontSize: 15,
+                ),
+              ),
             ),
           ],
         ),
@@ -392,30 +373,54 @@ class _LoginFormState extends State<LoginForm> {
     bool isPassword, {
     TextEditingController? controller,
   }) {
-    final Color fieldBg = widget.isLight ? Colors.grey.shade100 : Colors.white.withValues(alpha: 0.05);
-    final Color borderColor = widget.isLight ? Colors.grey.shade300 : Colors.white.withValues(alpha: 0.1);
+    final Color fieldBg = widget.isLight
+        ? Colors.grey.shade100
+        : Colors.white.withValues(alpha: 0.05);
+    final Color borderColor = widget.isLight
+        ? Colors.grey.shade300
+        : Colors.white.withValues(alpha: 0.1);
     final Color textColor = widget.isLight ? Colors.black87 : Colors.white;
     final Color hintColor = widget.isLight ? Colors.black38 : Colors.white38;
 
     return TextField(
       controller: controller,
       obscureText: isPassword && _obscurePassword,
-      keyboardType: isPassword ? TextInputType.visiblePassword : TextInputType.emailAddress,
+      keyboardType: isPassword
+          ? TextInputType.visiblePassword
+          : TextInputType.emailAddress,
       style: TextStyle(color: textColor, fontSize: 16),
       decoration: InputDecoration(
         hintText: hint,
         hintStyle: TextStyle(color: hintColor),
-        prefixIcon: icon != null ? Icon(icon, color: hintColor, size: 22) : null,
+        prefixIcon: icon != null
+            ? Icon(icon, color: hintColor, size: 22)
+            : null,
         filled: true,
         fillColor: fieldBg,
-        contentPadding: const EdgeInsets.symmetric(vertical: 20, horizontal: 20),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide(color: borderColor)),
-        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide(color: borderColor)),
-        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide(color: widget.pesoGreen, width: 2)),
+        contentPadding: const EdgeInsets.symmetric(
+          vertical: 20,
+          horizontal: 20,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(15),
+          borderSide: BorderSide(color: borderColor),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(15),
+          borderSide: BorderSide(color: borderColor),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(15),
+          borderSide: BorderSide(color: widget.pesoGreen, width: 2),
+        ),
         suffixIcon: isPassword
             ? IconButton(
-                icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility, color: hintColor),
-                onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                icon: Icon(
+                  _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                  color: hintColor,
+                ),
+                onPressed: () =>
+                    setState(() => _obscurePassword = !_obscurePassword),
               )
             : null,
       ),

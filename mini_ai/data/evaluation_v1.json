@@ -1,0 +1,17 @@
+{
+  "Taxonomy": "ISCO-08-broad-fields",
+  "MajorGroups": 10,
+  "Fields": 30,
+  "TrainingPairs": 189,
+  "ValidationPairs": 34,
+  "TestPairs": 43,
+  "TestF1": 1,
+  "TestAccuracy": 1,
+  "BaselineTestF1": 1,
+  "LeakageChecked": true,
+  "Limits": [
+    "Synthetic category identity tests are not evidence of real hiring accuracy.",
+    "Shared major occupation group alone is not proof of comparable specialist qualifications.",
+    "Unknown job titles require verification; missing employer requirements are never invented."
+  ]
+}

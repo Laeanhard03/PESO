@@ -10,7 +10,16 @@ import '../../peso_services/react_message_bridge.dart';
 class ResumeBuilderWizard extends StatefulWidget {
   final ValueChanged<Map<String, dynamic>> onComplete;
 
-  const ResumeBuilderWizard({super.key, required this.onComplete});
+  /// Registration values inherited by the resume builder. They are appended to
+  /// the React workspace URL as query parameters so each template starts with
+  /// the applicant's own name and contact details instead of sample text.
+  final Map<String, String> initialValues;
+
+  const ResumeBuilderWizard({
+    super.key,
+    required this.onComplete,
+    this.initialValues = const <String, String>{},
+  });
 
   @override
   State<ResumeBuilderWizard> createState() => _ResumeBuilderWizardState();
@@ -28,7 +37,9 @@ class _ResumeBuilderWizardState extends State<ResumeBuilderWizard> {
     _controller = WebViewController();
 
     if (kIsWeb) {
-      _webMessageSubscription = reactBridgeMessages.listen(_handleBridgePayload);
+      _webMessageSubscription = reactBridgeMessages.listen(
+        _handleBridgePayload,
+      );
       Future<void>.delayed(const Duration(milliseconds: 800), () {
         if (mounted) setState(() => _isLoading = false);
       });
@@ -50,7 +61,19 @@ class _ResumeBuilderWizardState extends State<ResumeBuilderWizard> {
         );
     }
 
-    _controller.loadRequest(Uri.parse('http://localhost:5173/resume'));
+    _controller.loadRequest(_buildWorkspaceUri());
+  }
+
+  /// The React resume builder reads these inherited registration values from
+  /// the query string; an empty map keeps the original plain URL.
+  Uri _buildWorkspaceUri() {
+    final query = <String, String>{};
+    widget.initialValues.forEach((key, value) {
+      final trimmed = value.trim();
+      if (trimmed.isNotEmpty) query[key] = trimmed;
+    });
+    final base = Uri.parse('http://localhost:5173/resume');
+    return query.isEmpty ? base : base.replace(queryParameters: query);
   }
 
   void _handleBridgePayload(String rawMessage) {
@@ -72,6 +95,7 @@ class _ResumeBuilderWizardState extends State<ResumeBuilderWizard> {
 
   @override
   Widget build(BuildContext context) {
+    final compact = MediaQuery.sizeOf(context).width < 600;
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
@@ -80,45 +104,32 @@ class _ResumeBuilderWizardState extends State<ResumeBuilderWizard> {
         title: Row(
           children: [
             Container(
-              padding: const EdgeInsets.all(8),
+              padding: EdgeInsets.all(compact ? 6 : 8),
               decoration: BoxDecoration(
                 color: _primary.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: Icon(Icons.auto_awesome_mosaic, color: _primary, size: 22),
+              child: Icon(
+                Icons.auto_awesome_mosaic,
+                color: _primary,
+                size: compact ? 18 : 22,
+              ),
             ),
             const SizedBox(width: 12),
-            const Text(
-              'Dynamic Resume Editor',
-              style: TextStyle(
-                color: Color(0xFF0F172A),
-                fontWeight: FontWeight.w900,
-                fontSize: 18,
+            Expanded(
+              child: Text(
+                'Dynamic Resume Editor',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: Color(0xFF0F172A),
+                  fontWeight: FontWeight.w900,
+                  fontSize: compact ? 14 : 18,
+                ),
               ),
             ),
           ],
         ),
-        actions: [
-          if (kIsWeb)
-            Padding(
-              padding: const EdgeInsets.only(right: 20),
-              child: TextButton.icon(
-                onPressed: () => widget.onComplete({
-                  'status': 'completed',
-                  'source': 'peso-react-workspace',
-                  'kind': 'resume_builder',
-                  'data': '',
-                  'aiText': '',
-                  'resumeData': {'documentType': 'Resume Builder', 'fields': <dynamic>[], 'plainText': ''},
-                }),
-                icon: Icon(Icons.fast_forward, color: _primary),
-                label: Text(
-                  'Skip (Web Test)',
-                  style: TextStyle(color: _primary, fontWeight: FontWeight.bold),
-                ),
-              ),
-            ),
-        ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1),
           child: Container(color: Colors.grey.shade200, height: 1),
@@ -128,7 +139,9 @@ class _ResumeBuilderWizardState extends State<ResumeBuilderWizard> {
         children: [
           WebViewWidget(controller: _controller),
           if (_isLoading)
-            Center(child: CircularProgressIndicator(color: _primary, strokeWidth: 3)),
+            Center(
+              child: CircularProgressIndicator(color: _primary, strokeWidth: 3),
+            ),
         ],
       ),
     );

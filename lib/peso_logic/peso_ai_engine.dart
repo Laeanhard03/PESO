@@ -3,16 +3,17 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart' show debugPrint;
 
 import '../peso_models/profile_artifact.dart';
-import '../peso_services/gemini_gateway_client.dart';
+import '../peso_services/peso_api_client.dart';
 
 /// Extracts supported profile facts through the authenticated server-side
-/// gateway. Gemini credentials never enter the Flutter runtime.
+/// MongoDB-backed PESO API. Gemini credentials never enter the Flutter runtime.
 class PesoAIEngine {
   static const int _maxAttachmentBytes = 4 * 1024 * 1024;
 
   static Future<Map<String, dynamic>> generateProfile({
     required List<ProfileArtifactInput> artifacts,
     String? rawText,
+    bool persist = true,
   }) async {
     final supplementalText = rawText?.trim() ?? '';
     final includedArtifacts = artifacts
@@ -36,21 +37,28 @@ class PesoAIEngine {
         );
       }
       encodedArtifacts.add(<String, dynamic>{
+        'fileName': artifact.fileName,
+        'category': artifact.category,
         'mimeType': artifact.mimeType.toLowerCase(),
         'base64': base64Encode(artifact.bytes),
       });
     }
 
     debugPrint(
-      '[PESO AI] Sending profile request to the authenticated Gemini gateway (' +
+      '[PESO AI] Sending profile request to the authenticated PESO API (' +
           encodedArtifacts.length.toString() + ' resume attachment(s)).',
     );
-    final profile = await GeminiGatewayClient.extractProfile(
+    final response = await PesoApiClient.extractProfile(
       rawText: supplementalText,
       artifacts: encodedArtifacts,
+      persist: persist,
     );
+    final profile = response['profile'];
+    if (profile is! Map) {
+      throw StateError('The PESO API returned an invalid extracted profile.');
+    }
     debugPrint('[PESO AI] Secure profile extraction completed.');
-    return profile;
+    return Map<String, dynamic>.from(profile);
   }
 
   static bool _isSupportedMimeType(String value) => const {

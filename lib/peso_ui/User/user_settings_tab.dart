@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../../peso_services/app_toast.dart';
+
 import 'user_job_feed_tab.dart'; // Imports FadeSlideEntrance
 import 'user_ai_profile_tab.dart'; // Imports SectionWrapper
+import '../Reusable_Designs/peso_premium_ui.dart';
 
 class UserSettingsTab extends StatelessWidget {
   final String selectedLanguage;
@@ -31,8 +34,11 @@ class UserSettingsTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final compact = screenWidth < 600;
+    final medium = screenWidth < 1024;
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(50),
+      padding: EdgeInsets.all(compact ? 16 : (medium ? 24 : 50)),
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 1000),
@@ -41,24 +47,17 @@ class UserSettingsTab extends StatelessWidget {
             children: [
               FadeSlideEntrance(
                 delay: 0,
-                child: Text(
-                  translate('Account Settings'),
-                  style: TextStyle(
-                    fontSize: 36,
-                    fontWeight: FontWeight.w900,
-                    color: textDark,
-                    letterSpacing: -1,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 5),
-              FadeSlideEntrance(
-                delay: 100,
-                child: Text(
-                  translate(
+                child: PesoPageHeader(
+                  title: translate('Account Settings'),
+                  description: translate(
                     'Manage your language preferences and system notifications.',
                   ),
-                  style: TextStyle(fontSize: 18, color: textLight),
+                  eyebrow: 'Make JobKonek yours',
+                  icon: Icons.tune_rounded,
+                  detail: PesoHeaderPill(
+                    icon: Icons.translate_rounded,
+                    label: 'Language: $selectedLanguage',
+                  ),
                 ),
               ),
               const SizedBox(height: 40),
@@ -80,12 +79,34 @@ class UserSettingsTab extends StatelessWidget {
                           color: Colors.grey.shade100,
                           borderRadius: BorderRadius.circular(20),
                         ),
-                        child: Row(
-                          children: [
-                            _buildLanguageTab('English', 'English'),
-                            _buildLanguageTab('Tagalog', 'Modern Tagalog'),
-                            _buildLanguageTab('Taglish', 'Taglish (Mixed)'),
-                          ],
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            final narrow = constraints.maxWidth < 520;
+                            final options = [
+                              _buildLanguageTab(
+                                'English',
+                                'English',
+                                expanded: !narrow,
+                              ),
+                              _buildLanguageTab(
+                                'Tagalog',
+                                'Modern Tagalog',
+                                expanded: !narrow,
+                              ),
+                              _buildLanguageTab(
+                                'Taglish',
+                                'Taglish (Mixed)',
+                                expanded: !narrow,
+                              ),
+                            ];
+                            return narrow
+                                ? Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: options,
+                                  )
+                                : Row(children: options);
+                          },
                         ),
                       ),
                     ],
@@ -171,27 +192,25 @@ class UserSettingsTab extends StatelessWidget {
                 child: Align(
                   alignment: Alignment.centerRight,
                   child: ElevatedButton.icon(
-                    onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: const Text('Settings saved successfully.'),
-                        backgroundColor: primary,
-                      ),
+                    onPressed: () => AppToast.success(
+                      context,
+                      'Settings saved successfully.',
                     ),
-                    icon: const Icon(Icons.check_rounded, size: 22),
-                    label: const Text(
+                    icon: Icon(Icons.check_rounded, size: compact ? 18 : 22),
+                    label: Text(
                       'Save Preferences',
                       style: TextStyle(
                         fontWeight: FontWeight.w900,
-                        fontSize: 18,
+                        fontSize: compact ? 16 : 18,
                       ),
                     ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: primary,
                       foregroundColor: Colors.white,
                       elevation: 0,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 40,
-                        vertical: 24,
+                      padding: EdgeInsets.symmetric(
+                        horizontal: compact ? 16 : 40,
+                        vertical: compact ? 18 : 24,
                       ),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(16),
@@ -207,37 +226,40 @@ class UserSettingsTab extends StatelessWidget {
     );
   }
 
-  Widget _buildLanguageTab(String languageKey, String label) {
-    bool isSelected = selectedLanguage == languageKey;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => onLanguageChanged(languageKey),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 300),
-          padding: const EdgeInsets.symmetric(vertical: 20),
-          decoration: BoxDecoration(
-            color: isSelected ? Colors.white : Colors.transparent,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: isSelected
-                ? [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.05),
-                      blurRadius: 15,
-                    ),
-                  ]
-                : [],
-          ),
-          alignment: Alignment.center,
-          child: Text(
-            label,
-            style: TextStyle(
-              color: isSelected ? primary : textLight,
-              fontWeight: isSelected ? FontWeight.w900 : FontWeight.w600,
-              fontSize: 16,
-            ),
+  Widget _buildLanguageTab(
+    String languageKey,
+    String label, {
+    bool expanded = true,
+  }) {
+    final isSelected = selectedLanguage == languageKey;
+    final option = GestureDetector(
+      onTap: () => onLanguageChanged(languageKey),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(vertical: 20),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.white : Colors.transparent,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.05),
+                    blurRadius: 15,
+                  ),
+                ]
+              : [],
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected ? primary : textLight,
+            fontWeight: isSelected ? FontWeight.w900 : FontWeight.w600,
+            fontSize: 16,
           ),
         ),
       ),
     );
+    return expanded ? Expanded(child: option) : option;
   }
 }

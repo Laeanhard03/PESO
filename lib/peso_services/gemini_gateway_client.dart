@@ -1,8 +1,9 @@
 import 'dart:convert';
 
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:http/http.dart' as http;
+
+import 'peso_auth_session.dart';
 
 class GeminiGatewayException implements Exception {
   const GeminiGatewayException({
@@ -84,15 +85,9 @@ class GeminiGatewayClient {
       throw StateError('GEMINI_GATEWAY_URL must be a valid HTTPS URL.');
     }
 
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      throw StateError('Sign in before using Gemini.');
-    }
-    final token = await user.getIdToken();
+    final token = await PesoAuthSession.getBearerToken();
     if (token == null || token.isEmpty) {
-      throw StateError(
-        'Could not confirm your sign-in session. Please sign in again.',
-      );
+      throw StateError('Sign in before using Gemini.');
     }
 
     late final http.Response response;

@@ -1,11 +1,11 @@
 {
-    "name": "peso_prototype",
-    "short_name": "peso_prototype",
+    "name": "PESO JobKonek",
+    "short_name": "PESO",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#FFFFFF",
+    "theme_color": "#2E7D32",
+    "description": "PESO JobKonek employment and career services portal.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

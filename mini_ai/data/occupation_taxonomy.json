@@ -1,0 +1,608 @@
+{
+  "taxonomy": "ISCO-08-broad-fields",
+  "majorGroups": {
+    "0": "Armed Forces Occupations",
+    "1": "Managers",
+    "2": "Professionals",
+    "3": "Technicians and Associate Professionals",
+    "4": "Clerical Support Workers",
+    "5": "Service and Sales Workers",
+    "6": "Skilled Agricultural, Forestry and Fishery Workers",
+    "7": "Craft and Related Trades Workers",
+    "8": "Plant and Machine Operators, and Assemblers",
+    "9": "Elementary Occupations"
+  },
+  "fields": [
+    {
+      "code": "management",
+      "iscoMajorGroups": [
+        "1"
+      ],
+      "terms": [
+        "manager",
+        "management",
+        "supervisor",
+        "team leader",
+        "director",
+        "operations head",
+        "project lead",
+        "officer in charge",
+        "branch oic",
+        "coordinator",
+        "leadman",
+        "line leader"
+      ]
+    },
+    {
+      "code": "engineering",
+      "iscoMajorGroups": [
+        "2",
+        "3"
+      ],
+      "terms": [
+        "engineer",
+        "engineering",
+        "architect",
+        "surveyor",
+        "civil design",
+        "mechanical design",
+        "technical drawing"
+      ]
+    },
+    {
+      "code": "science_research",
+      "iscoMajorGroups": [
+        "2",
+        "3"
+      ],
+      "terms": [
+        "scientist",
+        "research",
+        "laboratory",
+        "chemist",
+        "biology",
+        "physics",
+        "statistician",
+        "geologist"
+      ]
+    },
+    {
+      "code": "healthcare",
+      "iscoMajorGroups": [
+        "2",
+        "3",
+        "5"
+      ],
+      "terms": [
+        "nurs",
+        "patient care",
+        "healthcare",
+        "medical",
+        "clinical",
+        "hospital",
+        "pharmacy",
+        "pharmacist",
+        "veterinary",
+        "veterinarian",
+        "midwi",
+        "dental"
+      ]
+    },
+    {
+      "code": "education",
+      "iscoMajorGroups": [
+        "2",
+        "3"
+      ],
+      "terms": [
+        "teach",
+        "instruct",
+        "tutor",
+        "educat",
+        "classroom",
+        "professor",
+        "lecturer",
+        "school"
+      ]
+    },
+    {
+      "code": "software_technology",
+      "iscoMajorGroups": [
+        "2",
+        "3"
+      ],
+      "terms": [
+        "programming",
+        "software",
+        "coding",
+        "developer",
+        "database",
+        "computer technician",
+        "it support",
+        "network administration",
+        "web development",
+        "cybersecurity",
+        "i.t.",
+        "network technician",
+        "wifi technician",
+        "fiber optic",
+        "network support"
+      ]
+    },
+    {
+      "code": "accounting_finance",
+      "iscoMajorGroups": [
+        "2",
+        "3",
+        "4"
+      ],
+      "terms": [
+        "accounting",
+        "bookkeeping",
+        "bookkeeper",
+        "finance",
+        "auditing",
+        "auditor",
+        "audit",
+        "payroll",
+        "financial analysis",
+        "taxation",
+        "cost control",
+        "financial analyst",
+        "fixed asset",
+        "collection",
+        "collector",
+        "telecollector",
+        "repossessor"
+      ]
+    },
+    {
+      "code": "law_social",
+      "iscoMajorGroups": [
+        "2",
+        "3"
+      ],
+      "terms": [
+        "lawyer",
+        "legal",
+        "paralegal",
+        "social work",
+        "counseling",
+        "community outreach",
+        "social worker"
+      ]
+    },
+    {
+      "code": "creative_media",
+      "iscoMajorGroups": [
+        "2",
+        "3",
+        "5"
+      ],
+      "terms": [
+        "graphic design",
+        "editing video",
+        "photography",
+        "photographer",
+        "designer",
+        "illustrat",
+        "journalism",
+        "media production",
+        "digital art",
+        "social media",
+        "3d imaging",
+        "visualization"
+      ]
+    },
+    {
+      "code": "office_administration",
+      "iscoMajorGroups": [
+        "4"
+      ],
+      "terms": [
+        "office",
+        "clerical",
+        "clerk",
+        "admin",
+        "administrat",
+        "secretary",
+        "filing",
+        "records",
+        "executive assistant",
+        "operations assistant",
+        "business department",
+        "document processing",
+        "ms excel",
+        "microsoft excel",
+        "spreadsheet"
+      ]
+    },
+    {
+      "code": "data_services",
+      "iscoMajorGroups": [
+        "4",
+        "3"
+      ],
+      "terms": [
+        "data entry",
+        "data encoding",
+        "encoder",
+        "typing",
+        "data analyst",
+        "data processing",
+        "database entry"
+      ]
+    },
+    {
+      "code": "sales_retail",
+      "iscoMajorGroups": [
+        "5",
+        "1"
+      ],
+      "terms": [
+        "retail",
+        "sales",
+        "selling",
+        "merchandis",
+        "promodiser",
+        "store attendant",
+        "cashier",
+        "customer service",
+        "customer",
+        "marketing associate",
+        "marketing",
+        "promoter",
+        "brand associate",
+        "account executive",
+        "account specialist",
+        "field representative",
+        "business development",
+        "business dev",
+        "cash handling"
+      ]
+    },
+    {
+      "code": "hospitality_food",
+      "iscoMajorGroups": [
+        "5",
+        "9"
+      ],
+      "terms": [
+        "restaurant",
+        "hotel",
+        "hospitality",
+        "food service",
+        "cook",
+        "chef",
+        "kitchen",
+        "waiter",
+        "waitress",
+        "barista",
+        "food preparation",
+        "fryer",
+        "steward"
+      ]
+    },
+    {
+      "code": "personal_services",
+      "iscoMajorGroups": [
+        "5"
+      ],
+      "terms": [
+        "caregiver",
+        "beauty advisor",
+        "hairdresser",
+        "salon",
+        "personal care",
+        "fitness trainer",
+        "cosmetology"
+      ]
+    },
+    {
+      "code": "protection_service",
+      "iscoMajorGroups": [
+        "5",
+        "0"
+      ],
+      "terms": [
+        "security guard",
+        "police",
+        "firefighter",
+        "protection services",
+        "armed forces",
+        "military",
+        "soldier",
+        "cctv",
+        "surveillance operator"
+      ]
+    },
+    {
+      "code": "agriculture",
+      "iscoMajorGroups": [
+        "6",
+        "9"
+      ],
+      "terms": [
+        "agricultur",
+        "farmer",
+        "crop",
+        "horticultur",
+        "livestock",
+        "farm work",
+        "plant nursery",
+        "poultry",
+        "gamefowl",
+        "animal raising"
+      ]
+    },
+    {
+      "code": "fishery_forestry",
+      "iscoMajorGroups": [
+        "6"
+      ],
+      "terms": [
+        "fishery",
+        "fishing",
+        "forestry",
+        "logging",
+        "aquaculture",
+        "fish farming"
+      ]
+    },
+    {
+      "code": "construction_trades",
+      "iscoMajorGroups": [
+        "7",
+        "9"
+      ],
+      "terms": [
+        "construction",
+        "masonry",
+        "mason",
+        "carpenter",
+        "welding",
+        "welder",
+        "plumbing",
+        "plumber",
+        "steel fixer",
+        "bricklay",
+        "scaffolder",
+        "scaffold",
+        "rigger",
+        "rigging",
+        "painter",
+        "concrete",
+        "pumpcrete",
+        "vibro",
+        "subcontractor",
+        "subcon"
+      ]
+    },
+    {
+      "code": "electrical_trades",
+      "iscoMajorGroups": [
+        "7",
+        "3"
+      ],
+      "terms": [
+        "electrician",
+        "electrical wiring",
+        "electrical installation",
+        "electrical repair",
+        "electronics technician",
+        "lineman",
+        "power line",
+        "electrical technician",
+        "elevator",
+        "escalator",
+        "generator",
+        "gen-set",
+        "foc splicer",
+        "splicer"
+      ]
+    },
+    {
+      "code": "automotive_repair",
+      "iscoMajorGroups": [
+        "7",
+        "3"
+      ],
+      "terms": [
+        "mechanic",
+        "auto repair",
+        "vehicle repair",
+        "automotive",
+        "auto electrician",
+        "diesel engine",
+        "auto painter"
+      ]
+    },
+    {
+      "code": "manufacturing_craft",
+      "iscoMajorGroups": [
+        "7",
+        "8"
+      ],
+      "terms": [
+        "machinist",
+        "machining",
+        "fabrication",
+        "metal work",
+        "textile",
+        "furniture making",
+        "woodwork",
+        "tailoring"
+      ]
+    },
+    {
+      "code": "manufacturing_operations",
+      "iscoMajorGroups": [
+        "8",
+        "9"
+      ],
+      "terms": [
+        "machine operator",
+        "production operator",
+        "machine operators",
+        "production",
+        "qc analyst",
+        "quality control",
+        "quality assurance",
+        "assembly",
+        "factory",
+        "manufacturing",
+        "plant operation",
+        "production line",
+        "repacker"
+      ]
+    },
+    {
+      "code": "driving_transport",
+      "iscoMajorGroups": [
+        "8"
+      ],
+      "terms": [
+        "driver",
+        "driving",
+        "truck",
+        "bus operator",
+        "delivery rider",
+        "transport",
+        "fleet",
+        "motorcycle courier",
+        "forklift",
+        "bulldozer",
+        "backhoe",
+        "excavator",
+        "crane operator",
+        "heavy equipment",
+        "motorcycle rider"
+      ]
+    },
+    {
+      "code": "logistics_warehouse",
+      "iscoMajorGroups": [
+        "4",
+        "8",
+        "9"
+      ],
+      "terms": [
+        "warehouse",
+        "logistics",
+        "inventory",
+        "stock keeper",
+        "stockman",
+        "packing",
+        "dispatch",
+        "shipping",
+        "supply chain",
+        "bagger",
+        "replenisher",
+        "refiller",
+        "stock custodian",
+        "stockkeeper"
+      ]
+    },
+    {
+      "code": "facility_services",
+      "iscoMajorGroups": [
+        "9"
+      ],
+      "terms": [
+        "cleaning",
+        "cleaner",
+        "housekeeping",
+        "janitor",
+        "utility worker",
+        "utility staff",
+        "utilityman",
+        "facility maintenance",
+        "building maintenance",
+        "building attendant"
+      ]
+    },
+    {
+      "code": "general_labor",
+      "iscoMajorGroups": [
+        "9"
+      ],
+      "terms": [
+        "helper",
+        "laborer",
+        "labourer",
+        "labor",
+        "manual handling",
+        "general worker",
+        "site assistant",
+        "pahinante",
+        "delivery crew",
+        "bagger"
+      ]
+    },
+    {
+      "code": "environment_safety",
+      "iscoMajorGroups": [
+        "3",
+        "2"
+      ],
+      "terms": [
+        "safety officer",
+        "safety inspector",
+        "occupational safety",
+        "industrial hygiene",
+        "environmental management",
+        "pollution control",
+        "ehs",
+        "hse",
+        "osh"
+      ]
+    },
+    {
+      "code": "human_resources",
+      "iscoMajorGroups": [
+        "2",
+        "4"
+      ],
+      "terms": [
+        "recruitment",
+        "human resources",
+        "hr staff",
+        "staffing",
+        "employee relations"
+      ]
+    },
+    {
+      "code": "technical_services",
+      "iscoMajorGroups": [
+        "3",
+        "7"
+      ],
+      "terms": [
+        "technician",
+        "technical support",
+        "field service",
+        "technical coordinator",
+        "product specialist",
+        "technical specialist",
+        "maintenance technician",
+        "tsd technician",
+        "technical operations"
+      ]
+    },
+    {
+      "code": "hvac_refrigeration",
+      "iscoMajorGroups": [
+        "3",
+        "7"
+      ],
+      "terms": [
+        "refrigeration",
+        "aircon",
+        "air conditioning",
+        "hvac",
+        "cooling system",
+        "chiller technician"
+      ]
+    }
+  ]
+}

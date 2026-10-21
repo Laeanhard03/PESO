@@ -1,20 +1,27 @@
+import 'admin_excel_live_preview.dart';
+import 'admin_pdf_link_ingestion.dart';
+
 import 'dart:math' as math;
-import 'dart:ui';
 
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../Landingpage/landingpage_ui.dart';
+import '../../peso_services/peso_api_client.dart';
 import 'admin_user_management_section.dart';
+import 'job_applications_section.dart';
+import 'job_management_section.dart';
+import 'gemini_api_key_management_section.dart';
+import '../../peso_services/app_toast.dart';
 
 // =====================================================================
 // THEME (matched to the React design: slate-950 sidebar, blue-600 accent,
 // emerald/rose/amber status colors)
 // =====================================================================
 class _C {
-  static const sidebar = Color(0xFF020617); // slate-950
-  static const primary = Color(0xFF2563EB); // blue-600
-  static const primaryDark = Color(0xFF1D4ED8); // blue-700
+  static const sidebar = Color(0xFF102C24); // slate-950
+  static const primary = Color(0xFF236349); // blue-600
   static const indigo = Color(0xFF4F46E5);
   static const emerald = Color(0xFF10B981);
   static const emerald600 = Color(0xFF059669);
@@ -23,15 +30,15 @@ class _C {
   static const amber = Color(0xFFF59E0B);
   static const amber600 = Color(0xFFD97706);
   static const purple = Color(0xFF9333EA);
-  static const bg = Color(0xFFF1F5F9); // slate-100
-  static const slate100 = Color(0xFFF1F5F9);
+  static const bg = Color(0xFFF5F7F5); // slate-100
+  static const slate100 = Color(0xFFF5F7F5);
   static const slate200 = Color(0xFFE2E8F0);
   static const slate300 = Color(0xFFCBD5E1);
   static const slate400 = Color(0xFF94A3B8);
   static const slate500 = Color(0xFF64748B);
   static const slate600 = Color(0xFF475569);
   static const slate700 = Color(0xFF334155);
-  static const slate900 = Color(0xFF0F172A);
+  static const slate900 = Color(0xFF193D31);
 }
 
 // =====================================================================
@@ -54,7 +61,7 @@ const Map<String, StatusStyle> kMatchStyles = {
     Color(0xFF10B981),
   ),
   'not_matched': StatusStyle(
-    'No Match Yet',
+    'Users with Low Qualification',
     Color(0xFFBE123C),
     Color(0xFFFFF1F2),
     Color(0xFFF43F5E),
@@ -98,28 +105,6 @@ class Applicant {
   });
 }
 
-
-class IngestionLog {
-  final int id;
-  final String job;
-  final String employer;
-  final String batch;
-  final String uploaded;
-  final String status;
-  final int matchedAccounts;
-
-  IngestionLog({
-    required this.id,
-    required this.job,
-    required this.employer,
-    required this.batch,
-    required this.uploaded,
-    required this.status,
-    this.matchedAccounts = 0,
-  });
-}
-
-
 class Concern {
   final int id;
   final String applicantName;
@@ -140,155 +125,6 @@ class Concern {
   });
 }
 
-// =====================================================================
-// MOCK DATA GENERATION
-// =====================================================================
-const List<String> kBarangays = [
-  'Balite',
-  'Burgos',
-  'Geronimo',
-  'Macabud',
-  'Manggahan',
-  'Mascap',
-  'Montalban (Poblacion)',
-  'Puray',
-  'Rosario',
-  'San Isidro',
-  'San Jose',
-  'San Rafael',
-  'Santa Ana',
-  'Santo Nino',
-  'Wawa',
-];
-const List<String> kJobs = [
-  'IT Support Specialist',
-  'Data Encoder',
-  'Senior Flutter Developer',
-  'Warehouse Assistant',
-  'Bookkeeper',
-];
-const List<String> kFirstNames = [
-  'Juan',
-  'Maria',
-  'Jose',
-  'Ana',
-  'Pedro',
-  'Liza',
-  'Mark',
-  'Rosa',
-  'Carlo',
-  'Ella',
-  'Ramon',
-  'Kim',
-];
-const List<String> kLastNames = [
-  'Dela Cruz',
-  'Santos',
-  'Reyes',
-  'Bautista',
-  'Garcia',
-  'Torres',
-  'Flores',
-  'Ramos',
-];
-
-const List<String> kConcernTemplates = [
-  'Wala pa pong available na trabaho na tugma sa aking taon ng karanasan. Sana po ay may maidagdag pang listahan.',
-  'Pumasa naman po ako sa aking hinati-hating kasanayan pero wala pa rin pong na-match na employer. Paki-check po.',
-  'Baka po masyadong mataas ang required years of experience sa job na ito \u2014 puwede po bang i-relax nang kaunti?',
-  'Nag-upload na po ako ng resume at form kaso wala pa rin pong update ilang araw na. Sana po ma-prioritize.',
-  'Interesado po ako sa trabaho pero malayo sa aking barangay \u2014 meron po bang mas malapit na opsyon?',
-  'Sana po ay may paraan para malaman kung ano pa ang kulang sa aking qualifications para mag-match.',
-];
-
-class _SeededRandom {
-  int _seed;
-  _SeededRandom(this._seed);
-  double next() {
-    _seed = (_seed * 9301 + 49297) % 233280;
-    return _seed / 233280;
-  }
-}
-
-T _pick<T>(List<T> list, _SeededRandom rand) =>
-    list[(rand.next() * list.length).floor().clamp(0, list.length - 1)];
-
-List<Applicant> _generateApplicants({int days = 14}) {
-  final rand = _SeededRandom(42);
-  final today = DateTime(2026, 9, 8);
-  final rows = <Applicant>[];
-  var id = 1;
-  for (var d = days - 1; d >= 0; d--) {
-    final date = today.subtract(Duration(days: d));
-    final registrationsToday = 4 + (rand.next() * 9).floor();
-    for (var i = 0; i < registrationsToday; i++) {
-      final resumeSubmitted = rand.next() > 0.18;
-      final formSubmitted = resumeSubmitted && rand.next() > 0.1;
-      final years = (rand.next() * 9).floor();
-      String matchStatus;
-      var matchedJobsCount = 0;
-      if (!resumeSubmitted || !formSubmitted) {
-        matchStatus = 'pending';
-      } else {
-        final isMatched = rand.next() > 0.35;
-        if (isMatched) {
-          matchStatus = 'matched';
-          matchedJobsCount = 1 + (rand.next() * 4).floor();
-        } else {
-          matchStatus = 'not_matched';
-          matchedJobsCount = 0;
-        }
-      }
-      final name = '${_pick(kFirstNames, rand)} ${_pick(kLastNames, rand)}';
-      rows.add(
-        Applicant(
-          id: id++,
-          name: name,
-          barangay: _pick(kBarangays, rand),
-          targetJob: _pick(kJobs, rand),
-          registeredDate: date,
-          yearsExperience: years,
-          resumeSubmitted: resumeSubmitted,
-          formSubmitted: formSubmitted,
-          matchStatus: matchStatus,
-          matchedJobsCount: matchedJobsCount,
-          resumeFileName:
-              '${name.toLowerCase().replaceAll(' ', '_')}_resume.pdf',
-        ),
-      );
-    }
-  }
-  return rows;
-}
-
-
-List<Concern> _generateConcerns(List<Applicant> applicants) {
-  final rand = _SeededRandom(19);
-  final notMatched = applicants
-      .where((a) => a.matchStatus == 'not_matched')
-      .toList();
-  final concerns = <Concern>[];
-  var id = 1;
-  final today = DateTime(2026, 9, 8);
-  for (final a in notMatched) {
-    if (rand.next() > 0.45) continue; // not everyone leaves a concern
-    final daysAgo = (rand.next() * 5).floor();
-    concerns.add(
-      Concern(
-        id: id++,
-        applicantName: a.name,
-        barangay: a.barangay,
-        targetJob: a.targetJob,
-        message: _pick(kConcernTemplates, rand),
-        submittedDate: today.subtract(Duration(days: daysAgo)),
-        resolved: rand.next() > 0.7,
-      ),
-    );
-  }
-  concerns.sort((a, b) => b.submittedDate.compareTo(a.submittedDate));
-  return concerns;
-}
-
 String _fmtDate(DateTime d) =>
     '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
@@ -298,7 +134,17 @@ bool _isSameDate(DateTime a, DateTime b) =>
 // =====================================================================
 // NAVIGATION
 // =====================================================================
-enum AdminTab { analytics, users, concerns, ingestion, export, platform }
+enum AdminTab {
+  analytics,
+  users,
+  concerns,
+  jobs,
+  applications,
+  ingestion,
+  export,
+  geminiKeys,
+  platform,
+}
 
 class _NavItem {
   final AdminTab tab;
@@ -322,7 +168,7 @@ const List<_NavItem> kNavItems = [
     'User Management',
     Icons.manage_accounts_outlined,
     'Job Seeker Accounts',
-    "See who has logged in, mark accounts active or inactive, and remove accounts.",
+    "Review Firebase Authentication accounts with profile fields stored in MongoDB through the trusted PESO API.",
   ),
   _NavItem(
     AdminTab.concerns,
@@ -332,25 +178,25 @@ const List<_NavItem> kNavItems = [
     'Messages from job seekers who were not matched to a job, and other concerns they raised.',
   ),
   _NavItem(
-    AdminTab.ingestion,
-    'Job Batch Ingestion',
-    Icons.cloud_upload_outlined,
-    'Job Batch Ingestion',
-    'Batch upload Excel files from PESO Admins \u2014 new jobs are auto-matched to qualified job seeker accounts.',
+    AdminTab.jobs,
+    'Jobs & Sources',
+    Icons.work_outline,
+    'Jobs & PDF Sources',
+    'Manage existing job postings and review verified recruitment PDF links.',
   ),
   _NavItem(
-    AdminTab.export,
-    'DOLE SPRS Export',
-    Icons.download_outlined,
-    'Matched Candidates Pipeline',
-    'Extract matched candidates and export data strictly into DOLE SPRS-compliant formats.',
+    AdminTab.applications,
+    'Recruitment Pipeline',
+    Icons.assignment_outlined,
+    'Applications & DOLE Records',
+    'Review job applications and access live DOLE SPRS export records.',
   ),
   _NavItem(
-    AdminTab.platform,
-    'Platform Analytics',
-    Icons.bar_chart_outlined,
-    'AI Matching Engine & System Health',
-    'Monitor resume processing, auto-matching, and system uptime.',
+    AdminTab.geminiKeys,
+    'AI & Platform',
+    Icons.tune_outlined,
+    'AI Configuration & Platform',
+    'Manage Gemini API keys, model matching preferences, and platform statistics.',
   ),
 ];
 
@@ -363,32 +209,14 @@ void showToast(
   IconData icon = Icons.check_circle,
   Color iconColor = _C.emerald,
 }) {
-  ScaffoldMessenger.of(context).hideCurrentSnackBar();
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      behavior: SnackBarBehavior.floating,
-      backgroundColor: _C.slate900,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      margin: const EdgeInsets.all(20),
-      duration: const Duration(seconds: 3),
-      content: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: iconColor, size: 18),
-          const SizedBox(width: 10),
-          Flexible(
-            child: Text(
-              message,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
-                fontSize: 12,
-              ),
-            ),
-          ),
-        ],
-      ),
-    ),
+  AppToast.show(
+    context,
+    message,
+    kind: icon == Icons.picture_as_pdf
+        ? AppToastKind.info
+        : AppToastKind.success,
+    icon: icon,
+    color: iconColor,
   );
 }
 
@@ -529,34 +357,266 @@ class _AnimatedCounterTextState extends State<AnimatedCounterText>
 // ROOT WIDGET
 // =====================================================================
 class AdminDashboard extends StatefulWidget {
-  /// Marks that the debug shortcut was used; the Firebase admin gate still applies.
-  final bool developmentPreview;
+  const AdminDashboard({super.key, this.googleSignIn});
 
-  const AdminDashboard({super.key, this.developmentPreview = false});
+  /// Optional test adapter; the PESO API still verifies administrator roles.
+  final Future<UserCredential> Function()? googleSignIn;
 
   @override
   State<AdminDashboard> createState() => _AdminDashboardState();
 }
 
 class _AdminDashboardState extends State<AdminDashboard> {
+  // Admin authorization is validated by the protected MongoDB-backed PESO API.
+
   AdminTab _activeTab = AdminTab.analytics;
   final _adminGateEmailController = TextEditingController();
   final _adminGatePasswordController = TextEditingController();
   bool _isVerifyingAdmin = false;
+  bool _googleVerifyPending = false;
+  int _googleVerifyRequestId = 0;
   bool _firebaseAdminVerified = false;
   bool _obscureAdminGatePassword = true;
   String? _adminGateError;
   bool _isLoggingOut = false;
   final _scaffoldKey = GlobalKey<ScaffoldState>();
 
-  late final List<Applicant> _applicants = _generateApplicants();
-  late final List<Concern> _concerns = _generateConcerns(_applicants);
+  List<Applicant> _applicants = <Applicant>[];
+  List<Concern> _concerns = <Concern>[];
+  bool _loadingAdminProfiles = false;
+  String? _adminProfileLoadError;
 
   @override
   void dispose() {
     _adminGateEmailController.dispose();
     _adminGatePasswordController.dispose();
     super.dispose();
+  }
+
+  DateTime _dateValue(Object? value) {
+    if (value is DateTime) return value;
+    if (value is String)
+      return DateTime.tryParse(value) ?? DateTime.fromMillisecondsSinceEpoch(0);
+    return DateTime.fromMillisecondsSinceEpoch(0);
+  }
+
+  String _text(Object? value) => value?.toString() ?? '';
+
+  String _orText(Object? value, String fallback) {
+    final text = _text(value).trim();
+    return text.isEmpty ? fallback : text;
+  }
+
+  int _intValue(Object? value) {
+    if (value is int) return value;
+    if (value is num) return value.round();
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  Future<bool> _confirmMongoAdminRole() async {
+    try {
+      // The backend verifies the Firebase token and MongoDB users.role.
+      await PesoApiClient.adminListUsers(limit: 1);
+      return true;
+    } on PesoApiException catch (error) {
+      if (error.statusCode == 401 || error.statusCode == 403) {
+        try {
+          await FirebaseAuth.instance.signOut();
+        } catch (_) {
+          // The server denial remains authoritative even if sign-out fails.
+        }
+      }
+      if (mounted) {
+        final message = switch (error.statusCode) {
+          403 => 'This account does not have the PESO Admin role in MongoDB.',
+          503 => 'The PESO Admin API or MongoDB is not ready. Complete backend setup, then retry.',
+          401 => 'Your Firebase session could not be verified. Sign in again and retry.',
+          _ => error.message,
+        };
+        setState(() => _adminGateError = message);
+      }
+      return false;
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _adminGateError = 'The PESO API could not verify this account. Check the backend connection and retry.',
+        );
+      }
+      return false;
+    }
+  }
+
+  Future<void> _loadAdminDashboardProfiles() async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) return;
+
+    setState(() {
+      _loadingAdminProfiles = true;
+      _adminProfileLoadError = null;
+    });
+    try {
+      // The protected PESO API below validates the MongoDB-backed Admin role.
+      final profiles = <Map<String, dynamic>>[];
+      String? pageToken;
+      // Bound the scan to avoid an accidental endless paging loop.
+      for (var pageIndex = 0; pageIndex < 100; pageIndex++) {
+        final response = await PesoApiClient.adminListUsers(
+          limit: 100,
+          pageToken: pageToken,
+        );
+        final pageUsers = (response['users'] as List<dynamic>? ?? const [])
+            .whereType<Map>()
+            .map((item) => Map<String, dynamic>.from(item));
+        profiles.addAll(
+          pageUsers.where(
+            (user) =>
+                user['customAdmin'] != true && _text(user['role']) != 'admin',
+          ),
+        );
+        pageToken = response['nextPageToken'] as String?;
+        if (pageToken == null || pageToken.isEmpty) break;
+      }
+
+      final applicants = <Applicant>[];
+      for (final data in profiles) {
+        final displayName = _text(data['displayName']).trim().isNotEmpty
+            ? _text(data['displayName']).trim()
+            : (_text(data['firstName']).trim() +
+                      ' ' +
+                      _text(data['lastName']).trim())
+                  .trim();
+        applicants.add(
+          Applicant(
+            id: applicants.length + 1,
+            name: displayName.isNotEmpty
+                ? displayName
+                : _orText(data['email'], 'Unnamed user'),
+            barangay: _orText(data['location'], 'Unspecified'),
+            targetJob: _orText(data['professionalTitle'], 'Not specified'),
+            registeredDate: _dateValue(
+              data['createdAt'] ?? data['lastSignInAt'],
+            ),
+            yearsExperience: _intValue(data['yearsExperience']),
+            resumeSubmitted: data['resumeSubmitted'] == true,
+            formSubmitted: data['formSubmitted'] == true,
+            matchStatus:
+                const {
+                  'matched',
+                  'not_matched',
+                  'pending',
+                }.contains(_text(data['matchStatus']))
+                ? _text(data['matchStatus'])
+                : 'pending',
+            matchedJobsCount: _intValue(data['matchedJobsCount']),
+            resumeFileName: _orText(
+              data['resumeFileName'],
+              'No resume uploaded',
+            ),
+          ),
+        );
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _applicants = applicants;
+        // No real concerns collection is configured yet; never seed demo data.
+        _concerns = <Concern>[];
+      });
+    } on PesoApiException catch (error) {
+      if (mounted) {
+        setState(() => _adminProfileLoadError = error.message);
+      }
+      debugPrint('[ADMIN] PESO API profile load failed: ' + error.code);
+    } catch (error) {
+      if (mounted) {
+        setState(
+          () => _adminProfileLoadError = 'Could not verify or load admin dashboard data. Check the PESO API and MongoDB backend, then retry.',
+        );
+      }
+      debugPrint('[ADMIN] Profile refresh failed: $error');
+    } finally {
+      if (mounted) setState(() => _loadingAdminProfiles = false);
+    }
+  }
+
+  void _cancelAdminGoogleSignIn() {
+    if (!_googleVerifyPending) return;
+    ++_googleVerifyRequestId;
+    setState(() {
+      _googleVerifyPending = false;
+      _isVerifyingAdmin = false;
+      _adminGateError = 'Google verification was cancelled. Try again or use another sign-in method.';
+    });
+  }
+
+  Future<void> _signInWithGoogleForAdmin() async {
+    if (_isVerifyingAdmin) return;
+    final requestId = ++_googleVerifyRequestId;
+    setState(() {
+      _isVerifyingAdmin = true;
+      _googleVerifyPending = true;
+      _adminGateError = null;
+    });
+
+    try {
+      final provider = GoogleAuthProvider()
+        ..addScope('email')
+        ..setCustomParameters({'prompt': 'select_account'});
+
+      // On web, Firebase's Google OAuth popup returns to this exact admin
+      // screen. Native platforms use the system/provider sign-in flow.
+      final credential =
+          await (widget.googleSignIn?.call() ??
+              (kIsWeb
+                  ? FirebaseAuth.instance.signInWithPopup(provider)
+                  : FirebaseAuth.instance.signInWithProvider(provider)));
+      if (!mounted || requestId != _googleVerifyRequestId) return;
+      final user = credential.user;
+      if (user == null) {
+        if (mounted) {
+          setState(
+            () => _adminGateError = 'Google sign-in returned no Firebase account. Please try again.',
+          );
+        }
+        return;
+      }
+
+      if (!await _confirmMongoAdminRole()) return;
+
+      if (!mounted || requestId != _googleVerifyRequestId) return;
+      setState(() {
+        _firebaseAdminVerified = true;
+        _adminGateError = null;
+        _adminGateEmailController.clear();
+        _adminGatePasswordController.clear();
+      });
+      await _loadAdminDashboardProfiles();
+    } on FirebaseAuthException catch (error) {
+      if (!mounted || requestId != _googleVerifyRequestId) return;
+      final message = switch (error.code) {
+        'popup-closed-by-user' || 'cancelled-popup-request' => 'Google sign-in was cancelled. Select your administrator Google account to continue.',
+        'popup-blocked' => 'The browser blocked the Google sign-in popup. Allow popups for this app and try again.',
+        'operation-not-allowed' => 'Google sign-in is not enabled for this Firebase project. Enable Google under Firebase Console > Authentication > Sign-in method.',
+        'unauthorized-domain' => 'This website domain is not authorized for Firebase sign-in. Add it under Firebase Console > Authentication > Settings > Authorized domains.',
+        'network-request-failed' => 'Firebase could not be reached. Check your internet connection and try again.',
+        'account-exists-with-different-credential' => 'This Google email is already registered with another sign-in method. Use the linked Firebase sign-in method first.',
+        _ => 'Google/Firebase administrator verification failed. Check the Firebase Authentication configuration and try again.',
+      };
+      setState(() => _adminGateError = message);
+    } catch (_) {
+      if (mounted && requestId == _googleVerifyRequestId) {
+        setState(
+          () => _adminGateError = 'The Google sign-in security check could not finish. Check Firebase setup and try again.',
+        );
+      }
+    } finally {
+      if (mounted && requestId == _googleVerifyRequestId) {
+        setState(() {
+          _googleVerifyPending = false;
+          _isVerifyingAdmin = false;
+        });
+      }
+    }
   }
 
   Future<void> _verifyExistingFirebaseAdministrator() async {
@@ -567,31 +627,37 @@ class _AdminDashboardState extends State<AdminDashboard> {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) {
-        if (mounted) setState(() => _adminGateError = 'No Firebase session is active. Sign in below with your administrator account.');
+        if (mounted)
+          setState(
+            () => _adminGateError = 'No Firebase session is active. Sign in below with your administrator account.',
+          );
         return;
       }
-      final tokenResult = await user.getIdTokenResult(true);
-      if (tokenResult.claims?['admin'] != true) {
-        if (mounted) setState(() => _adminGateError = 'The current Firebase account lacks the admin: true custom claim. Use an authorized administrator account.');
-        return;
-      }
+      if (!await _confirmMongoAdminRole()) return;
       if (!mounted) return;
       setState(() {
         _firebaseAdminVerified = true;
         _adminGateError = null;
         _adminGatePasswordController.clear();
       });
+      await _loadAdminDashboardProfiles();
     } catch (_) {
-      if (mounted) setState(() => _adminGateError = 'Firebase could not verify the current session. Sign in below and retry.');
+      if (mounted)
+        setState(
+          () => _adminGateError = 'Firebase could not verify the current session. Sign in below and retry.',
+        );
     } finally {
       if (mounted) setState(() => _isVerifyingAdmin = false);
     }
   }
+
   Future<void> _verifyFirebaseAdministrator() async {
     final email = _adminGateEmailController.text.trim();
     final password = _adminGatePasswordController.text;
     if (email.isEmpty || password.isEmpty) {
-      setState(() => _adminGateError = 'Enter the email and password of your Firebase administrator account.');
+      setState(
+        () => _adminGateError = 'Enter the email and password of your Firebase administrator account.',
+      );
       return;
     }
     setState(() {
@@ -605,26 +671,27 @@ class _AdminDashboardState extends State<AdminDashboard> {
       );
       final user = credential.user;
       if (user == null) {
-        if (mounted) setState(() => _adminGateError = 'Firebase could not confirm the signed-in account.');
+        if (mounted)
+          setState(
+            () => _adminGateError =
+                'Firebase could not confirm the signed-in account.',
+          );
         return;
       }
-      final tokenResult = await user.getIdTokenResult(true);
-      if (tokenResult.claims?['admin'] != true) {
-        await FirebaseAuth.instance.signOut();
-        if (!mounted) return;
-        setState(() => _adminGateError = 'Firebase sign-in worked, but this account is not authorized for Admin. The project owner must grant the admin: true custom claim, then you must sign in again.');
-        return;
-      }
+      if (!await _confirmMongoAdminRole()) return;
       if (!mounted) return;
       setState(() {
         _firebaseAdminVerified = true;
         _adminGateError = null;
         _adminGatePasswordController.clear();
       });
+      await _loadAdminDashboardProfiles();
     } on FirebaseAuthException catch (error) {
       if (!mounted) return;
       final message = switch (error.code) {
-        'invalid-credential' || 'wrong-password' || 'user-not-found' => 'The Firebase email or password is incorrect.',
+        'invalid-credential' ||
+        'wrong-password' ||
+        'user-not-found' => 'The Firebase email or password is incorrect.',
         'too-many-requests' => 'Firebase temporarily blocked sign-in attempts. Wait a little and retry.',
         'network-request-failed' => 'Firebase cannot be reached. Check your internet connection and retry.',
         _ => 'Firebase administrator verification failed. Check your credentials and try again.',
@@ -632,7 +699,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
       setState(() => _adminGateError = message);
     } catch (_) {
       if (!mounted) return;
-      setState(() => _adminGateError = 'The Firebase security check could not finish. Verify Firebase setup and try again.');
+      setState(
+        () => _adminGateError = 'The Firebase security check could not finish. Verify Firebase setup and try again.',
+      );
     } finally {
       if (mounted) setState(() => _isVerifyingAdmin = false);
     }
@@ -654,12 +723,12 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
   Widget _buildAdminSecurityGate() {
     return Scaffold(
-      backgroundColor: _C.bg,
+      backgroundColor: const Color(0xFF0D251B),
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 480),
+            constraints: const BoxConstraints(maxWidth: 520),
             child: Container(
               padding: const EdgeInsets.all(30),
               decoration: BoxDecoration(
@@ -678,37 +747,116 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Icon(Icons.admin_panel_settings_outlined, size: 56, color: _C.primary),
+                  Container(
+                    alignment: Alignment.center,
+                    width: 70,
+                    height: 70,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE8F5EE),
+                      borderRadius: BorderRadius.circular(22),
+                    ),
+                    child: const Icon(
+                      Icons.admin_panel_settings_outlined,
+                      size: 40,
+                      color: _C.primary,
+                    ),
+                  ),
                   const SizedBox(height: 18),
                   const Text(
                     'Protected Admin Area',
                     textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: _C.slate900),
+                    style: TextStyle(
+                      fontSize: 26,
+                      fontWeight: FontWeight.w900,
+                      color: _C.slate900,
+                    ),
                   ),
                   const SizedBox(height: 10),
-                  Text(
-                    widget.developmentPreview
-                        ? 'The admin/admin shortcut only opens this lock screen. Verify your existing Firebase administrator session or sign in below to unlock the dashboard.'
-                        : 'Verify your identity directly with Firebase. Access is granted only to an account carrying the verified admin: true custom claim.',
+                  const Text(
+                    'Verify your identity directly with Firebase. Admin access is based on the MongoDB user profile role. The protected PESO API confirms role=admin before granting access.',
                     textAlign: TextAlign.center,
-                    style: const TextStyle(color: _C.slate600, height: 1.5),
+                    style: TextStyle(color: _C.slate600, height: 1.5),
                   ),
                   const SizedBox(height: 24),
-                  OutlinedButton.icon(
-                    onPressed: _isVerifyingAdmin ? null : _verifyExistingFirebaseAdministrator,
-                    icon: const Icon(Icons.verified_user_outlined),
-                    label: const Text('Verify current Firebase session'),
-                    style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 15)),
+                  FilledButton.icon(
+                    onPressed: _isVerifyingAdmin
+                        ? null
+                        : _signInWithGoogleForAdmin,
+                    icon: _isVerifyingAdmin
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.g_mobiledata, size: 30),
+                    label: Text(
+                      _isVerifyingAdmin
+                          ? 'Waiting for Google / verifying account...'
+                          : 'Continue with Google',
+                    ),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: _C.primary,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                    ),
                   ),
+                  if (_googleVerifyPending) ...[
+                    const SizedBox(height: 10),
+                    TextButton.icon(
+                      onPressed: _cancelAdminGoogleSignIn,
+                      icon: const Icon(Icons.close_rounded),
+                      label: const Text(
+                        'Cancel Google verification / unlock form',
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed: _isVerifyingAdmin
+                        ? null
+                        : _verifyExistingFirebaseAdministrator,
+                    icon: const Icon(Icons.verified_user_outlined),
+                    label: const Text(
+                      'Verify current Firebase session instead',
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Firebase verifies your sign-in. The PESO API grants Admin access only when your MongoDB user profile has role=admin. The configured initial Admin account can be bootstrapped after Google sign-in when MongoDB is connected; other accounts must be assigned the Admin role in MongoDB.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: _C.slate500,
+                      fontSize: 12,
+                      height: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
                   const Padding(
                     padding: EdgeInsets.symmetric(vertical: 14),
-                    child: Text('OR SIGN IN WITH FIREBASE', textAlign: TextAlign.center, style: TextStyle(color: _C.slate500, fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 1.1)),
+                    child: Text(
+                      'OR SIGN IN WITH FIREBASE',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: _C.slate500,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1.1,
+                      ),
+                    ),
                   ),
                   TextField(
                     controller: _adminGateEmailController,
                     enabled: !_isVerifyingAdmin,
                     keyboardType: TextInputType.emailAddress,
-                    autofillHints: const [AutofillHints.username, AutofillHints.email],
+                    autofillHints: const [
+                      AutofillHints.username,
+                      AutofillHints.email,
+                    ],
                     decoration: const InputDecoration(
                       labelText: 'Firebase administrator email',
                       prefixIcon: Icon(Icons.email_outlined),
@@ -727,9 +875,18 @@ class _AdminDashboardState extends State<AdminDashboard> {
                       prefixIcon: const Icon(Icons.lock_outline),
                       border: const OutlineInputBorder(),
                       suffixIcon: IconButton(
-                        onPressed: () => setState(() => _obscureAdminGatePassword = !_obscureAdminGatePassword),
-                        icon: Icon(_obscureAdminGatePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined),
-                        tooltip: _obscureAdminGatePassword ? 'Show password' : 'Hide password',
+                        onPressed: () => setState(
+                          () => _obscureAdminGatePassword =
+                              !_obscureAdminGatePassword,
+                        ),
+                        icon: Icon(
+                          _obscureAdminGatePassword
+                              ? Icons.visibility_outlined
+                              : Icons.visibility_off_outlined,
+                        ),
+                        tooltip: _obscureAdminGatePassword
+                            ? 'Show password'
+                            : 'Hide password',
                       ),
                     ),
                     onSubmitted: (_) => _verifyFirebaseAdministrator(),
@@ -738,18 +895,40 @@ class _AdminDashboardState extends State<AdminDashboard> {
                     const SizedBox(height: 14),
                     Container(
                       padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(color: const Color(0xFFFFF1F2), borderRadius: BorderRadius.circular(10)),
-                      child: Text(_adminGateError!, style: const TextStyle(color: _C.rose600, height: 1.4)),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFF1F2),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        _adminGateError!,
+                        style: const TextStyle(color: _C.rose600, height: 1.4),
+                      ),
                     ),
                   ],
                   const SizedBox(height: 20),
                   FilledButton.icon(
-                    onPressed: _isVerifyingAdmin ? null : _verifyFirebaseAdministrator,
+                    onPressed: _isVerifyingAdmin
+                        ? null
+                        : _verifyFirebaseAdministrator,
                     icon: _isVerifyingAdmin
-                        ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
                         : const Icon(Icons.verified_user_outlined),
-                    label: Text(_isVerifyingAdmin ? 'Verifying with Firebase...' : 'Verify and unlock Admin'),
-                    style: FilledButton.styleFrom(backgroundColor: _C.primary, padding: const EdgeInsets.symmetric(vertical: 16)),
+                    label: Text(
+                      _isVerifyingAdmin
+                          ? 'Verifying with Firebase...'
+                          : 'Verify and unlock Admin',
+                    ),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: _C.primary,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                    ),
                   ),
                   const SizedBox(height: 4),
                   TextButton.icon(
@@ -829,29 +1008,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   Expanded(
                     child: Column(
                       children: [
-                        if (widget.developmentPreview)
-                          Container(
-                            width: double.infinity,
-                            margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFFFF7ED),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: const Color(0xFFF59E0B)),
-                            ),
-                            child: const Row(
-                              children: [
-                                Icon(Icons.developer_mode, color: Color(0xFFB45309)),
-                                SizedBox(width: 10),
-                                Expanded(
-                                  child: Text(
-                                    'DEVELOPMENT PREVIEW — demo dashboard only. Live registered-user management requires Firebase sign-in with the admin: true claim.',
-                                    style: TextStyle(color: Color(0xFF92400E), fontWeight: FontWeight.w600),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
                         _TopBar(
                           title: navItem.title,
                           subtitle: navItem.description,
@@ -898,15 +1054,85 @@ class _AdminDashboardState extends State<AdminDashboard> {
   Widget _buildActiveSection() {
     switch (_activeTab) {
       case AdminTab.analytics:
+        if (_loadingAdminProfiles) {
+          return const Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text('Loading registered profiles from the PESO API...'),
+              ],
+            ),
+          );
+        }
+        if (_adminProfileLoadError != null) {
+          return Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 560),
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.cloud_off_outlined,
+                      size: 42,
+                      color: _C.rose600,
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Live dashboard data could not be loaded',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(_adminProfileLoadError!, textAlign: TextAlign.center),
+                    const SizedBox(height: 16),
+                    OutlinedButton.icon(
+                      onPressed: _loadAdminDashboardProfiles,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Retry PESO API connection'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }
         return ApplicantAnalyticsSection(applicants: _applicants);
       case AdminTab.users:
         return const AdminUserManagementSection();
       case AdminTab.concerns:
         return ConcernsSection(initialConcerns: _concerns);
+      case AdminTab.jobs:
+        return const _WorkspaceSubTabs(
+          labels: ['Job Postings', 'Online PDF Sources'],
+          children: [JobManagementSection(), AdminPdfLinkIngestionSection()],
+        );
+      case AdminTab.applications:
+        return _WorkspaceSubTabs(
+          labels: const ['Job Applications', 'DOLE SPRS & Excel'],
+          children: [
+            const JobApplicationsSection(),
+            DoleSprsExportSection(applicants: _applicants),
+          ],
+        );
       case AdminTab.ingestion:
-        return const JobBatchIngestionSection();
+        return const AdminPdfLinkIngestionSection();
       case AdminTab.export:
         return DoleSprsExportSection(applicants: _applicants);
+      case AdminTab.geminiKeys:
+        return _WorkspaceSubTabs(
+          labels: const ['Gemini API Keys', 'Platform Analytics'],
+          children: [
+            const GeminiApiKeyManagementSection(),
+            PlatformAnalyticsSection(applicants: _applicants),
+          ],
+        );
       case AdminTab.platform:
         return PlatformAnalyticsSection(applicants: _applicants);
     }
@@ -914,8 +1140,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
   Widget _buildLogoutOverlay() {
     return Positioned.fill(
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+      child: RepaintBoundary(
         child: Container(
           color: _C.sidebar.withValues(alpha: 0.6),
           child: Center(
@@ -1026,7 +1251,7 @@ class _Sidebar extends StatelessWidget {
                       Text(
                         'IT & Data Operations',
                         style: TextStyle(
-                          color: Color(0xFF60A5FA),
+                          color: Color(0xFFA4D3B8),
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
                         ),
@@ -1052,7 +1277,7 @@ class _Sidebar extends StatelessWidget {
                       padding: const EdgeInsets.only(bottom: 4),
                       child: Material(
                         color: isActive
-                            ? const Color(0xFF0F172A)
+                            ? const Color(0xFF193D31)
                             : Colors.transparent,
                         borderRadius: BorderRadius.circular(12),
                         child: InkWell(
@@ -1082,7 +1307,7 @@ class _Sidebar extends StatelessWidget {
                                     item.icon,
                                     size: 18,
                                     color: isActive
-                                        ? const Color(0xFF60A5FA)
+                                        ? const Color(0xFFA4D3B8)
                                         : Colors.white54,
                                   ),
                                 ),
@@ -1092,7 +1317,7 @@ class _Sidebar extends StatelessWidget {
                                     duration: const Duration(milliseconds: 200),
                                     style: TextStyle(
                                       color: isActive
-                                          ? const Color(0xFF60A5FA)
+                                          ? const Color(0xFFA4D3B8)
                                           : Colors.white54,
                                       fontWeight: FontWeight.w700,
                                       fontSize: 13.5,
@@ -2174,7 +2399,7 @@ class _ApplicantAnalyticsSectionState extends State<ApplicantAnalyticsSection> {
     final processed = matched + notMatched;
     final matchRate = processed > 0 ? ((matched / processed) * 100).round() : 0;
 
-    final today = DateTime(2026, 9, 8);
+    final today = DateTime.now();
     final dates = List.generate(
       14,
       (i) => today.subtract(Duration(days: 13 - i)),
@@ -2207,12 +2432,12 @@ class _ApplicantAnalyticsSectionState extends State<ApplicantAnalyticsSection> {
 
     final donutSegments = [
       if (matched > 0) MapEntry('Matched', matched.toDouble()),
-      if (notMatched > 0) MapEntry('No match yet', notMatched.toDouble()),
+      if (notMatched > 0) MapEntry('Low qualification', notMatched.toDouble()),
       if (pending > 0) MapEntry('Under review', pending.toDouble()),
     ];
     final donutColors = {
       'Matched': _C.emerald,
-      'No match yet': _C.rose,
+      'Low qualification': _C.rose,
       'Under review': _C.amber,
     };
 
@@ -2222,7 +2447,7 @@ class _ApplicantAnalyticsSectionState extends State<ApplicantAnalyticsSection> {
         numericValue: filtered.length,
         icon: Icons.groups_outlined,
         color: _C.slate900,
-        subtitle: 'Signed up in the last 14 days',
+        subtitle: 'Saved MongoDB job-seeker profiles',
       ),
       _KpiCard(
         label: 'MATCHED TO A JOB',
@@ -2233,7 +2458,7 @@ class _ApplicantAnalyticsSectionState extends State<ApplicantAnalyticsSection> {
         subtitleColor: _C.emerald600,
       ),
       _KpiCard(
-        label: 'NO MATCH YET',
+        label: 'LOW QUALIFICATION',
         numericValue: notMatched,
         icon: Icons.cancel_outlined,
         color: _C.rose600,
@@ -2253,6 +2478,15 @@ class _ApplicantAnalyticsSectionState extends State<ApplicantAnalyticsSection> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (filtered.isEmpty)
+            const _SectionCard(
+              title: 'No registered profiles yet',
+              icon: Icons.groups_outlined,
+              child: Text(
+                'This dashboard reads job-seeker profiles through the PESO API backed by MongoDB. Registered Firebase Authentication accounts appear as the API syncs them; match and resume metrics stay pending until those results are stored.',
+                style: TextStyle(color: _C.slate600, height: 1.4),
+              ),
+            ),
           LayoutBuilder(
             builder: (context, c) {
               final cols = c.maxWidth > 900 ? 4 : (c.maxWidth > 560 ? 2 : 1);
@@ -2298,11 +2532,21 @@ class _ApplicantAnalyticsSectionState extends State<ApplicantAnalyticsSection> {
                         fontWeight: FontWeight.w700,
                         color: _C.slate700,
                       ),
-                      items: ['All', ...kBarangays]
-                          .map(
-                            (b) => DropdownMenuItem(value: b, child: Text(b)),
-                          )
-                          .toList(),
+                      items:
+                          [
+                                'All',
+                                ...(widget.applicants
+                                    .map((a) => a.barangay)
+                                    .where((b) => b.trim().isNotEmpty)
+                                    .toSet()
+                                    .toList()
+                                  ..sort()),
+                              ]
+                              .map(
+                                (b) =>
+                                    DropdownMenuItem(value: b, child: Text(b)),
+                              )
+                              .toList(),
                       onChanged: (v) =>
                           setState(() => _barangayFilter = v ?? 'All'),
                     ),
@@ -2335,7 +2579,7 @@ class _ApplicantAnalyticsSectionState extends State<ApplicantAnalyticsSection> {
                     values: matchedSeries,
                   ),
                   _TrendMiniCard(
-                    label: 'No match',
+                    label: 'Low qualification',
                     color: _C.rose,
                     value: notMatched,
                     dates: dates,
@@ -2864,329 +3108,6 @@ class _ConcernsSectionState extends State<ConcernsSection> {
 }
 
 // =====================================================================
-// SECTION 4: JOB BATCH INGESTION
-// Uploading an Excel job batch now also auto-matches each job to
-// qualified job seeker accounts (by target job + years of experience).
-// =====================================================================
-class JobBatchIngestionSection extends StatefulWidget {
-  const JobBatchIngestionSection({super.key});
-
-  @override
-  State<JobBatchIngestionSection> createState() =>
-      _JobBatchIngestionSectionState();
-}
-
-class _JobBatchIngestionSectionState extends State<JobBatchIngestionSection> {
-  final List<IngestionLog> _logs = [
-    IngestionLog(
-      id: 1,
-      job: 'IT Support Specialist',
-      employer: 'Montalban LGU',
-      batch: 'BATCH-001',
-      uploaded: 'Today, 08:30 AM',
-      status: 'Active',
-      matchedAccounts: 6,
-    ),
-    IngestionLog(
-      id: 2,
-      job: 'Data Encoder',
-      employer: 'Prime BPO',
-      batch: 'BATCH-001',
-      uploaded: 'Today, 08:30 AM',
-      status: 'Active',
-      matchedAccounts: 4,
-    ),
-    IngestionLog(
-      id: 3,
-      job: 'Warehouse Assistant',
-      employer: 'Manggahan Logistics Co.',
-      batch: 'BATCH-002',
-      uploaded: 'Yesterday, 04:12 PM',
-      status: 'Active',
-      matchedAccounts: 9,
-    ),
-    IngestionLog(
-      id: 4,
-      job: 'Bookkeeper',
-      employer: 'Rosario Trading',
-      batch: 'BATCH-002',
-      uploaded: 'Yesterday, 04:12 PM',
-      status: 'Active',
-      matchedAccounts: 2,
-    ),
-  ];
-  int _nextId = 5;
-  bool _hover = false;
-  final _rand = _SeededRandom(101);
-
-  Future<void> _simulateUpload() async {
-    final controller = TextEditingController(text: 'New_Job_Batch.xlsx');
-    final fileName = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Simulate Excel Upload'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            labelText: 'File name',
-            hintText: 'e.g. Montalban_Batch_003.xlsx',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, controller.text),
-            child: const Text('Ingest'),
-          ),
-        ],
-      ),
-    );
-    if (fileName == null || fileName.trim().isEmpty) return;
-    if (!fileName.toLowerCase().endsWith('.xlsx')) {
-      showToast(
-        context,
-        '"$fileName" is not a .xlsx file \u2014 please upload a file matching the Montalban offline job template.',
-        icon: Icons.error_outline,
-        iconColor: _C.rose,
-      );
-      return;
-    }
-    final matchedAccounts = 2 + (_rand.next() * 12).floor();
-    setState(() {
-      _logs.insert(
-        0,
-        IngestionLog(
-          id: _nextId++,
-          job: fileName.replaceAll(
-            RegExp(r'\.xlsx$', caseSensitive: false),
-            '',
-          ),
-          employer: 'Uploaded by IT Admin',
-          batch: 'BATCH-${(_logs.length + 1).toString().padLeft(3, '0')}',
-          uploaded: 'Just now',
-          status: 'Active',
-          matchedAccounts: matchedAccounts,
-        ),
-      );
-    });
-    showToast(
-      context,
-      'Ingested "$fileName" \u2014 auto-matched to $matchedAccounts job seeker account(s) based on their submitted qualifications.',
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          FadeSlideEntrance(
-            delayMs: 0,
-            child: MouseRegion(
-              onEnter: (_) => setState(() => _hover = true),
-              onExit: (_) => setState(() => _hover = false),
-              child: GestureDetector(
-                onTap: _simulateUpload,
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 250),
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 50,
-                    horizontal: 30,
-                  ),
-                  decoration: BoxDecoration(
-                    color: _hover
-                        ? _C.primary.withValues(alpha: 0.10)
-                        : _C.primary.withValues(alpha: 0.05),
-                    border: Border.all(
-                      color: _C.primary.withValues(alpha: _hover ? 0.5 : 0.25),
-                      width: 2,
-                    ),
-                    borderRadius: BorderRadius.circular(24),
-                  ),
-                  child: Column(
-                    children: [
-                      AnimatedScale(
-                        scale: _hover ? 1.08 : 1.0,
-                        duration: const Duration(milliseconds: 250),
-                        curve: Curves.easeOut,
-                        child: Container(
-                          width: 64,
-                          height: 64,
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: _C.primary.withValues(alpha: 0.25),
-                                blurRadius: 20,
-                                spreadRadius: 4,
-                              ),
-                            ],
-                          ),
-                          child: Icon(
-                            Icons.cloud_upload_outlined,
-                            size: 28,
-                            color: _C.primary,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      const Text(
-                        'Select or drop PESO Excel file here',
-                        style: TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w800,
-                          color: _C.slate900,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Only .xlsx files following the Montalban offline job template are supported. New listings are auto-matched to job seeker accounts by qualification.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 12, color: _C.primaryDark),
-                      ),
-                      const SizedBox(height: 20),
-                      ElevatedButton.icon(
-                        onPressed: _simulateUpload,
-                        icon: const Icon(Icons.folder_open, size: 16),
-                        label: const Text(
-                          'Browse Files',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 12,
-                          ),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: _C.primary,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 24,
-                            vertical: 14,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(30),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 24),
-          FadeSlideEntrance(
-            delayMs: 150,
-            child: _SectionCard(
-              title: 'Recent Ingestion Logs',
-              icon: Icons.receipt_long_outlined,
-              child: Column(
-                children: List.generate(_logs.length, (i) {
-                  final log = _logs[i];
-                  return FadeSlideEntrance(
-                    delayMs: 200 + i * 60,
-                    child: Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          border: Border.all(color: _C.slate200),
-                          borderRadius: BorderRadius.circular(18),
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 40,
-                              height: 40,
-                              decoration: BoxDecoration(
-                                color: _C.slate100,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Icon(
-                                Icons.work_outline,
-                                size: 18,
-                                color: _C.slate600,
-                              ),
-                            ),
-                            const SizedBox(width: 14),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    log.job,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 13,
-                                      color: _C.slate900,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  const SizedBox(height: 3),
-                                  Text(
-                                    '${log.employer} \u00b7 Batch: ${log.batch} | Uploaded: ${log.uploaded}',
-                                    style: const TextStyle(
-                                      fontSize: 11,
-                                      color: _C.slate500,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  const SizedBox(height: 3),
-                                  Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        Icons.person_search,
-                                        size: 12,
-                                        color: _C.emerald600,
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        'Matched ${log.matchedAccounts} job seeker account(s)',
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w700,
-                                          color: _C.emerald600,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            _StatusBadge(
-                              StatusStyle(
-                                log.status,
-                                _C.emerald600,
-                                const Color(0xFFECFDF5),
-                                _C.emerald,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  );
-                }),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// =====================================================================
 // SECTION 5: DOLE SPRS EXPORT
 // =====================================================================
 class DoleSprsExportSection extends StatefulWidget {
@@ -3198,52 +3119,68 @@ class DoleSprsExportSection extends StatefulWidget {
 }
 
 class _DoleSprsExportSectionState extends State<DoleSprsExportSection> {
-  late List<Applicant> _matched;
-  final Set<int> _handedOff = {};
-
-  @override
-  void initState() {
-    super.initState();
-    _matched = widget.applicants
-        .where((a) => a.matchStatus == 'matched')
-        .take(15)
-        .toList();
+  static int _sortIndex(String status) {
+    switch (status) {
+      case 'matched':
+        return 0;
+      case 'pending':
+        return 1;
+      case 'not_matched':
+        return 2;
+      default:
+        return 3;
+    }
   }
 
-  void _generateExcel() {
-    if (_matched.isEmpty) {
-      showToast(
-        context,
-        'No matched candidates to export yet.',
-        icon: Icons.error_outline,
-        iconColor: _C.rose,
-      );
-      return;
-    }
-    showToast(
-      context,
-      'Generated DOLE SPRS export for ${_matched.length} candidate(s).',
+  List<Applicant> get _sortedApplicants {
+    final all = List.of(widget.applicants);
+    all.sort((a, b) {
+      final si = _sortIndex(a.matchStatus);
+      final sj = _sortIndex(b.matchStatus);
+      if (si != sj) return si - sj;
+      return a.name.compareTo(b.name);
+    });
+    return all;
+  }
+
+  final Set<int> _handedOff = {};
+
+  Future<void> _viewExcelOnline() async {
+    await showDialog<void>(
+      context: context,
+      builder: (_) => const AdminExcelLivePreview(),
     );
   }
 
   void _handoff() {
-    final pending = _matched.where((a) => !_handedOff.contains(a.id)).toList();
+    final matched = _sortedApplicants
+        .where((a) => a.matchStatus == 'matched')
+        .toList();
+    final pending = matched.where((a) => !_handedOff.contains(a.id)).toList();
     if (pending.isEmpty) {
-      showToast(
+      AppToast.show(
         context,
         'Everyone here has already been handed off to PESO Admin.',
       );
       return;
     }
     setState(() => _handedOff.addAll(pending.map((a) => a.id)));
-    showToast(
+    AppToast.show(
       context,
       'Handed off ${pending.length} candidate(s) to PESO Admin.',
     );
   }
 
   @override
+  void initState() {
+    super.initState();
+    // No longer pre-filtering to matched only; all applicants are shown sorted.
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final total = _sortedApplicants.length;
+
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -3261,7 +3198,7 @@ class _DoleSprsExportSectionState extends State<DoleSprsExportSection> {
                     Icon(Icons.filter_list, size: 15, color: _C.slate500),
                     const SizedBox(width: 8),
                     Text(
-                      'Showing ${_matched.length} Matched Candidates',
+                      'Showing $total Applicants',
                       style: const TextStyle(
                         fontWeight: FontWeight.w700,
                         fontSize: 13,
@@ -3273,11 +3210,31 @@ class _DoleSprsExportSectionState extends State<DoleSprsExportSection> {
                 Wrap(
                   spacing: 10,
                   children: [
-                    OutlinedButton.icon(
-                      onPressed: _generateExcel,
-                      icon: const Icon(Icons.download, size: 15),
+                    // Primary: View Excel Online button
+                    ElevatedButton.icon(
+                      onPressed: _viewExcelOnline,
+                      icon: const Icon(Icons.open_in_new, size: 15),
                       label: const Text(
-                        'Generate DOLE SPRS Excel',
+                        'View Excel Online',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _C.primary,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                    // Secondary: Handoff to PESO Admin (behavior unchanged)
+                    OutlinedButton.icon(
+                      onPressed: _handoff,
+                      icon: const Icon(Icons.send, size: 15),
+                      label: const Text(
+                        'Handoff to PESO Admin',
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
@@ -3291,183 +3248,150 @@ class _DoleSprsExportSectionState extends State<DoleSprsExportSection> {
                         ),
                       ),
                     ),
-                    ElevatedButton.icon(
-                      onPressed: _handoff,
-                      icon: const Icon(Icons.send, size: 15),
-                      label: const Text(
-                        'Handoff to PESO Admin',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _C.emerald600,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                    ),
                   ],
                 ),
               ],
             ),
           ),
           const SizedBox(height: 20),
-          Column(
-            children: List.generate(_matched.length, (i) {
-              final a = _matched[i];
-              final isHandedOff = _handedOff.contains(a.id);
-              return FadeSlideEntrance(
-                delayMs: 100 + i * 60,
-                child: Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 300),
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      border: Border.all(
-                        color: isHandedOff
-                            ? _C.emerald.withValues(alpha: 0.4)
-                            : _C.slate200,
+          // Candidate cards: ALL applicants sorted matched-first, using Column with proper spacing
+          ..._sortedApplicants.map(
+            (a) => _ApplicantCard(
+              applicant: a,
+              handedOff: _handedOff.contains(a.id),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// Individual applicant card using Column with proper spacing
+class _ApplicantCard extends StatelessWidget {
+  final Applicant applicant;
+  final bool handedOff;
+  const _ApplicantCard({required this.applicant, required this.handedOff});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 300),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: Border(
+            left: BorderSide(
+              color: handedOff
+                  ? _C.emerald.withValues(alpha: 0.4)
+                  : _C.slate200,
+            ),
+          ),
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.02),
+              blurRadius: 10,
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 22,
+                  backgroundColor: const Color(0xFFECFDF5),
+                  child: Icon(Icons.person_outline, color: _C.emerald600),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        applicant.name,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 14,
+                          color: _C.slate900,
+                        ),
                       ),
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.02),
-                          blurRadius: 10,
-                        ),
-                      ],
-                    ),
-                    child: Row(
-                      children: [
-                        CircleAvatar(
-                          radius: 22,
-                          backgroundColor: const Color(0xFFECFDF5),
-                          child: Icon(
-                            Icons.person_outline,
-                            color: _C.emerald600,
+                      const SizedBox(height: 3),
+                      Row(
+                        children: [
+                          Text(
+                            applicant.targetJob,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: _C.slate500,
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                a.name,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 14,
-                                  color: _C.slate900,
+                          const SizedBox(width: 8),
+                          _StatusBadge(
+                            kMatchStyles[applicant.matchStatus] ??
+                                const StatusStyle(
+                                  'Users with Low Qualification',
+                                  Color(0xFFBE123C),
+                                  Color(0xFFFFF1F2),
+                                  Color(0xFFF43F5E),
                                 ),
-                              ),
-                              const SizedBox(height: 3),
-                              RichText(
-                                text: TextSpan(
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: _C.slate500,
-                                  ),
-                                  children: [
-                                    const TextSpan(text: 'Target Job: '),
-                                    TextSpan(
-                                      text: a.targetJob,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                        color: _C.slate700,
-                                      ),
-                                    ),
-                                    const TextSpan(text: '  \u00b7  '),
-                                    TextSpan(
-                                      text:
-                                          '${a.yearsExperience} yrs experience',
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                        color: _C.slate700,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
                           ),
+                        ],
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        'Submitted: ${_fmtDate(applicant.registeredDate)}',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: _C.slate400,
                         ),
-                        AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 250),
-                          child: isHandedOff
-                              ? Padding(
-                                  key: const ValueKey('handed-off'),
-                                  padding: const EdgeInsets.only(right: 10),
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 5,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: _C.slate100,
-                                      borderRadius: BorderRadius.circular(20),
-                                    ),
-                                    child: const Text(
-                                      'Handed off',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w700,
-                                        color: _C.slate500,
-                                      ),
-                                    ),
-                                  ),
-                                )
-                              : const SizedBox(key: ValueKey('pending')),
-                        ),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            const Text(
-                              'Matched Jobs',
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: _C.slate400,
-                              ),
-                            ),
-                            Text(
-                              '${a.matchedJobsCount}',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w900,
-                                color: _C.emerald600,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(width: 12),
-                        AnimatedScale(
-                          scale: isHandedOff ? 1.15 : 1.0,
-                          duration: const Duration(milliseconds: 250),
-                          curve: Curves.easeOutBack,
-                          child: Container(
-                            width: 30,
-                            height: 30,
-                            decoration: const BoxDecoration(
-                              color: _C.emerald,
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.check,
-                              size: 16,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ),
-              );
-            }),
+              ],
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Compact sub-navigation keeps existing admin pages in a single workspace.
+/// Only the selected child is visible and each page retains its own controls.
+class _WorkspaceSubTabs extends StatelessWidget {
+  const _WorkspaceSubTabs({required this.labels, required this.children});
+
+  final List<String> labels;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return DefaultTabController(
+      length: labels.length,
+      child: Column(
+        children: [
+          Material(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            clipBehavior: Clip.antiAlias,
+            child: TabBar(
+              isScrollable: true,
+              tabAlignment: TabAlignment.start,
+              indicatorColor: _C.primary,
+              labelColor: _C.primary,
+              unselectedLabelColor: _C.slate500,
+              tabs: [for (final label in labels) Tab(text: label)],
+            ),
           ),
+          const SizedBox(height: 14),
+          Expanded(child: TabBarView(children: children)),
         ],
       ),
     );

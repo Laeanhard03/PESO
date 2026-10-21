@@ -1,0 +1,27 @@
+{
+  "name": "peso-jobkonek-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Server-side API for PESO JobKonek profiles, Gemini extraction, and MongoDB GridFS documents.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "check": "node --check server.js && node --check src/security.js && npm test",
+    "test": "node --test test/*.test.js src/*.test.js"
+  },
+  "dependencies": {
+    "@google/genai": "^1.30.0",
+    "@napi-rs/canvas": "1.0.11",
+    "dotenv": "^16.6.1",
+    "express": "^5.1.0",
+    "firebase-admin": "^13.5.0",
+    "mongodb": "^6.20.0",
+    "pdfjs-dist": "4.10.38",
+    "tesseract.js": "7.0.0",
+    "xlsx": "^0.18.5"
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "version": "peso-mini-ai-v1",
+  "seed": 20261021,
+  "trainedAt": "",
+  "features": [
+    "mandatory_coverage",
+    "preferred_coverage",
+    "missing_mandatory",
+    "experience_fit",
+    "education_fit",
+    "license_fit",
+    "title_alignment",
+    "transferable_coverage",
+    "profile_completeness",
+    "evidence_quality",
+    "experience_depth"
+  ],
+  "weights": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "bias": 0,
+  "threshold": 0.5,
+  "trainedPairs": 266,
+  "source": "ISCO-08 synthetic occupation affinity, not hiring labels",
+  "occupationWeights": [
+    4.896028664764148,
+    0.9210615638703835,
+    2.778194996735936,
+    -3.003708854931949
+  ],
+  "occupationBias": -1.6954104716542215
+}

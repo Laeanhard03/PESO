@@ -1,6 +1,9 @@
-# Production Gemini gateway setup
+# Legacy: Firebase Cloud Functions Gemini gateway setup
 
-This project deliberately does not commit encrypted or plaintext Gemini keys. An encryption key bundled in Flutter can be recovered by anyone who inspects the distributed app. Use Google Cloud Secret Manager through Firebase Functions instead.
+> **Legacy guide (2026-10-17):** This file describes the older Firebase Cloud Functions Gemini gateway and callable admin endpoints. The active Flutter app now sends profile/AI/document requests to the separate Node API under the backend folder, backed by MongoDB Atlas/GridFS; Firebase Authentication supplies identity and ID tokens only. Do not follow the deployment steps below for the current architecture, and do not deploy Firebase Functions as part of the current admin/profile task. Use backend/MONGODB_BACKEND_SETUP.md, backend/ADMIN_API.md, and docs/ARCHITECTURE_AUTH_MONGODB.md instead. The older Functions source remains legacy/reference code unless a separate migration/review explicitly brings it back into scope.
+
+
+This section describes only the retired Firebase Cloud Functions implementation. For the active app, follow backend/MONGODB_BACKEND_SETUP.md and configure the Gemini key as a backend-only secret using backend/configure-backend.ps1. Never put the provider key in a Flutter or web bundle.
 
 ## Before deployment
 
@@ -56,7 +59,7 @@ Use the exact URL printed by Firebase after deployment if the project or region 
 
 ## Admin registered-user management
 
-The admin user-management panel calls adminListUsers, adminUpdateUser and adminDeleteUser in the Functions source. These callable endpoints require the Firebase Authentication custom claim admin: true and reject edits/deletions of administrator accounts and the caller's own account. Editable fields are explicitly allowlisted; role, UID and custom claims cannot be changed through the UI. Deletion also attempts to remove user-prefixed Storage objects and the Firestore document tree, and records an admin audit event.
+Legacy only: the current admin panel calls the separate Node API routes documented in backend/ADMIN_API.md. User profile fields live in MongoDB; Firebase Admin is used server-side for Authentication account listing/status/deletion. The old callable functions described here are not used by the current app.
 
 To configure the existing trusted admin one time, use a trusted machine with Google Application Default Credentials for the correct Firebase project:
 
@@ -67,4 +70,4 @@ To configure the existing trusted admin one time, use a trusted machine with Goo
 
 Use the intended administrator UID obtained from the Firebase console; never grant the claim to an ordinary user. The script preserves other custom claims. To revoke the admin flag, set ADMIN_REVOKE_ADMIN_CLAIM=true before running the same script. After setting or changing claims, sign out/in again so the ID token refreshes.
 
-The callable functions are source-only until deployed. No real user account was edited/deleted and no admin claim was assigned by this task. Test using a disposable account after deploying to the intended project.
+This note applies only to the legacy Functions implementation. The current Node API is a separate local source tree under backend/; its real account actions are unavailable until MongoDB and Firebase Admin credentials are configured locally. No Cloud Functions deployment is required for the current architecture.

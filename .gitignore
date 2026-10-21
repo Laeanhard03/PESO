@@ -19,8 +19,7 @@ migrate_working_dir/
 .idea/
 
 # The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
+# version control, so this line is commented out by default.
 #.vscode/
 
 # Flutter/Dart/Pub related
@@ -72,3 +71,12 @@ firestore-debug.log
 /.firebase/
 
 !/functions/.env.example
+
+# Local rollback snapshots generated during agent edits
+*.bak
+.design_backups/
+
+# Generated local QA artifacts and compiled Go executables
+/docs/qa_browser/
+/mini_ai/bin/
+/backend/scripts/qa-list-local-browser-accounts.mjs

@@ -1,31 +1,94 @@
+// ignore_for_file: avoid_web_libraries_in_flutter, deprecated_member_use
 import 'dart:async';
 import 'dart:convert';
 import 'dart:html' as html;
+import 'dart:js_interop';
 
-final StreamController<String> _controller = StreamController<String>.broadcast();
+import 'package:web/web.dart' as web;
+
+final StreamController<String> _controller =
+    StreamController<String>.broadcast();
 bool _isListening = false;
+
+const _configuredWorkspaceUrl = String.fromEnvironment(
+  'PESO_NSRP_WORKSPACE_URL',
+  defaultValue: '',
+);
+
+/// Only the configured NSRP origin and (for a frame) its exact path are trusted.
+bool _isTrustedWorkspaceUri(Uri? uri, {bool checkPath = false}) {
+  if (uri == null ||
+      !const ['http', 'https'].contains(uri.scheme) ||
+      uri.host.isEmpty) {
+    return false;
+  }
+  final configuredString = _configuredWorkspaceUrl.trim();
+  if (configuredString.isNotEmpty) {
+    final configured = Uri.tryParse(configuredString);
+    if (configured == null ||
+        !const ['http', 'https'].contains(configured.scheme) ||
+        configured.host.isEmpty ||
+        uri.origin != configured.origin) {
+      return false;
+    }
+    return !checkPath || uri.path == configured.path;
+  }
+  // Backwards-compatible local Vite server. Public builds must configure a
+  // reachable NSRP workspace URL instead of relying on visitor localhost.
+  return uri.port == 5173 &&
+      const ['localhost', '127.0.0.1', '::1'].contains(uri.host);
+}
+
+Iterable<html.IFrameElement> _trustedWorkspaceFrames() sync* {
+  for (final element in html.document.querySelectorAll('iframe')) {
+    if (element is! html.IFrameElement) continue;
+    if (_isTrustedWorkspaceUri(
+      Uri.tryParse(element.src ?? ''),
+      checkPath: true,
+    )) {
+      yield element;
+    }
+  }
+}
 
 Stream<String> get reactBridgeMessages {
   if (!_isListening) {
     _isListening = true;
-    html.window.onMessage.listen(_handleMessage);
+    // package:web exposes the native window reference. Dart's legacy
+    // dart:html wrappers are not guaranteed to compare equal even when the
+    // underlying JavaScript WindowProxy is exactly the same instance.
+    web.window.addEventListener(
+      'message',
+      ((web.Event event) => _handleMessage(event as web.MessageEvent)).toJS,
+    );
   }
   return _controller.stream;
 }
 
-void _handleMessage(html.MessageEvent event) {
-  // The dev workspace runs on Vite's configured localhost port. Validate the
-  // sender instead of accepting arbitrary postMessage payloads from any site.
-  final origin = Uri.tryParse(event.origin);
-  final trustedLocalOrigin = origin != null &&
-      origin.port == 5173 &&
-      (origin.host == 'localhost' ||
-          origin.host == '127.0.0.1' ||
-          origin.host == '[::1]' ||
-          origin.host == '::1');
-  if (!trustedLocalOrigin) return;
+void _handleMessage(web.MessageEvent event) {
+  if (!_isTrustedWorkspaceUri(Uri.tryParse(event.origin))) return;
+  final source = event.source;
+  if (source == null) return;
 
-  final Object? data = event.data;
+  // Check the sender window as well as its origin. An arbitrary iframe on a
+  // trusted host must not be allowed to submit or impersonate the NSRP form.
+  final frames = web.document.querySelectorAll('iframe');
+  var fromWorkspace = false;
+  for (var index = 0; index < frames.length; index++) {
+    final node = frames.item(index);
+    if (node == null) continue;
+    final iframe = node as web.HTMLIFrameElement;
+    if (!_isTrustedWorkspaceUri(Uri.tryParse(iframe.src), checkPath: true)) {
+      continue;
+    }
+    if (jsIdentical(iframe.contentWindow, source)) {
+      fromWorkspace = true;
+      break;
+    }
+  }
+  if (!fromWorkspace) return;
+
+  final Object? data = event.data?.dartify();
   if (data is String) {
     try {
       final decoded = jsonDecode(data);
@@ -33,12 +96,23 @@ void _handleMessage(html.MessageEvent event) {
         _controller.add(data);
       }
     } on FormatException {
-      // Ignore unrelated messages and malformed payloads.
+      // Ignore unrelated and malformed postMessage payloads.
     }
-    return;
-  }
-
-  if (data is Map && data['source'] == 'peso-react-workspace') {
+  } else if (data is Map && data['source'] == 'peso-react-workspace') {
     _controller.add(jsonEncode(data));
+  }
+}
+
+/// Transfer private fields only to the selected workspace at an exact origin.
+void postReactNsrpPrefill(Map<String, dynamic> formData) {
+  final json = jsonEncode(<String, dynamic>{
+    'source': 'peso-flutter',
+    'event': 'nsrp-prefill',
+    'formData': formData,
+  });
+  for (final frame in _trustedWorkspaceFrames()) {
+    final uri = Uri.tryParse(frame.src ?? '');
+    if (uri == null) continue;
+    frame.contentWindow?.postMessage(json, uri.origin);
   }
 }

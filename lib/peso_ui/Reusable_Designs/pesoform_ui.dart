@@ -10,7 +10,18 @@ import '../../peso_services/react_message_bridge.dart';
 class PesoRegistrationWizard extends StatefulWidget {
   final ValueChanged<Map<String, dynamic>> onComplete;
 
-  const PesoRegistrationWizard({super.key, required this.onComplete});
+  /// Registration values inherited by NSRP Form 1. They are appended to the
+  /// React workspace URL as query parameters so the form's name, email, and
+  /// cellphone fields start with the registered applicant's details.
+  final Map<String, String> initialValues;
+  final Map<String, dynamic> savedFormData;
+
+  const PesoRegistrationWizard({
+    super.key,
+    required this.onComplete,
+    this.initialValues = const <String, String>{},
+    this.savedFormData = const <String, dynamic>{},
+  });
 
   @override
   State<PesoRegistrationWizard> createState() => _PesoRegistrationWizardState();
@@ -30,7 +41,9 @@ class _PesoRegistrationWizardState extends State<PesoRegistrationWizard> {
     if (kIsWeb) {
       // webview_flutter_web is iframe-backed and does not support native
       // JavaScript channels. Listen for validated postMessage events instead.
-      _webMessageSubscription = reactBridgeMessages.listen(_handleBridgePayload);
+      _webMessageSubscription = reactBridgeMessages.listen(
+        _handleBridgePayload,
+      );
       Future<void>.delayed(const Duration(milliseconds: 800), () {
         if (mounted) setState(() => _isLoading = false);
       });
@@ -52,13 +65,55 @@ class _PesoRegistrationWizardState extends State<PesoRegistrationWizard> {
         );
     }
 
-    _controller.loadRequest(Uri.parse('http://localhost:5173'));
+    _controller.loadRequest(_buildWorkspaceUri());
+  }
+
+  /// The React NSRP form reads these inherited registration values from the
+  /// query string; an empty map keeps the original plain URL.
+  Uri _buildWorkspaceUri() {
+    final query = <String, String>{};
+    widget.initialValues.forEach((key, value) {
+      final trimmed = value.trim();
+      if (trimmed.isNotEmpty) query[key] = trimmed;
+    });
+    // A hosted/mobile deployment must point to a reachable React workspace;
+    // localhost refers to the visitor's own device. Keep local Vite as the
+    // developer default and configure a separate HTTPS workspace at build time.
+    const configuredUrl = String.fromEnvironment(
+      'PESO_NSRP_WORKSPACE_URL',
+      defaultValue: '',
+    );
+    final base = Uri.parse(
+      configuredUrl.trim().isEmpty
+          ? 'http://localhost:5173/'
+          : configuredUrl.trim(),
+    );
+    if (!const ['http', 'https'].contains(base.scheme) || base.host.isEmpty) {
+      throw const FormatException('Invalid NSRP workspace URL.');
+    }
+    return query.isEmpty ? base : base.replace(queryParameters: query);
   }
 
   void _handleBridgePayload(String rawMessage) {
     try {
       final decoded = jsonDecode(rawMessage);
-      if (decoded is Map && decoded['status'] == 'completed') {
+      if (decoded is Map &&
+          decoded['status'] == 'ready' &&
+          decoded['kind'] == 'nsrp_form' &&
+          widget.savedFormData.isNotEmpty) {
+        if (kIsWeb) {
+          postReactNsrpPrefill(widget.savedFormData);
+        } else {
+          final json = jsonEncode(<String, dynamic>{
+            'source': 'peso-flutter',
+            'event': 'nsrp-prefill',
+            'formData': widget.savedFormData,
+          });
+          _controller.runJavaScript(
+            ['window.postMessage(', jsonEncode(json), ', "*");'].join(),
+          );
+        }
+      } else if (decoded is Map && decoded['status'] == 'completed') {
         widget.onComplete(Map<String, dynamic>.from(decoded));
       }
     } catch (error) {
@@ -74,6 +129,7 @@ class _PesoRegistrationWizardState extends State<PesoRegistrationWizard> {
 
   @override
   Widget build(BuildContext context) {
+    final compact = MediaQuery.sizeOf(context).width < 600;
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
@@ -82,45 +138,39 @@ class _PesoRegistrationWizardState extends State<PesoRegistrationWizard> {
         title: Row(
           children: [
             Container(
-              padding: const EdgeInsets.all(8),
+              padding: EdgeInsets.all(compact ? 6 : 8),
               decoration: BoxDecoration(
                 color: _primary.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: Icon(Icons.assignment_ind, color: _primary, size: 22),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: Container(
+                  color: Colors.white,
+                  child: Image.asset(
+                    'lib/assets/peso_form_icon.png',
+                    width: compact ? 14 : 18,
+                    height: compact ? 20 : 26,
+                    fit: BoxFit.contain,
+                  ),
+                ),
+              ),
             ),
             const SizedBox(width: 12),
-            const Text(
-              'NSRP Form 1 (React Engine)',
-              style: TextStyle(
-                color: Color(0xFF0F172A),
-                fontWeight: FontWeight.w900,
-                fontSize: 18,
+            Expanded(
+              child: Text(
+                'NSRP Form 1 | Registration & Updates',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: Color(0xFF0F172A),
+                  fontWeight: FontWeight.w900,
+                  fontSize: compact ? 14 : 18,
+                ),
               ),
             ),
           ],
         ),
-        actions: [
-          if (kIsWeb)
-            Padding(
-              padding: const EdgeInsets.only(right: 20),
-              child: TextButton.icon(
-                onPressed: () => widget.onComplete({
-                  'status': 'completed',
-                  'source': 'peso-react-workspace',
-                  'kind': 'nsrp_form',
-                  'data': '',
-                  'aiText': '',
-                  'formData': {'documentType': 'NSRP Form 1', 'entries': <dynamic>[]},
-                }),
-                icon: Icon(Icons.fast_forward, color: _primary),
-                label: Text(
-                  'Skip (Web Test)',
-                  style: TextStyle(color: _primary, fontWeight: FontWeight.bold),
-                ),
-              ),
-            ),
-        ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1),
           child: Container(color: Colors.grey.shade200, height: 1),
@@ -130,7 +180,9 @@ class _PesoRegistrationWizardState extends State<PesoRegistrationWizard> {
         children: [
           WebViewWidget(controller: _controller),
           if (_isLoading)
-            Center(child: CircularProgressIndicator(color: _primary, strokeWidth: 3)),
+            Center(
+              child: CircularProgressIndicator(color: _primary, strokeWidth: 3),
+            ),
         ],
       ),
     );

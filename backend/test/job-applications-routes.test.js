@@ -1,0 +1,245 @@
+import assert from 'node:assert/strict';
+import { after, before, test } from 'node:test';
+import { ObjectId } from 'mongodb';
+
+import { app, state } from '../server.js';
+
+const applications = new Map();
+const userProfiles = new Map();
+
+function appCopy(record) {
+  return {
+    ...record,
+    submittedAt: record.submittedAt instanceof Date ? new Date(record.submittedAt) : record.submittedAt,
+    updatedAt: record.updatedAt instanceof Date ? new Date(record.updatedAt) : record.updatedAt,
+  };
+}
+
+function matches(record, filter = {}) {
+  return Object.entries(filter).every(([key, value]) => record[key] === value);
+}
+
+const appCollection = {
+  find(filter = {}) {
+    let documents = [...applications.values()].filter((row) => matches(row, filter));
+    const cursor = {
+      sort(order = {}) {
+        const [[field, direction]] = Object.entries(order);
+        if (field) {
+          documents = documents.sort((a, b) => {
+            const av = a[field] instanceof Date ? a[field].getTime() : String(a[field] || '');
+            const bv = b[field] instanceof Date ? b[field].getTime() : String(b[field] || '');
+            return (av < bv ? -1 : av > bv ? 1 : 0) * (direction < 0 ? -1 : 1);
+          });
+        }
+        return cursor;
+      },
+      skip(offset) {
+        documents = documents.slice(offset);
+        return cursor;
+      },
+      limit(maximum) {
+        documents = documents.slice(0, maximum);
+        return cursor;
+      },
+      async toArray() {
+        return documents.map(appCopy);
+      },
+    };
+    return cursor;
+  },
+  async findOne(filter = {}) {
+    const found = [...applications.values()].find((row) => matches(row, filter));
+    return found ? appCopy(found) : null;
+  },
+  async insertOne(record) {
+    const _id = new ObjectId();
+    const stored = { ...record, _id };
+    applications.set(String(_id), stored);
+    return { insertedId: _id };
+  },
+  async updateOne(filter, update, options = {}) {
+    const existing = [...applications.values()].find((row) => matches(row, filter));
+    if (existing) {
+      if (update.$set) Object.assign(existing, structuredClone(update.$set));
+      return { matchedCount: 1, modifiedCount: 1, upsertedCount: 0 };
+    }
+    if (!options.upsert) return { matchedCount: 0, modifiedCount: 0, upsertedCount: 0 };
+    const _id = new ObjectId();
+    const stored = {
+      ...structuredClone(update.$setOnInsert || {}),
+      ...Object.fromEntries(Object.entries(filter).filter(([, v]) => v != null && typeof v !== 'object')),
+      ...structuredClone(update.$set || {}),
+      _id,
+    };
+    applications.set(String(_id), stored);
+    return { matchedCount: 0, modifiedCount: 0, upsertedCount: 1 };
+  },
+};
+
+const userCollection = {
+  async findOne({ uid }) { return userProfiles.has(uid) ? structuredClone(userProfiles.get(uid)) : null; },
+  async updateOne({ uid }, update, options = {}) {
+    let profile = userProfiles.get(uid);
+    if (!profile && options.upsert) { profile = structuredClone(update.$setOnInsert || { uid }); userProfiles.set(uid, profile); }
+    if (profile && update.$set) Object.assign(profile, structuredClone(update.$set));
+    return { matchedCount: profile ? 1 : 0, upsertedCount: 0 };
+  },
+};
+
+const adminAuth = {
+  async verifyIdToken(token) {
+    if (token === 'admin-token') return { uid: 'test-admin', email: 'admin@example.test', admin: true, email_verified: true };
+    if (token === 'regular-token') return { uid: 'test-user', email: 'user@example.test', admin: false, email_verified: true };
+    throw new Error('Invalid token');
+  },
+};
+
+let server;
+let baseUrl;
+
+function request(path, { method = 'GET', token, body } = {}) {
+  const headers = { Accept: 'application/json' };
+  if (token) headers.Authorization = 'Bearer ' + token;
+  if (body != null) headers['Content-Type'] = 'application/json';
+  return fetch(baseUrl + path, {
+    method,
+    headers,
+    body: body == null ? undefined : JSON.stringify(body),
+  }).then(async (response) => {
+    let payload = {};
+    try { payload = await response.json(); } catch { payload = {}; }
+    return { status: response.status, body: payload };
+  });
+}
+
+before(async () => {
+  applications.clear();
+  userProfiles.clear();
+  userProfiles.set('test-admin', { uid: 'test-admin', role: 'admin', email: 'admin@example.test', displayName: 'PESO Admin', disabled: false, deleted: false });
+  userProfiles.set('test-user', { uid: 'test-user', role: 'job_seeker', email: 'user@example.test', displayName: 'Test User', disabled: false, deleted: false });
+  state.tokenVerifierOverride = async (token) => {
+    if (token === 'admin-token') return { uid: 'test-admin', email: 'admin@example.test', name: 'PESO Admin', email_verified: true, firebase: { sign_in_provider: 'google.com' } };
+    if (token === 'regular-token') return { uid: 'test-user', email: 'user@example.test', name: 'Test User', email_verified: true, firebase: { sign_in_provider: 'google.com' } };
+    throw new Error('Invalid token');
+  };
+  state.mongoConnected = true;
+  state.mongoProblem = null;
+  state.db = {
+    collection(name) {
+      if (name === 'jobApplications') return appCollection;
+      if (name === 'users') return userCollection;
+      throw new Error('Unexpected collection: ' + name);
+    },
+  };
+  state.bucket = {};
+  server = app.listen(0, '127.0.0.1');
+  await new Promise((resolve) => server.once('listening', resolve));
+  baseUrl = 'http://127.0.0.1:' + server.address().port;
+});
+
+after(async () => {
+  await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+});
+
+test('application submission requires authentication', async () => {
+  const result = await request('/api/applications', {
+    method: 'POST',
+    body: { jobTitle: 'Welder', answers: { experience: '1-2' } },
+  });
+  assert.equal(result.status, 401);
+});
+
+test('application submission requires a job title and answers', async () => {
+  const result = await request('/api/applications', {
+    method: 'POST',
+    token: 'regular-token',
+    body: { jobTitle: 'Welder', answers: {} },
+  });
+  assert.equal(result.status, 400);
+  assert.equal(result.body.error, 'application_incomplete');
+});
+
+test('a signed-in user can submit screening answers and resubmit updates the same row', async () => {
+  const first = await request('/api/applications', {
+    method: 'POST',
+    token: 'regular-token',
+    body: {
+      jobId: 'job-1',
+      jobTitle: 'NOW HIRING! — Welder',
+      employer: 'JCRCC',
+      location: 'Rodriguez, Rizal',
+      matchScore: 0,
+      answers: { experience: '3-5', availability: 'Next week', willingToWork: 'Yes' },
+    },
+  });
+  assert.equal(first.status, 201);
+  assert.equal(first.body.ok, true);
+  assert.equal(first.body.application.jobTitle, 'NOW HIRING! — Welder');
+  assert.equal(first.body.application.status, 'submitted');
+  assert.equal(applications.size, 1);
+
+  const second = await request('/api/applications', {
+    method: 'POST',
+    token: 'regular-token',
+    body: {
+      jobId: 'job-1',
+      jobTitle: 'NOW HIRING! — Welder',
+      employer: 'JCRCC',
+      answers: { experience: 'More than 5 years', availability: 'Within a few days', willingToWork: 'Yes' },
+    },
+  });
+  assert.equal(second.status, 201);
+  assert.equal(second.body.application.matchScore, null);
+  // Upsert: still one row, answers updated.
+  assert.equal(applications.size, 1);
+  const stored = [...applications.values()][0];
+  assert.equal(stored.answers.experience, 'More than 5 years');
+});
+
+test('screening answers are sanitized and capped', async () => {
+  const result = await request('/api/applications', {
+    method: 'POST',
+    token: 'regular-token',
+    body: {
+      jobTitle: 'Encoder',
+      answers: {
+        experience: '<script>alert(1)</script>',
+        'bad-key!': 'ignored',
+        availability: 'A'.repeat(300),
+      },
+    },
+  });
+  assert.equal(result.status, 201);
+  const stored = [...applications.values()].find((row) => row.jobTitle === 'Encoder');
+  assert.equal(stored.answers.experience, '<script>alert(1)</script>'.slice(0, 200));
+  assert.equal(stored.answers.availability.length, 200);
+  assert.ok(!('bad-key!' in stored.answers));
+});
+
+test('admin applications paginate without hiding later entries', async () => {
+  const first = await request('/api/admin/applications?limit=1', { token: 'admin-token' });
+  assert.equal(first.status, 200);
+  assert.equal(first.body.applications.length, 1);
+  assert.equal(first.body.nextPageToken, '1');
+  const second = await request('/api/admin/applications?limit=1&pageToken=1', { token: 'admin-token' });
+  assert.equal(second.status, 200);
+  assert.equal(second.body.applications.length, 1);
+  assert.notEqual(first.body.applications[0].id, second.body.applications[0].id);
+  const invalid = await request('/api/admin/applications?pageToken=not-a-number', { token: 'admin-token' });
+  assert.equal(invalid.status, 400);
+});
+
+test('only admins can list applications', async () => {
+  const anonymous = await request('/api/admin/applications');
+  assert.equal(anonymous.status, 401);
+  const regular = await request('/api/admin/applications', { token: 'regular-token' });
+  assert.equal(regular.status, 403);
+  const admin = await request('/api/admin/applications', { token: 'admin-token' });
+  assert.equal(admin.status, 200);
+  assert.equal(admin.body.ok, true);
+  assert.ok(Array.isArray(admin.body.applications));
+  const listed = admin.body.applications.find((row) => row.jobTitle.includes('Welder'));
+  assert.ok(listed);
+  assert.equal(listed.applicantUid, 'test-user');
+});
