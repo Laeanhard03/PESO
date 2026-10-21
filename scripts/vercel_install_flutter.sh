@@ -27,3 +27,7 @@ flutter pub get
 
 # Include NSRP and resume screens in the one Flutter Vercel project.
 npm ci --prefix react_workspace
+
+# The same Vercel project also runs the Express API at /api/*.
+# Its dependencies live in backend/package-lock.json; keep one authoritative lockfile.
+npm ci --prefix backend
