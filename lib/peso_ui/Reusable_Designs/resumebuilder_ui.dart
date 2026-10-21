@@ -72,8 +72,18 @@ class _ResumeBuilderWizardState extends State<ResumeBuilderWizard> {
       final trimmed = value.trim();
       if (trimmed.isNotEmpty) query[key] = trimmed;
     });
-    final base = Uri.parse('http://localhost:5173/resume');
-    return query.isEmpty ? base : base.replace(queryParameters: query);
+    const configuredUrl = String.fromEnvironment(
+      'PESO_NSRP_WORKSPACE_URL',
+      defaultValue: '',
+    );
+    final configured = configuredUrl.trim();
+    final base = Uri.parse(
+      configured.isEmpty ? 'http://localhost:5173/' : configured,
+    ).replace(path: '/resume', queryParameters: query.isEmpty ? null : query);
+    if (!const ['http', 'https'].contains(base.scheme) || base.host.isEmpty) {
+      throw const FormatException('Invalid resume workspace URL.');
+    }
+    return base;
   }
 
   void _handleBridgePayload(String rawMessage) {

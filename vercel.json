@@ -1,8 +1,8 @@
 {
+  "installCommand": "bash scripts/vercel_install_flutter.sh",
+  "buildCommand": "bash scripts/vercel_build_flutter.sh",
+  "outputDirectory": "build/web",
   "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": "/index.html"
-    }
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

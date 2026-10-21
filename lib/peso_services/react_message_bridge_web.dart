@@ -31,7 +31,10 @@ bool _isTrustedWorkspaceUri(Uri? uri, {bool checkPath = false}) {
         uri.origin != configured.origin) {
       return false;
     }
-    return !checkPath || uri.path == configured.path;
+    if (!checkPath) return true;
+    final configuredPath = configured.path.isEmpty ? '/' : configured.path;
+    return uri.path == configuredPath ||
+        (configuredPath == '/' && uri.path == '/resume');
   }
   // Backwards-compatible local Vite server. Public builds must configure a
   // reachable NSRP workspace URL instead of relying on visitor localhost.
