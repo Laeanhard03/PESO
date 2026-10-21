@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 
 import '../../peso_services/app_toast.dart';
 
@@ -9,6 +11,8 @@ import '../../peso_logic/peso_ai_engine.dart';
 import '../../peso_logic/onboarding_ai_evidence.dart';
 import '../../peso_models/profile_artifact.dart';
 import '../../peso_services/auth_service.dart';
+import '../../peso_services/onboarding_draft_sync.dart';
+import '../../peso_services/applicant_draft_service.dart';
 import '../../peso_services/profile_artifact_service.dart';
 import '../User/user_ui.dart';
 
@@ -153,6 +157,7 @@ class _AIProcessingScreenState extends State<AIProcessingScreen>
       final services = widget.services ?? AIProcessingServices.live();
       final persistenceWarnings = <String>[];
       var sourceSaved = false;
+      var sourceConfirmedOnServer = false;
       try {
         await services.saveSources(
           resumeData: widget.resumeData,
@@ -160,6 +165,16 @@ class _AIProcessingScreenState extends State<AIProcessingScreen>
           onboardingText: widget.rawTextData,
         );
         sourceSaved = true;
+        sourceConfirmedOnServer = true;
+      } on OnboardingDraftQueuedException {
+        sourceSaved = true;
+        persistenceWarnings.add(
+          'Your form is encrypted on this device and will sync when the connection returns.',
+        );
+      } on OnboardingDraftConflictException {
+        persistenceWarnings.add(
+          'Another device changed these form fields. Your local draft is preserved for review.',
+        );
       } catch (error) {
         persistenceWarnings.add(
           'Form data could not be saved. Check your connection and save again.',
@@ -168,17 +183,33 @@ class _AIProcessingScreenState extends State<AIProcessingScreen>
       }
 
       // PDFs/images are stored privately in MongoDB GridFS through the PESO API.
-      // Keep processing the structured profile when artifact storage is unavailable.
+      // Private document bytes must be stored before invoking Gemini.
+      var documentsSaved = widget.artifacts.isEmpty;
       try {
         final artifactResult = await services.saveDocuments(widget.artifacts);
         persistenceWarnings.addAll(artifactResult.warnings);
+        documentsSaved = artifactResult.warnings.isEmpty &&
+            artifactResult.records.length == widget.artifacts.length;
       } catch (error) {
         persistenceWarnings.add(
           'Document files could not be saved. Please retry their upload.',
         );
-        debugPrint(
-          '[PROFILE] Document save unavailable (${error.runtimeType}).',
-        );
+        debugPrint('[PROFILE] Document save unavailable (${error.runtimeType}).');
+      }
+
+      // Remove encrypted resume/NSRP backups only after the server has
+      // confirmed both the source record and all attached documents.
+      if (sourceConfirmedOnServer && documentsSaved && widget.services == null &&
+          Firebase.apps.isNotEmpty) {
+        final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+        if (uid.isNotEmpty) {
+          try {
+            await ApplicantDraftService.clear(uid, 'resume');
+            await ApplicantDraftService.clear(uid, 'nsrp');
+          } catch (_) {
+            // A storage cleanup failure does not invalidate persisted source.
+          }
+        }
       }
 
       // Always keep completed source forms. A failed Gemini call must never
@@ -192,6 +223,10 @@ class _AIProcessingScreenState extends State<AIProcessingScreen>
       Map<String, dynamic>? finalAiData;
       var extractionUnavailable = false;
       try {
+        if (!sourceSaved || !documentsSaved) {
+          throw StateError(
+              'Source input or documents must be saved before AI extraction.');
+        }
         final extracted = await services.extractProfile(
           artifacts: widget.artifacts,
           rawText: safeEvidence,

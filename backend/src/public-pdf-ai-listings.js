@@ -302,6 +302,8 @@ export async function syncAiJobListingsFromRecords({
     .project({ sourceFingerprint: 1, status: 1 })
     .toArray();
   const existingSet = new Set(existing.map((row) => row.sourceFingerprint));
+  const deletedSet = new Set(existing.filter((row) => row.status === 'deleted')
+    .map((row) => row.sourceFingerprint));
   const superseded = allowSupersede
     ? existing
       .filter((row) => !stamps.includes(row.sourceFingerprint) && row.status === 'active')
@@ -316,7 +318,8 @@ export async function syncAiJobListingsFromRecords({
     notices: records.filter((record) => record.aiListingKind === 'notice').length,
     roles: records.filter((record) => record.aiListingKind === 'role').length,
     created: stamps.filter((fingerprint) => !existingSet.has(fingerprint)).length,
-    renewed: stamps.filter((fingerprint) => existingSet.has(fingerprint)).length,
+    renewed: stamps.filter((fingerprint) => existingSet.has(fingerprint) && !deletedSet.has(fingerprint)).length,
+    suppressedDeleted: stamps.filter((fingerprint) => deletedSet.has(fingerprint)).length,
     superseded: superseded.length,
     supersedeSkipped: allowSupersede ? 0 : existing.filter((row) => row.status === 'active').length,
     allowSupersede,
@@ -326,6 +329,9 @@ export async function syncAiJobListingsFromRecords({
 
   const changedAt = now();
   for (const record of records) {
+    // PESO admin deletion is an explicit tombstone; periodic PDF rereads must
+    // never bring a manually deleted card back into an active job feed.
+    if (deletedSet.has(record.sourceFingerprint)) continue;
     const { createdAt: _createdAt, ...mutable } = record;
     await jobCollection.updateOne(
       { sourceFingerprint: record.sourceFingerprint },

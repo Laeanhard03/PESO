@@ -1,4 +1,8 @@
 import 'dart:typed_data';
+import 'dart:async';
+
+import '../../peso_services/applicant_draft_service.dart';
+import '../../peso_services/registration_draft_scope.dart';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -64,7 +68,83 @@ class _RegisterFormState extends State<RegisterForm> {
   final TextEditingController _firstNameController = TextEditingController();
   final TextEditingController _lastNameController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
+  final TextEditingController _addressController = TextEditingController();
+  Timer? _draftTimer;
+  bool _restoring = false;
+  String _lastRestoreEmail = '';
+  String _draftStatus = 'Offline Draft';
 
+  @override
+  void initState() {
+    super.initState();
+    for (final controller in [
+      _emailController, _firstNameController, _lastNameController,
+      _phoneController, _addressController,
+    ]) {
+      controller.addListener(_onRegistrationEdited);
+    }
+  }
+
+  void _onRegistrationEdited() {
+    if (_restoring) return;
+    _draftTimer?.cancel();
+    if (mounted) setState(() => _draftStatus = 'Saving');
+    _draftTimer = Timer(const Duration(milliseconds: 750), () {
+      unawaited(_persistRegistrationDraft());
+    });
+  }
+
+  Future<void> _persistRegistrationDraft() async {
+    final email = _emailController.text.trim().toLowerCase();
+    if (!email.contains('@') || !email.contains('.')) return;
+    if (_lastRestoreEmail != email) {
+      _lastRestoreEmail = email;
+      final stored = await ApplicantDraftService.read(registrationDraftScope(), 'registration');
+      if (stored != null && stored['email']?.toString().toLowerCase() != email) {
+        // A different applicant used this tab; do not expose their fields.
+        await ApplicantDraftService.clear(registrationDraftScope(), 'registration');
+      }
+      if (stored != null && stored['email']?.toString().toLowerCase() == email &&
+          mounted && _emailController.text.trim().toLowerCase() == email) {
+        _restoring = true;
+        if (_firstNameController.text.isEmpty) {
+          _firstNameController.text = stored['firstName']?.toString() ?? '';
+        }
+        if (_lastNameController.text.isEmpty) {
+          _lastNameController.text = stored['lastName']?.toString() ?? '';
+        }
+        if (_phoneController.text.isEmpty) {
+          _phoneController.text = stored['phone']?.toString() ?? '';
+        }
+        if (_addressController.text.isEmpty) {
+          _addressController.text = stored['address']?.toString() ?? '';
+        }
+        final savedBarangay = stored['barangay']?.toString() ?? '';
+        if (_barangay == null && barangays.contains(savedBarangay)) {
+          _barangay = savedBarangay;
+        }
+        _restoring = false;
+      }
+    }
+    try {
+      await ApplicantDraftService.write(registrationDraftScope(), 'registration', <String, dynamic>{
+        'email': email,
+        'firstName': _firstNameController.text.trim(),
+        'lastName': _lastNameController.text.trim(),
+        'phone': _phoneController.text.trim(),
+        'barangay': _barangay ?? '',
+        'address': _addressController.text.trim(),
+        'draftUpdatedAt': DateTime.now().toUtc().toIso8601String(),
+      });
+      if (mounted) setState(() => _draftStatus = 'Offline Draft');
+    } catch (_) {
+      if (mounted) setState(() => _draftStatus = 'Sync Failed');
+    }
+  }
+
+
+  static const barangays = <String>['Balite', 'Burgos', 'Geronimo', 'Macabud', 'Manggahan', 'Mascap', 'Puray', 'Rosario', 'San Isidro', 'San Jose', 'San Rafael'];
+  String? _barangay;
   bool _isLoading = false;
   bool _googlePending = false;
   int _googleRequestId = 0;
@@ -76,11 +156,13 @@ class _RegisterFormState extends State<RegisterForm> {
 
   @override
   void dispose() {
+    _draftTimer?.cancel();
     _emailController.dispose();
     _passwordController.dispose();
     _firstNameController.dispose();
     _lastNameController.dispose();
     _phoneController.dispose();
+    _addressController.dispose();
     super.dispose();
   }
 
@@ -175,6 +257,11 @@ class _RegisterFormState extends State<RegisterForm> {
       _showMessage('Complete your name, email, and password first.');
       return;
     }
+    if (_barangay == null || !barangays.contains(_barangay) ||
+        _addressController.text.trim().length < 5) {
+      _showMessage('Select your Montalban barangay and enter your complete address. PESO will verify residency.');
+      return;
+    }
     if (_passwordController.text.length < 6) {
       _showMessage('Password must be at least 6 characters.');
       return;
@@ -200,6 +287,11 @@ class _RegisterFormState extends State<RegisterForm> {
       return;
     }
 
+    if (_barangay == null || !barangays.contains(_barangay) ||
+        _addressController.text.trim().length < 5) {
+      _showMessage('Choose your barangay and provide your full Montalban address.');
+      return;
+    }
     setState(() => _isLoading = true);
     try {
       final phoneNumber = _phoneController.text.trim().isEmpty
@@ -235,6 +327,9 @@ class _RegisterFormState extends State<RegisterForm> {
             'lastName': lastName,
             'email': email,
             'phone': phoneNumber,
+            'municipality': 'Montalban',
+            'barangay': _barangay!,
+            'address': _addressController.text.trim(),
           },
           avatarStyle: _avatarStyle,
           photoBytes: _pendingPhoto,
@@ -262,6 +357,11 @@ class _RegisterFormState extends State<RegisterForm> {
 
   Future<void> _registerWithGoogle() async {
     if (_isLoading) return;
+    if (_barangay == null || !barangays.contains(_barangay) ||
+        _addressController.text.trim().length < 5) {
+      _showMessage('Select your barangay and enter your full address before Google sign-in.');
+      return;
+    }
     final requestId = ++_googleRequestId;
     setState(() {
       _isLoading = true;
@@ -290,8 +390,18 @@ class _RegisterFormState extends State<RegisterForm> {
           ),
         );
       } else if (mounted && requestId == _googleRequestId) {
-        if (user != null) await AuthService.ensureUserProfile(user);
+        if (user != null) {
+          await AuthService.ensureUserProfile(user,
+            municipality: 'Montalban', barangay: _barangay);
+          try {
+            await PesoApiClient.updateAccountResidency(
+              barangay: _barangay!, address: _addressController.text.trim());
+          } catch (_) {
+            if (mounted) _showMessage('Signed in, but your residency details need synchronization.');
+          }
+        }
         await _persistRegistrationAvatar();
+        await ApplicantDraftService.clear(registrationDraftScope(), 'registration');
         widget.onProceedToOnboarding(_identityFromFirebaseUser());
       }
     } catch (error) {
@@ -322,6 +432,9 @@ class _RegisterFormState extends State<RegisterForm> {
       'lastName': parts.length > 1 ? parts.sublist(1).join(' ') : '',
       'email': (user?.email ?? '').trim(),
       'phone': (user?.phoneNumber ?? '').trim(),
+      'municipality': 'Montalban',
+      'barangay': _barangay ?? '',
+      'address': _addressController.text.trim(),
     };
   }
 
@@ -424,6 +537,31 @@ class _RegisterFormState extends State<RegisterForm> {
             helperText:
                 'Philippine numbers are automatically formatted with +63.',
           ),
+          const SizedBox(height: 15),
+          DropdownButtonFormField<String>(
+            key: const Key('registration-barangay'),
+            initialValue: _barangay,
+            isExpanded: true,
+            decoration: InputDecoration(
+              labelText: 'Barangay — Montalban, Rizal (required)',
+              helperText: 'Selecting a barangay does not verify residency. PESO must review eligibility.',
+              helperMaxLines: 3,
+              filled: true,
+              fillColor: fieldBg,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(15)),
+            ),
+            items: barangays.map((name) => DropdownMenuItem(value: name, child: Text(name))).toList(),
+            onChanged: (value) => setState(() => _barangay = value),
+          ),
+          const SizedBox(height: 15),
+          _buildTextField(
+            'Full residential address in Montalban, Rizal',
+            Icons.home_outlined,
+            _addressController, fieldBg, borderColor, textColor, hintColor,
+          ),
+          const SizedBox(height: 10),
+          Text('Draft: $_draftStatus (encrypted on this device; passwords are never saved)',
+            style: TextStyle(fontSize: 12, color: subtitleColor, height: 1.4)),
           const SizedBox(height: 15),
           _buildTextField(
             'Password (at least 6 characters)',

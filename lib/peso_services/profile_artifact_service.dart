@@ -52,20 +52,34 @@ class ProfileArtifactService {
         continue;
       }
 
-      try {
-        final record = await PesoApiClient.uploadArtifact(
-          fileName: _safeFileName(artifact.fileName),
-          category: artifact.category,
-          mimeType: artifact.mimeType,
-          bytes: artifact.bytes,
-        );
-        records.add(record);
-      } catch (error) {
-        warnings.add(
-          'Could not save ${artifact.fileName}: ${_friendlyApiError(error)}',
-        );
-        // Avoid logging document data or any server-provided payload.
-        debugPrint('[ARTIFACT] Upload failed (${error.runtimeType}).');
+      Object? lastError;
+      for (var attempt = 0; attempt < 3; attempt++) {
+        try {
+          final record = await PesoApiClient.uploadArtifact(
+            fileName: _safeFileName(artifact.fileName),
+            category: artifact.category,
+            mimeType: artifact.mimeType,
+            bytes: artifact.bytes,
+          );
+          records.add(record);
+          lastError = null;
+          break;
+        } catch (error) {
+          lastError = error;
+          final transient = error is PesoApiException &&
+              (error.statusCode == 0 || error.statusCode == 502 ||
+                  error.statusCode == 503 || error.statusCode == 504);
+          if (!transient || attempt == 2) break;
+          await Future<void>.delayed(
+            Duration(milliseconds: 700 * (1 << attempt)),
+          );
+        }
+      }
+      if (lastError != null) {
+        warnings.add('Could not save ' + artifact.fileName + ': ' +
+            _friendlyApiError(lastError));
+        debugPrint('[ARTIFACT] Upload pending retry (' +
+            lastError.runtimeType.toString() + ').');
       }
     }
 

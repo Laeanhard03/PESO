@@ -31,7 +31,7 @@ test('Walk-in Application never receives a time-based expiry', () => {
   assert.equal(isJobPostingVisible(job, new Date('2036-10-17T06:00:00.000Z')), true);
 });
 
-test('Local Recruitment Activity expires exactly 24 hours after creation', () => {
+test('Local Recruitment Activity closes at 23:59:59.999 Asia/Manila on its scheduled date', () => {
   const createdAt = new Date('2026-10-17T06:00:00.000Z');
   const job = createJobPostingRecord(
     { ...baseInput, category: JOB_POSTING_CATEGORIES.LOCAL_RECRUITMENT_ACTIVITY },
@@ -39,9 +39,9 @@ test('Local Recruitment Activity expires exactly 24 hours after creation', () =>
     createdAt,
   );
 
-  assert.equal(job.expiresAt.toISOString(), '2026-10-18T06:00:00.000Z');
-  assert.equal(isJobPostingVisible(job, new Date('2026-10-18T05:59:59.999Z')), true);
-  assert.equal(isJobPostingVisible(job, new Date('2026-10-18T06:00:00.000Z')), false);
+  assert.equal(job.expiresAt.toISOString(), '2026-10-17T15:59:59.999Z');
+  assert.equal(isJobPostingVisible(job, new Date('2026-10-17T15:59:59.998Z')), true);
+  assert.equal(isJobPostingVisible(job, new Date('2026-10-17T16:00:00.000Z')), false);
 });
 
 test('inactive jobs stay hidden even when they do not expire', () => {
@@ -69,7 +69,7 @@ test('public responses expose stable ISO lifecycle values and omit owner identit
 
   assert.equal(response.id, 'job-id-1');
   assert.equal(response.createdAt, '2026-10-17T06:00:00.000Z');
-  assert.equal(response.expiresAt, '2026-10-18T06:00:00.000Z');
+  assert.equal(response.expiresAt, '2026-10-17T15:59:59.999Z');
   assert.equal(Object.hasOwn(response, 'createdBy'), false);
 });
 test('public PDF feed responses expose source provenance without inventing vacancy counts', () => {

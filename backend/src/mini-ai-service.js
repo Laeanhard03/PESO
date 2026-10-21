@@ -1,6 +1,9 @@
 import path from 'node:path';
+import fs from 'node:fs';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
+import { isJobPostingVisible } from './job_postings.js';
 import {
   verifyOccupationCategories, deriveCategoriesFromVerifiedFacts,
   classifyJobOccupation,
@@ -54,6 +57,41 @@ const project = path.resolve(backend, '..');
 const defaultBinary = path.join(project, 'mini_ai', 'bin',
   process.platform === 'win32' ? 'peso-mini-ai.exe' : 'peso-mini-ai');
 const defaultModel = path.join(project, 'mini_ai', 'data', 'model_v1.json');
+
+// Backend Vercel deployments have root directory /backend, not the sibling
+// /mini_ai project. The Linux build and exact trained model are shipped under
+// backend/mini_ai_runtime and copied to writable /tmp once per function instance.
+// Static file URL arguments make both assets visible to Vercel's file tracer.
+// No Go compiler, Windows executable, source profile or model retraining is needed.
+let packagedRuntime;
+function packagedAsset(sourceUrl, filename) {
+  // Bundlers may relocate the compiled server entrypoint. Try the original
+  // source-relative path and the includeFiles root without relying on cwd alone.
+  const candidates = [
+    fileURLToPath(sourceUrl),
+    path.join(process.cwd(), 'mini_ai_runtime', filename),
+    path.join(backend, 'mini_ai_runtime', filename),
+    path.join(path.dirname(fileURLToPath(import.meta.url)), 'mini_ai_runtime', filename),
+  ];
+  const found = candidates.find(candidate => fs.existsSync(candidate));
+  if (!found) throw new Error('go_model_bundle_missing');
+  return found;
+}
+function preparePackagedGoRuntime() {
+  if (packagedRuntime) return packagedRuntime;
+  const sourceBinary = packagedAsset(
+    new URL('../mini_ai_runtime/peso-mini-ai', import.meta.url), 'peso-mini-ai');
+  const sourceModel = packagedAsset(
+    new URL('../mini_ai_runtime/model_v1.json', import.meta.url), 'model_v1.json');
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'peso-mini-ai-'));
+  const executable = path.join(temp, 'peso-mini-ai');
+  const model = path.join(temp, 'model_v1.json');
+  fs.copyFileSync(sourceBinary, executable);
+  fs.chmodSync(executable, 0o700);
+  fs.copyFileSync(sourceModel, model);
+  packagedRuntime = { executable, model };
+  return packagedRuntime;
+}
 const jobRelated = /skill|experience|education|course|train|vocation|certif|license|occupation|employment|qualification|professional|work history|work experience|college|graduate|computer|technology/i;
 const protectedOrContact = /name|email|phone|mobile|address|gender|sex|birth|age|religion|civil status|marital|disab|nationality|ethnic|sss|tin\b|philhealth|passport|government id|household|parent|spouse|height|weight/i;
 
@@ -95,13 +133,23 @@ export function normalizeApplicantProfile(profile = {}) {
   const fields = extractEvidence(profile);
   const evidenceSkills = fields.filter(x => /skill|certif|training|qualification|technology|computer/i.test(x.label))
     .flatMap(x => stringList(x.value, 15));
+  // Modern NSRP stores some user-confirmed essentials separately from entries.
+  // They are independently entered source facts, not unchecked Gemini guesses.
+  const sources = [profile?.pesoFormData?.applicantEssentials,
+    profile?.resumeData?.applicantEssentials].filter(x =>
+    x && typeof x === 'object' && !Array.isArray(x));
+  const essentialSkills = sources.flatMap(source =>
+    source.skillsStage === 'Has skills or training to list'
+      ? stringList(source.skills, 15) : []);
+  const essentialEducation = sources.map(source => String(source.education || '').trim())
+    .filter(Boolean).slice(0, 5);
   const evidenceEducation = fields.filter(x => /education|course|college|graduate|vocation/i.test(x.label))
     .map(x => x.value).slice(0, 8);
   const evidenceExperience = fields.filter(x => /work experience|employment history|occupation/i.test(x.label))
     .map(x => x.value).slice(0, 10);
   const trustedSkills = stringList(trusted.skills);
   const geminiSkills = new Set(stringList(ai.skills).map(canonicalMatchingFact).filter(Boolean));
-  const supportedSkills = new Set([...trustedSkills, ...evidenceSkills]
+  const supportedSkills = new Set([...trustedSkills, ...evidenceSkills, ...essentialSkills]
     .map(canonicalMatchingFact).filter(Boolean));
   // The top-level list may mirror Gemini's unverified claims. Discard matching
   // aliases unless individually verified or present in independent form/resume
@@ -110,8 +158,8 @@ export function normalizeApplicantProfile(profile = {}) {
     const fact = canonicalMatchingFact(value);
     return Boolean(fact) && (!geminiSkills.has(fact) || supportedSkills.has(fact));
   });
-  const education = [...stringList(trusted.education, 8), ...evidenceEducation];
-  const skills = [...formSkills, ...trustedSkills, ...evidenceSkills];
+  const education = [...stringList(trusted.education, 8), ...evidenceEducation, ...essentialEducation];
+  const skills = [...formSkills, ...trustedSkills, ...evidenceSkills, ...essentialSkills];
   const certs = [...stringList(trusted.certifications),
     ...fields.filter(x => /certif|license|training/i.test(x.label)).map(x => x.value)];
   // License/certificate evidence must originate in the saved NSRP or resume,
@@ -126,16 +174,13 @@ export function normalizeApplicantProfile(profile = {}) {
   // Independently entered and saved applicant essentials can resolve a
   // partially rejected Gemini extraction. Rejected Gemini-only claims never
   // count, and a first-time job seeker without skills remains incomplete.
-  const sources = [profile?.pesoFormData?.applicantEssentials,
-    profile?.resumeData?.applicantEssentials].filter(x =>
-    x && typeof x === 'object' && !Array.isArray(x));
   const independentlyComplete = sources.some(source => {
     const experience = String(source.experience || '').trim();
     return Boolean(String(source.education || '').trim()) &&
       ['No previous work experience', 'Has work experience'].includes(experience) &&
       source.skillsStage === 'Has skills or training to list' &&
       Boolean(String(source.skills || '').trim()) &&
-      evidenceSkills.length > 0;
+      essentialSkills.length > 0;
   });
   // Retrofit older saved NSRP/resume profiles that predate the Gemini
   // occupation categories. This is the same fact-grounded intake mapper,
@@ -232,9 +277,7 @@ export function verifyGeminiFacts(extracted, sourceText) {
 export function isRealVisibleJob(job, now = new Date()) {
   if (!job || job.isSynthetic === true || job.status !== 'active' ||
       String(job.aiListingKind || '').toLowerCase() === 'notice') return false;
-  if (job.category !== 'local_recruitment_activity') return true;
-  const expiry = new Date(job.expiresAt || (job.createdAt ? new Date(job.createdAt).getTime() + 86400000 : 0));
-  return Number.isFinite(expiry.getTime()) && expiry > now;
+  return isJobPostingVisible(job, now);
 }
 function safeJob(job) {
   return {
@@ -255,11 +298,18 @@ function safeJob(job) {
     isSynthetic: false,
   };
 }
-export async function runGoModel(applicant, jobs, { executable = process.env.PESO_GO_AI_BIN || defaultBinary,
-  model = process.env.PESO_GO_AI_MODEL || defaultModel, execImpl = executeGoInference } = {}) {
+export async function runGoModel(applicant, jobs, { executable, model, execImpl = executeGoInference } = {}) {
+  // Windows developers keep using the existing .exe. Linux/serverless uses the
+  // bundled Go executable and its corresponding model, never a missing sibling.
+  const packaged = process.platform === 'linux' && !executable &&
+    !process.env.PESO_GO_AI_BIN ? preparePackagedGoRuntime() : null;
+  const binaryPath = executable || process.env.PESO_GO_AI_BIN ||
+    packaged?.executable || defaultBinary;
+  const modelPath = model || process.env.PESO_GO_AI_MODEL ||
+    packaged?.model || defaultModel;
   const input = JSON.stringify({ applicant, jobs: jobs.map(safeJob) });
   // Pass JSON via stdin, never as a command argument or shell interpolation.
-  const { stdout } = await execImpl(executable, ['predict', '-model', model], {
+  const { stdout } = await execImpl(binaryPath, ['predict', '-model', modelPath], {
     input, timeout: 8500, maxBuffer: 2 * 1024 * 1024,
     windowsHide: true, shell: false,
   });

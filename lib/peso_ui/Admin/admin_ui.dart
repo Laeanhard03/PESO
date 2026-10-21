@@ -6,10 +6,12 @@ import 'dart:math' as math;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../Landingpage/landingpage_ui.dart';
 import '../../peso_services/peso_api_client.dart';
 import 'admin_user_management_section.dart';
+import 'admin_applicant_document_viewer.dart';
 import 'job_applications_section.dart';
 import 'job_management_section.dart';
 import 'gemini_api_key_management_section.dart';
@@ -78,6 +80,7 @@ const Map<String, StatusStyle> kMatchStyles = {
 // MODELS
 // =====================================================================
 class Applicant {
+  final String uid;
   final int id;
   final String name;
   final String barangay;
@@ -91,6 +94,7 @@ class Applicant {
   final String resumeFileName;
 
   Applicant({
+    required this.uid,
     required this.id,
     required this.name,
     required this.barangay,
@@ -477,6 +481,28 @@ class _AdminDashboardState extends State<AdminDashboard> {
         if (pageToken == null || pageToken.isEmpty) break;
       }
 
+      // Authoritative GridFS/structured document availability, batched by UID.
+      final documentStatuses = <String, Map<String, dynamic>>{};
+      final profileUids = profiles.map((p) => _text(p['uid']))
+          .where((uid) => uid.isNotEmpty).toList();
+      for (var start = 0; start < profileUids.length; start += 100) {
+        final end = start + 100 < profileUids.length ? start + 100 : profileUids.length;
+        try {
+          final result = await PesoApiClient.adminApplicantDocumentStatuses(
+              profileUids.sublist(start, end));
+          final records = result['records'];
+          if (records is Map) {
+            for (final entry in records.entries) {
+              if (entry.value is Map) {
+                documentStatuses[entry.key.toString()] =
+                    Map<String, dynamic>.from(entry.value as Map);
+              }
+            }
+          }
+        } catch (_) {
+          // Keep user list available if the document-status integration is offline.
+        }
+      }
       final applicants = <Applicant>[];
       for (final data in profiles) {
         final displayName = _text(data['displayName']).trim().isNotEmpty
@@ -487,6 +513,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   .trim();
         applicants.add(
           Applicant(
+            uid: _text(data['uid']),
             id: applicants.length + 1,
             name: displayName.isNotEmpty
                 ? displayName
@@ -497,8 +524,12 @@ class _AdminDashboardState extends State<AdminDashboard> {
               data['createdAt'] ?? data['lastSignInAt'],
             ),
             yearsExperience: _intValue(data['yearsExperience']),
-            resumeSubmitted: data['resumeSubmitted'] == true,
-            formSubmitted: data['formSubmitted'] == true,
+            resumeSubmitted: documentStatuses[_text(data['uid'])]?['resume'] is Map
+                ? (documentStatuses[_text(data['uid'])]!['resume'] as Map)['status'] != 'not_submitted'
+                : data['resumeSubmitted'] == true,
+            formSubmitted: documentStatuses[_text(data['uid'])]?['nsrp'] is Map
+                ? (documentStatuses[_text(data['uid'])]!['nsrp'] as Map)['status'] != 'not_submitted'
+                : data['formSubmitted'] == true,
             matchStatus:
                 const {
                   'matched',
@@ -2374,18 +2405,31 @@ class ApplicantAnalyticsSection extends StatefulWidget {
 
 class _ApplicantAnalyticsSectionState extends State<ApplicantAnalyticsSection> {
   String _barangayFilter = 'All';
+  int _visibleApplicantRows = 12;
 
   List<Applicant> get _filtered => _barangayFilter == 'All'
       ? widget.applicants
       : widget.applicants.where((a) => a.barangay == _barangayFilter).toList();
 
-  void _openResume(Applicant a) {
-    showToast(
-      context,
-      'Opening ${a.resumeFileName} \u2014 kasama ang sinagutang application form ni ${a.name}.',
-      icon: Icons.picture_as_pdf,
-      iconColor: _C.rose,
-    );
+  Future<void> _openDocument(Applicant a, String kind) =>
+      AdminApplicantDocumentViewer.open(context,
+          uid: a.uid, applicantName: a.name, kind: kind);
+
+  Future<void> _exportApplicationsWorkbook() async {
+    try {
+      final response = await PesoApiClient.adminCreateExportLink();
+      final uri = Uri.tryParse(response['url']?.toString() ?? '');
+      if (uri == null || !uri.hasAuthority || !{'http', 'https'}.contains(uri.scheme)) {
+        throw StateError('The protected report URL is unavailable.');
+      }
+      final opened = await launchUrl(uri, mode: LaunchMode.platformDefault,
+          webOnlyWindowName: '_blank');
+      if (!opened && mounted) {
+        showToast(context, 'Could not open the protected Excel report. Check popup settings.');
+      }
+    } catch (_) {
+      if (mounted) showToast(context, 'Could not generate the Excel report. Please retry.');
+    }
   }
 
   @override
@@ -2428,7 +2472,7 @@ class _ApplicantAnalyticsSectionState extends State<ApplicantAnalyticsSection> {
 
     final recent = [...filtered]
       ..sort((a, b) => b.registeredDate.compareTo(a.registeredDate));
-    final recentTop = recent.take(12).toList();
+    final recentTop = recent.take(_visibleApplicantRows).toList();
 
     final donutSegments = [
       if (matched > 0) MapEntry('Matched', matched.toDouble()),
@@ -2683,20 +2727,13 @@ class _ApplicantAnalyticsSectionState extends State<ApplicantAnalyticsSection> {
           FadeSlideEntrance(
             delayMs: 540,
             child: _SectionCard(
-              title: 'Recent Registrations, Resumes & Matching Records',
+              title: 'Applicant Registrations, Resumes & Matching Records',
               icon: Icons.list_alt_outlined,
               trailing: OutlinedButton.icon(
-                onPressed: () => showToast(
-                  context,
-                  filtered.isEmpty
-                      ? 'No records to export for this barangay yet.'
-                      : 'Exported ${filtered.length} record(s) to Excel.',
-                  icon: Icons.download,
-                  iconColor: _C.primary,
-                ),
+                onPressed: _exportApplicationsWorkbook,
                 icon: const Icon(Icons.download, size: 15),
                 label: const Text(
-                  'Export to Excel',
+                  'Download DOLE Excel',
                   style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
                 ),
                 style: OutlinedButton.styleFrom(
@@ -2707,11 +2744,12 @@ class _ApplicantAnalyticsSectionState extends State<ApplicantAnalyticsSection> {
                   ),
                 ),
               ),
-              child: SingleChildScrollView(
+              child: Column(
+                children: [SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: DataTable(
                   dataRowMinHeight: 52,
-                  dataRowMaxHeight: 60,
+                  dataRowMaxHeight: 70,
                   headingRowColor: MaterialStateProperty.all(_C.slate100),
                   columns: const [
                     DataColumn(label: Text('Job Seeker')),
@@ -2721,7 +2759,7 @@ class _ApplicantAnalyticsSectionState extends State<ApplicantAnalyticsSection> {
                     DataColumn(label: Text('Yrs. Exp.')),
                     DataColumn(label: Text('Matched Jobs')),
                     DataColumn(label: Text('Status')),
-                    DataColumn(label: Text('Resume')),
+                    DataColumn(label: Text('Resume / NSRP')),
                   ],
                   rows: recentTop
                       .map(
@@ -2780,31 +2818,35 @@ class _ApplicantAnalyticsSectionState extends State<ApplicantAnalyticsSection> {
                             DataCell(
                               _StatusBadge(kMatchStyles[a.matchStatus]!),
                             ),
-                            DataCell(
-                              a.resumeSubmitted
-                                  ? IconButton(
-                                      tooltip: 'View resume (PDF) & form',
-                                      icon: const Icon(
-                                        Icons.picture_as_pdf,
-                                        size: 17,
-                                        color: _C.rose600,
-                                      ),
-                                      onPressed: () => _openResume(a),
-                                    )
-                                  : const Text(
-                                      'Not yet submitted',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: _C.slate400,
-                                      ),
-                                    ),
-                            ),
+                            DataCell(Row(mainAxisSize: MainAxisSize.min, children: [
+                              IconButton(tooltip: a.resumeSubmitted
+                                  ? 'View saved resume' : 'Resume not submitted',
+                                icon: Icon(Icons.picture_as_pdf, size: 19,
+                                  color: a.resumeSubmitted ? _C.rose600 : _C.slate400),
+                                onPressed: a.uid.isEmpty ? null : () => _openDocument(a, 'resume')),
+                              IconButton(tooltip: a.formSubmitted
+                                  ? 'View saved NSRP Form 1' : 'NSRP Form 1 not submitted',
+                                icon: Icon(Icons.assignment_outlined, size: 19,
+                                  color: a.formSubmitted ? _C.primary : _C.slate400),
+                                onPressed: a.uid.isEmpty ? null : () => _openDocument(a, 'nsrp')),
+                            ])),
                           ],
                         ),
                       )
                       .toList(),
                 ),
               ),
+              if (recent.length > recentTop.length)
+                Align(alignment: Alignment.centerRight,
+                  child: Padding(padding: const EdgeInsets.only(top: 12),
+                    child: TextButton.icon(
+                      onPressed: () => setState(() => _visibleApplicantRows += 25),
+                      icon: const Icon(Icons.expand_more),
+                      label: Text('Show more applicants (${recentTop.length}/${recent.length})'),
+                    ),
+                  ),
+                ),
+              ],),
             ),
           ),
         ],

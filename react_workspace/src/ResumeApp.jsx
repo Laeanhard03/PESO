@@ -82,6 +82,127 @@ export default function ResumeApp() {
   const [careerSkills, setCareerSkills] = useState('');
   const [missingEssentials, setMissingEssentials] = useState([]);
   const fileInputRef = useRef(null);
+  const [draftStatus, setDraftStatus] = useState('Offline Draft');
+  const ownerUidRef = useRef('');
+  const draftTimerRef = useRef(null);
+  const lastDraftRef = useRef(null);
+  const pendingRestoreRef = useRef(null);
+  const restoringRef = useRef(false);
+  const draftFieldsRef = useRef({});
+  useEffect(() => {
+    draftFieldsRef.current = {
+      activeTemplate, photo, careerEducation, experienceStatus, skillsStage, careerSkills,
+    };
+  }, [activeTemplate, photo, careerEducation, experienceStatus, skillsStage, careerSkills]);
+
+  const snapshotDraft = () => {
+    const state = draftFieldsRef.current;
+    const editables = Array.from(document.querySelectorAll('#resume-node [contenteditable]'));
+    return {
+      draftUpdatedAt: new Date().toISOString(),
+      template: state.activeTemplate,
+      editedText: editables.map(node => String(node.innerText || '').slice(0, 5000)),
+      photoDataUri: state.photo?.startsWith('data:image/') ? state.photo : null,
+      applicantEssentials: {
+        education: state.careerEducation, experience: state.experienceStatus,
+        skillsStage: state.skillsStage, skills: state.careerSkills,
+      },
+    };
+  };
+
+  useEffect(() => {
+    const schedule = () => {
+      if (restoringRef.current || !ownerUidRef.current) return;
+      setDraftStatus('Saving');
+      if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+      draftTimerRef.current = window.setTimeout(() => {
+        const draft = snapshotDraft();
+        lastDraftRef.current = draft;
+        if (!sendToFlutter({ status: 'draft', kind: 'resume_builder', formData: draft })) {
+          setDraftStatus('Sync Failed');
+        }
+      }, 900);
+    };
+    const onMessage = event => {
+      if (event.source !== window.parent && event.source !== window) return;
+      let data;
+      try { data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data; }
+      catch { return; }
+      if (data?.source !== 'peso-flutter') return;
+      if (data.event === 'draft-sync-status') {
+        if (['Saving', 'Saved', 'Offline Draft', 'Sync Failed'].includes(data.state)) {
+          setDraftStatus(data.state);
+        }
+        return;
+      }
+      if (data.event !== 'resume-prefill') return;
+      if (typeof data.ownerUid === 'string' && data.ownerUid) ownerUidRef.current = data.ownerUid;
+      const draft = data.formData;
+      if (!draft?.draftUpdatedAt || !Array.isArray(draft.editedText)) return;
+      restoringRef.current = true;
+      pendingRestoreRef.current = draft;
+      setActiveTemplate(['sally', 'emily', 'richard', 'dian'].includes(draft.template)
+        ? draft.template : 'sally');
+      window.setTimeout(() => {
+        const nodes = Array.from(document.querySelectorAll('#resume-node [contenteditable]'));
+        nodes.forEach((node, index) => {
+          if (typeof draft.editedText[index] === 'string') {
+            node.textContent = draft.editedText[index];
+          }
+        });
+        pendingRestoreRef.current = null;
+        restoringRef.current = false;
+      }, 190);
+      setCareerEducation(educationChoices.includes(draft.applicantEssentials?.education)
+        ? draft.applicantEssentials.education : '');
+      setExperienceStatus(experienceChoices.includes(draft.applicantEssentials?.experience)
+        ? draft.applicantEssentials.experience : '');
+      setSkillsStage(skillsChoices.includes(draft.applicantEssentials?.skillsStage)
+        ? draft.applicantEssentials.skillsStage : '');
+      setCareerSkills(draft.applicantEssentials?.skills || '');
+      if (typeof draft.photoDataUri === 'string' &&
+          draft.photoDataUri.startsWith('data:image/') &&
+          draft.photoDataUri.length < 3000000) setPhoto(draft.photoDataUri);
+    };
+    const goOnline = () => {
+      if (ownerUidRef.current && lastDraftRef.current) {
+        setDraftStatus('Saving');
+        sendToFlutter({ status: 'draft', kind: 'resume_builder',
+          formData: lastDraftRef.current });
+      }
+    };
+    document.addEventListener('input', schedule, true);
+    document.addEventListener('change', schedule, true);
+    window.addEventListener('message', onMessage);
+    window.addEventListener('online', goOnline);
+    sendToFlutter({ status: 'ready', kind: 'resume_builder' });
+    return () => {
+      document.removeEventListener('input', schedule, true);
+      document.removeEventListener('change', schedule, true);
+      window.removeEventListener('message', onMessage);
+      window.removeEventListener('online', goOnline);
+      if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    };
+  // Current controlled values are read through draftFieldsRef after debounce.
+  }, []);
+
+  useEffect(() => {
+    const pending = pendingRestoreRef.current;
+    if (!pending || pending.template !== activeTemplate) return;
+    const id = window.setTimeout(() => {
+      const nodes = Array.from(document.querySelectorAll('#resume-node [contenteditable]'));
+      nodes.forEach((node, i) => {
+        if (typeof pending.editedText[i] === 'string') {
+          // textContent, never innerHTML: drafts cannot inject executable DOM.
+          node.textContent = pending.editedText[i];
+        }
+      });
+      pendingRestoreRef.current = null;
+      restoringRef.current = false;
+    }, 120);
+    return () => clearTimeout(id);
+  }, [activeTemplate]);
+
 
   useEffect(() => {
     let delayedCheck = 0;
@@ -110,10 +231,16 @@ export default function ResumeApp() {
 
   const handlePhotoUpload = (e) => {
     const file = e.target.files[0];
-    if (file) {
-      const url = URL.createObjectURL(file);
-      setPhoto(url);
+    if (!file) return;
+    if (!file.type.startsWith('image/') || file.size > 2000000) {
+      alert('Select a JPG or PNG under 2 MB.');
+      return;
     }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') setPhoto(reader.result);
+    };
+    reader.readAsDataURL(file);
   };
 
   // Generate the PDF, extract editable resume content, and return both to Flutter.
@@ -235,8 +362,24 @@ export default function ResumeApp() {
         try {
           const pdf = new jsPDF('p', 'mm', 'a4');
           const pdfWidth = pdf.internal.pageSize.getWidth();
-          const pdfHeight = (element.offsetHeight * pdfWidth) / element.offsetWidth;
-          pdf.addImage(renderedImage, 'JPEG', 0, 0, pdfWidth, pdfHeight);
+          const pdfPageHeight = pdf.internal.pageSize.getHeight();
+          const raster = new Image();
+          raster.src = renderedImage;
+          await raster.decode();
+          const width = raster.naturalWidth;
+          const height = raster.naturalHeight;
+          const maxSlice = Math.floor(width * pdfPageHeight / pdfWidth);
+          for (let top = 0; top < height; top += maxSlice) {
+            const portion = Math.min(maxSlice, height - top);
+            const slice = document.createElement('canvas');
+            slice.width = width;
+            slice.height = portion;
+            slice.getContext('2d').drawImage(raster, 0, top, width, portion,
+              0, 0, width, portion);
+            if (top > 0) pdf.addPage();
+            pdf.addImage(slice.toDataURL('image/jpeg', 0.9), 'JPEG',
+              0, 0, pdfWidth, portion * pdfWidth / width);
+          }
           const dataUri = pdf.output('datauristring');
           resumePdfBase64 = dataUri.includes(',')
             ? dataUri.substring(dataUri.indexOf(',') + 1)
@@ -356,7 +499,14 @@ export default function ResumeApp() {
           ].map((t) => (
             <button
               key={t.id}
-              onClick={() => setActiveTemplate(t.id)}
+              onClick={() => {
+                if (ownerUidRef.current) {
+                  const draft = snapshotDraft();
+                  lastDraftRef.current = draft;
+                  sendToFlutter({ status: 'draft', kind: 'resume_builder', formData: draft });
+                }
+                setActiveTemplate(t.id);
+              }}
               className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
                 activeTemplate === t.id
                   ? "bg-neutral-900 text-white shadow-sm"
@@ -370,6 +520,15 @@ export default function ResumeApp() {
 
         {/* Zoom Controls & Actions */}
         <div className="flex flex-wrap items-center gap-3">
+          <span data-testid="resume-draft-status" role="status"
+            className="text-xs font-semibold text-green-900">
+            Draft: {draftStatus}
+            {draftStatus === 'Sync Failed' && (
+              <button className="ml-2 underline" type="button"
+                onClick={() => sendToFlutter({ status: 'draft', kind: 'resume_builder',
+                  formData: lastDraftRef.current || snapshotDraft() })}>Retry</button>
+            )}
+          </span>
           <div className="flex items-center bg-neutral-100 rounded-lg p-1 border border-neutral-200 text-xs">
             <button
               onClick={() => setZoom((prev) => Math.max(0.4, prev - 0.1))}

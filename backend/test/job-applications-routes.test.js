@@ -6,6 +6,14 @@ import { app, state } from '../server.js';
 
 const applications = new Map();
 const userProfiles = new Map();
+const welderId = new ObjectId('507f1f77bcf86cd799439011');
+const encoderId = new ObjectId('507f1f77bcf86cd799439012');
+const postedJobs = new Map([
+  [String(welderId), { _id: welderId, status: 'active', category: 'walk_in_application',
+    title: 'NOW HIRING! — Welder', company: 'JCRCC', location: 'Rodriguez, Rizal' }],
+  [String(encoderId), { _id: encoderId, status: 'active', category: 'walk_in_application',
+    title: 'Encoder', company: 'PESO', location: 'Rodriguez, Rizal' }],
+]);
 
 function appCopy(record) {
   return {
@@ -16,7 +24,9 @@ function appCopy(record) {
 }
 
 function matches(record, filter = {}) {
-  return Object.entries(filter).every(([key, value]) => record[key] === value);
+  return Object.entries(filter).every(([key, value]) =>
+    value instanceof ObjectId ? String(record[key]) === String(value)
+      : record[key] === value);
 }
 
 const appCollection = {
@@ -53,7 +63,8 @@ const appCollection = {
     return found ? appCopy(found) : null;
   },
   async insertOne(record) {
-    const _id = new ObjectId();
+    const _id = record._id ?? new ObjectId();
+    if (applications.has(String(_id))) throw Object.assign(new Error('Duplicate'), { code: 11000 });
     const stored = { ...record, _id };
     applications.set(String(_id), stored);
     return { insertedId: _id };
@@ -117,7 +128,9 @@ before(async () => {
   applications.clear();
   userProfiles.clear();
   userProfiles.set('test-admin', { uid: 'test-admin', role: 'admin', email: 'admin@example.test', displayName: 'PESO Admin', disabled: false, deleted: false });
-  userProfiles.set('test-user', { uid: 'test-user', role: 'job_seeker', email: 'user@example.test', displayName: 'Test User', disabled: false, deleted: false });
+  userProfiles.set('test-user', { uid: 'test-user', role: 'job_seeker', email: 'user@example.test', displayName: 'Test User', disabled: false, deleted: false,
+    municipality: 'Rodriguez', barangay: 'San Jose', address: 'San Jose, Rodriguez, Rizal',
+    residency: { status: 'verified' } });
   state.tokenVerifierOverride = async (token) => {
     if (token === 'admin-token') return { uid: 'test-admin', email: 'admin@example.test', name: 'PESO Admin', email_verified: true, firebase: { sign_in_provider: 'google.com' } };
     if (token === 'regular-token') return { uid: 'test-user', email: 'user@example.test', name: 'Test User', email_verified: true, firebase: { sign_in_provider: 'google.com' } };
@@ -129,6 +142,12 @@ before(async () => {
     collection(name) {
       if (name === 'jobApplications') return appCollection;
       if (name === 'users') return userCollection;
+      if (name === 'jobPostings') return {
+        async findOne(filter) {
+          const job = postedJobs.get(String(filter._id));
+          return job?.status === filter.status ? structuredClone(job) : null;
+        },
+      };
       throw new Error('Unexpected collection: ' + name);
     },
   };
@@ -160,12 +179,12 @@ test('application submission requires a job title and answers', async () => {
   assert.equal(result.body.error, 'application_incomplete');
 });
 
-test('a signed-in user can submit screening answers and resubmit updates the same row', async () => {
+test('a signed-in user submits once and retry does not overwrite screening answers', async () => {
   const first = await request('/api/applications', {
     method: 'POST',
     token: 'regular-token',
     body: {
-      jobId: 'job-1',
+      jobId: String(welderId),
       jobTitle: 'NOW HIRING! — Welder',
       employer: 'JCRCC',
       location: 'Rodriguez, Rizal',
@@ -183,18 +202,18 @@ test('a signed-in user can submit screening answers and resubmit updates the sam
     method: 'POST',
     token: 'regular-token',
     body: {
-      jobId: 'job-1',
+      jobId: String(welderId),
       jobTitle: 'NOW HIRING! — Welder',
       employer: 'JCRCC',
       answers: { experience: 'More than 5 years', availability: 'Within a few days', willingToWork: 'Yes' },
     },
   });
-  assert.equal(second.status, 201);
-  assert.equal(second.body.application.matchScore, null);
-  // Upsert: still one row, answers updated.
+  assert.equal(second.status, 409);
+  assert.equal(second.body.error, 'application_already_submitted');
   assert.equal(applications.size, 1);
   const stored = [...applications.values()][0];
-  assert.equal(stored.answers.experience, 'More than 5 years');
+  assert.equal(stored.answers.experience, '3-5');
+  assert.equal(stored.status, 'submitted');
 });
 
 test('screening answers are sanitized and capped', async () => {
@@ -202,6 +221,7 @@ test('screening answers are sanitized and capped', async () => {
     method: 'POST',
     token: 'regular-token',
     body: {
+      jobId: String(encoderId),
       jobTitle: 'Encoder',
       answers: {
         experience: '<script>alert(1)</script>',
@@ -290,4 +310,68 @@ test('only admins can list applications', async () => {
   const listed = admin.body.applications.find((row) => row.jobTitle.includes('Welder'));
   assert.ok(listed);
   assert.equal(listed.applicantUid, 'test-user');
+});
+
+test('concurrent retries create one saved application and preserve job provenance', async () => {
+  const id = new ObjectId();
+  postedJobs.set(String(id), { _id: id, status: 'active', category: 'walk_in_application',
+    title: 'Actual saved role', company: 'Confirmed employer', location: 'Rodriguez, Rizal' });
+  try {
+    const payload = { jobId: String(id), jobTitle: 'Forged client title',
+      employer: 'Forged employer', matchScore: 99,
+      answers: { experience: 'yes', availability: 'now' } };
+    const replies = await Promise.all(Array.from({ length: 12 }, () =>
+      request('/api/applications', { token: 'regular-token', method: 'POST', body: payload })));
+    assert.equal(replies.filter((r) => r.status === 201).length, 1);
+    assert.equal(replies.filter((r) => r.status === 409).length, 11);
+    const saved = [...applications.values()].filter((row) => row.jobId === String(id));
+    assert.equal(saved.length, 1);
+    assert.equal(saved[0].jobTitle, 'Actual saved role');
+    assert.equal(saved[0].employer, 'Confirmed employer');
+    assert.equal(saved[0].matchScore, null);
+    assert.equal(replies.find((r) => r.status === 201).body.application.id, String(saved[0]._id));
+  } finally {
+    postedJobs.delete(String(id));
+  }
+});
+
+test('a removed or expired job never accepts a new application', async () => {
+  const id = new ObjectId();
+  postedJobs.set(String(id), { _id: id, status: 'deleted', category: 'walk_in_application',
+    title: 'Closed role', company: 'Previous employer' });
+  try {
+    const missing = await request('/api/applications', { token: 'regular-token',
+      method: 'POST', body: { jobId: String(id), answers: { experience: 'yes' } } });
+    assert.equal(missing.status, 409);
+    assert.equal(missing.body.error, 'job_not_available');
+    const invalid = await request('/api/applications', { token: 'regular-token',
+      method: 'POST', body: { jobId: 'not-a-stored-id',
+        jobTitle: 'Invented job', answers: { experience: 'yes' } } });
+    assert.equal(invalid.status, 400);
+  } finally {
+    postedJobs.delete(String(id));
+  }
+});
+
+test('notification records are scoped to the owner and open a saved application', async () => {
+  const mine = await request('/api/notifications?limit=20', { token: 'regular-token' });
+  assert.equal(mine.status, 200);
+  assert.ok(Array.isArray(mine.body.notifications));
+  assert.ok(mine.body.notifications.length >= 1);
+  assert.ok(mine.body.notifications.every((notice) =>
+    notice.kind === 'application' && notice.target === 'outcomes' &&
+    notice.applicationId && notice.id === 'application:' + notice.applicationId));
+  assert.ok(mine.body.notifications.every((notice) =>
+    notice.message && !notice.message.includes('foreign-job')));
+  const anonymous = await request('/api/notifications');
+  assert.equal(anonymous.status, 401);
+  const welder = [...applications.values()].find((row) => row.jobTitle.includes('Welder'));
+  assert.ok(welder);
+  const status = await request('/api/admin/applications/' + String(welder._id) + '/status',
+    { token: 'admin-token', method: 'PATCH', body: { status: 'under_review' } });
+  assert.equal(status.status, 200);
+  const updated = await request('/api/notifications', { token: 'regular-token' });
+  assert.ok(updated.body.notifications.some((notice) =>
+    notice.applicationId === String(welder._id) &&
+    notice.title === 'Application under review'));
 });

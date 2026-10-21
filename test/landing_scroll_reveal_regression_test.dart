@@ -31,12 +31,9 @@ void main() {
         closeTo(0, 0.001),
       );
 
-      await tester.scrollUntilVisible(
-        find.text('PESO Core Programs Support'),
-        650,
-        scrollable: find.byType(Scrollable).first,
-        maxScrolls: 30,
-      );
+      // Session 5 replaced the old static copy with the source-backed
+      // government services catalog; scroll to the section's stable key.
+      await tester.ensureVisible(programs);
       await tester.pumpAndSettle();
       expect(tester.widget<AdaptiveNavBar>(nav).isScrolled, isTrue);
       expect(

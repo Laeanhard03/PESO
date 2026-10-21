@@ -6,6 +6,9 @@ import 'react_message_bridge_stub.dart'
 /// Native WebViews use the FlutterBridge JavaScript channel instead.
 Stream<String> get reactBridgeMessages => implementation.reactBridgeMessages;
 
-/// Send saved NSRP fields to the trusted Form 1 iframe.
+/// Send application events to the exact validated NSRP or resume iframe.
+void postReactWorkspaceMessage(Map<String, dynamic> payload) =>
+    implementation.postReactWorkspaceMessage(payload);
+
 void postReactNsrpPrefill(Map<String, dynamic> formData) =>
-    implementation.postReactNsrpPrefill(formData);
+    postReactWorkspaceMessage({'event': 'nsrp-prefill', 'formData': formData});

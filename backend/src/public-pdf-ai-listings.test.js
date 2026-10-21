@@ -317,3 +317,26 @@ test('two roles never inherit each other\'s criteria or ambiguous notice criteri
   assert.equal(driver.requirementScope, 'explicit_role');
   assert.ok(!driver.requirements.some(x => x.includes('MALE')));
 });
+
+test('deleted source-backed cards remain deleted after subsequent PDF synchronization', async () => {
+  const jobs = new FakeCollection();
+  const db = { collection: (name) => (name === 'jobPostings' ? jobs : new FakeCollection()) };
+  const first = new Date('2026-10-19T04:00:00Z');
+  const records = buildAiJobRecords({ source: SOURCE, listings: LISTINGS, now: first });
+  await syncAiJobListingsFromRecords({ db, source: SOURCE, records, apply: true, now: () => first });
+  const target = jobs.rows.find((row) => row.aiListingKind === 'role');
+  assert.ok(target);
+  target.status = 'deleted';
+  target.deletedBy = 'verified-admin';
+  target.deletedAt = first;
+  const later = new Date('2026-10-21T12:00:00Z');
+  const refreshed = buildAiJobRecords({ source: SOURCE, listings: LISTINGS, now: later });
+  const summary = await syncAiJobListingsFromRecords({
+    db, source: SOURCE, records: refreshed, apply: true, now: () => later,
+  });
+  const stillDeleted = jobs.rows.find((row) => row.sourceFingerprint === target.sourceFingerprint);
+  assert.equal(summary.suppressedDeleted, 1);
+  assert.equal(stillDeleted.status, 'deleted');
+  assert.equal(stillDeleted.deletedBy, 'verified-admin');
+  assert.equal(jobs.rows.filter((row) => row.sourceFingerprint === target.sourceFingerprint).length, 1);
+});

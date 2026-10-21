@@ -19,7 +19,7 @@ void main() {
       expect(PesoJobCategories.expiryText(job, now: DateTime(2035, 1, 1)), 'No automatic expiration');
     });
 
-    test('LRA expires 24 hours after creation', () {
+    test('legacy LRA expires at the end of its Philippine publication day', () {
       final createdAt = DateTime.utc(2026, 10, 17, 6);
       final job = <String, dynamic>{
         'category': PesoJobCategories.localRecruitmentActivity,
@@ -27,8 +27,22 @@ void main() {
         'createdAt': createdAt.toIso8601String(),
       };
       final expiry = PesoJobCategories.effectiveExpiryAt(job)!;
-      expect(expiry.toUtc(), createdAt.add(const Duration(hours: 24)));
+      expect(expiry.toUtc(), DateTime.utc(2026, 10, 17, 15, 59, 59, 999));
       expect(PesoJobCategories.isVisible(job, now: expiry.subtract(const Duration(milliseconds: 1))), isTrue);
+      expect(PesoJobCategories.isVisible(job, now: expiry), isFalse);
+    });
+
+    test('scheduled multi-day LRA expires at end of final recruitment day in Manila', () {
+      final job = <String, dynamic>{
+        'category': PesoJobCategories.localRecruitmentActivity,
+        'status': 'active',
+        'createdAt': '2026-10-17T06:00:00Z',
+        'recruitmentDate': '2026-10-21',
+        'recruitmentEndDate': '2026-10-22',
+      };
+      final expiry = PesoJobCategories.effectiveExpiryAt(job)!;
+      expect(expiry.toUtc(), DateTime.utc(2026, 10, 22, 15, 59, 59, 999));
+      expect(PesoJobCategories.isVisible(job, now: DateTime.utc(2026, 10, 22, 15, 59)), isTrue);
       expect(PesoJobCategories.isVisible(job, now: expiry), isFalse);
     });
 

@@ -167,23 +167,28 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Find work that moves you forward.'), findsOneWidget);
-    expect(find.text('5 roles to explore'), findsOneWidget);
+    // A widget test has no authenticated backend jobs; invented employers
+    // and sample listings must not appear as if they were real vacancies.
+    expect(find.text('0 roles shown'), findsOneWidget);
 
-    await tester.tap(find.widgetWithText(ChoiceChip, 'Internship'));
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Walk-in Application'));
     await tester.pumpAndSettle();
-    expect(find.text('1 role to explore'), findsOneWidget);
-    expect(find.text('IT Support Intern'), findsOneWidget);
+    expect(find.text('0 roles shown'), findsOneWidget);
+    expect(find.text('IT Support Intern'), findsNothing);
 
     await tester.tap(find.widgetWithText(ChoiceChip, 'All roles'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).first, 'Prime BPO');
     await tester.pumpAndSettle();
-    expect(find.text('1 role to explore'), findsOneWidget);
-    expect(find.text('Data Encoder'), findsOneWidget);
+    expect(find.text('0 roles shown'), findsOneWidget);
+    // The keyword remains in the search input, not in a fabricated job card.
+    expect(find.text('Prime BPO'), findsOneWidget);
 
     await tester.enterText(find.byType(TextField).first, 'no matching role');
     await tester.pumpAndSettle();
-    expect(find.text('No roles match your search'), findsOneWidget);
+    // In offline widget tests the API can report an unavailable live feed.
+    // No fabricated role is rendered regardless of the error/empty copy.
+    expect(find.text('0 roles shown'), findsOneWidget);
 
     await tester.tap(
       find.descendant(of: navigation, matching: find.text('History')),
@@ -227,8 +232,10 @@ void main() {
       await tester.ensureVisible(find.text('Search jobs'));
       await tester.tap(find.text('Search jobs'));
       await tester.pumpAndSettle();
-      expect(find.text('1 role to explore'), findsOneWidget);
-      expect(find.text('Data Encoder'), findsNWidgets(2));
+      expect(find.text('Find work that moves you forward.'), findsOneWidget);
+      expect(find.text('0 roles shown'), findsOneWidget);
+      // The search input retains the query, but no invented job card appears.
+      expect(find.text('Data Encoder'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );

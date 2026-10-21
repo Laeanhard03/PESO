@@ -14,11 +14,14 @@ import '../../peso_logic/job_interest_recommendations.dart';
 import '../../peso_models/profile_artifact.dart';
 import '../../peso_services/profile_artifact_service.dart';
 import '../../peso_services/peso_api_client.dart';
+import '../../peso_services/applicant_draft_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../peso_models/job_posting.dart';
 import '../Reusable_Designs/peso_images.dart';
 import '../Reusable_Designs/design_tokens.dart';
 import '../Reusable_Designs/pesoform_ui.dart';
+import '../Reusable_Designs/resumebuilder_ui.dart';
 
 // Tab File Imports
 import 'user_job_feed_tab.dart';
@@ -74,12 +77,16 @@ class _UserProfileState extends State<UserProfile> {
   bool _retryingAi = false;
   bool _regeneratingNsrp = false;
   Map<String, dynamic> _accountProfile = <String, dynamic>{};
+  Map<String, dynamic> _accountDocuments = <String, dynamic>{};
+  bool _onboardingModalShown = false;
+  bool _welcomeFinished = true;
   Uint8List? _profilePhotoBytes;
   String? _loadedPhotoId;
   Map<String, dynamic> _aiProfileData = <String, dynamic>{};
   Map<String, dynamic> _resumeData = <String, dynamic>{};
   Map<String, dynamic> _pesoFormData = <String, dynamic>{};
   List<Map<String, dynamic>> _profileArtifacts = <Map<String, dynamic>>[];
+  ProfileArtifactInput? _pendingResumeExtraction;
   String _selectedJobCategory = PesoJobCategories.all;
   final TextEditingController _jobSearchController = TextEditingController();
   String _jobSearchQuery = '';
@@ -87,6 +94,11 @@ class _UserProfileState extends State<UserProfile> {
   final Set<String> _translationPending = {};
   final Set<String> _translationErrors = {};
   Timer? _jobExpiryTimer;
+  Timer? _jobSearchDebounce;
+  int _jobRequestGeneration = 0;
+  int _expiryRefreshTicks = 0;
+  String? _nextJobPageToken;
+  bool _loadingMoreJobs = false;
 
   // Controllers for AI Profile Tab
   late final TextEditingController _nameController;
@@ -102,10 +114,17 @@ class _UserProfileState extends State<UserProfile> {
   final List<Map<String, dynamic>> _availableJobs = <Map<String, dynamic>>[];
   bool _jobsLoading = true;
   String? _jobLoadError;
+  bool _refreshingCareerRecommendations = false;
+  DateTime? _lastCareerRecommendationAttempt;
+  Map<String, dynamic>? _careerRecommendations;
 
   Map<String, dynamic>? _selectedJob;
   bool _hasManuallySelectedJob = false;
   final List<Map<String, dynamic>> _assessmentOutcomes = [];
+  List<Map<String, dynamic>> _myApplications = const [];
+  bool _applicationsLoading = true;
+  String? _applicationsError;
+  String? _focusedApplicationId;
 
   final Color _primary = const Color(0xFF236349);
   final Color _textDark = const Color(0xFF17352B);
@@ -127,10 +146,14 @@ class _UserProfileState extends State<UserProfile> {
     }
     _loadAccountProfile();
     _loadJobPostings();
+    _loadMyApplications();
+    _welcomeFinished = !widget.newRegistration;
     if (widget.newRegistration) {
-      WidgetsBinding.instance.addPostFrameCallback(
-        (_) => _welcomeNewApplicant(),
-      );
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        await _welcomeNewApplicant();
+        _welcomeFinished = true;
+        if (mounted) unawaited(_showRequiredOnboarding());
+      });
     }
     _jobExpiryTimer = Timer.periodic(const Duration(minutes: 1), (_) {
       if (!mounted) return;
@@ -140,6 +163,12 @@ class _UserProfileState extends State<UserProfile> {
           _selectedJob = visible.isEmpty ? null : visible.first;
         }
       });
+      // Reconcile deletes and newly published jobs without excessive polling.
+      _expiryRefreshTicks++;
+      if (_expiryRefreshTicks % 2 == 0 && !_jobsLoading && !_loadingMoreJobs) {
+        unawaited(_loadJobPostings());
+        unawaited(_loadMyApplications());
+      }
     });
   }
 
@@ -206,25 +235,86 @@ class _UserProfileState extends State<UserProfile> {
   }
 
   String get _preferredOccupation {
-    final career = _pesoFormData['applicantEssentials'];
-    if (career is Map) {
-      final preferred = career['preferredOccupation']?.toString().trim() ?? '';
-      if (preferred.isNotEmpty) return preferred;
+    final preferences = <String>{};
+    for (final source in [_pesoFormData, _resumeData]) {
+      final essentials = source['applicantEssentials'];
+      if (essentials is Map) {
+        final desired =
+            essentials['preferredOccupation']?.toString().trim() ?? '';
+        if (desired.isNotEmpty) preferences.add(desired);
+      }
+      final entries = source['entries'];
+      if (entries is List) {
+        for (final item in entries.whereType<Map>()) {
+          final label = item['label']?.toString() ?? '';
+          if (RegExp(
+            r'preferred occupation|desired (job|position)|job preference',
+            caseSensitive: false,
+          ).hasMatch(label)) {
+            final desired = item['value']?.toString().trim() ?? '';
+            if (desired.isNotEmpty) preferences.add(desired);
+          }
+        }
+      }
     }
-    return '';
+    return preferences.join(', ');
   }
 
   List<String> get _sourceSupportedSkills {
-    final evidence = _accountProfile['aiMatchingExtraction'];
-    final source = evidence is Map && evidence['skills'] is List
-        ? (evidence['skills'] as List).map((item) => item.toString()).toList()
-        : <String>[];
-    final career = _pesoFormData['applicantEssentials'];
-    final stated = career is Map ? career['skills']?.toString() ?? '' : '';
-    return <String>[
-      ...source,
-      ...stated.split(RegExp(r'[,;\\n]+')),
-    ].where((skill) => skill.trim().isNotEmpty).toList();
+    final terms = <String>[];
+    final extracted = _accountProfile['aiMatchingExtraction'];
+    if (extracted is Map) {
+      for (final key in [
+        'skills',
+        'certifications',
+        'education',
+        'occupationCategories',
+      ]) {
+        final facts = extracted[key];
+        if (facts is List) {
+          for (final fact in facts) {
+            final term = fact is Map
+                ? fact['field']?.toString() ?? ''
+                : fact.toString();
+            if (term.isNotEmpty) terms.add(term);
+          }
+        }
+      }
+    }
+    for (final form in [_pesoFormData, _resumeData]) {
+      final essentials = form['applicantEssentials'];
+      if (essentials is Map &&
+          essentials['skillsStage'] == 'Has skills or training to list') {
+        terms.add(essentials['skills']?.toString() ?? '');
+      }
+      for (final fieldKey in ['entries', 'fields']) {
+        final fields = form[fieldKey];
+        if (fields is! List) continue;
+        for (final field in fields.whereType<Map>()) {
+          final label = [
+            field['section'],
+            field['label'],
+          ].whereType<String>().join(' ');
+          if (RegExp(
+                r'skill|training|certificat|occupation|work experience|employment history|course|qualification',
+                caseSensitive: false,
+              ).hasMatch(label) &&
+              !RegExp(
+                r'name|birth|gender|sex|phone|email|address|religion|civil status',
+                caseSensitive: false,
+              ).hasMatch(label)) {
+            terms.add(field['value']?.toString() ?? '');
+          }
+        }
+      }
+    }
+    return terms
+        .expand((term) => term.split(RegExp(r'[,;\n]+')))
+        .map((term) => term.trim())
+        .where((term) => term.length >= 3 && term.length <= 90)
+        .toSet()
+        .take(60)
+        .toList();
   }
 
   List<Map<String, dynamic>> _filteredAvailableJobs([String? category]) {
@@ -251,11 +341,9 @@ class _UserProfileState extends State<UserProfile> {
         .join(' ');
     final filtered = _availableJobs
         .where(PesoJobCategories.isVisible)
-        // A typed search covers every active public role, regardless of the
-        // selected category or whether the model matched it to the applicant.
+        // Search always respects the selected posting category.
         .where(
           (job) =>
-              query.isNotEmpty ||
               selectedCategory == PesoJobCategories.all ||
               job['category']?.toString() == selectedCategory,
         )
@@ -283,7 +371,8 @@ class _UserProfileState extends State<UserProfile> {
         })
         .toList();
     if (query.isNotEmpty) return filtered;
-    final goMatching = _accountProfile['latestAiJobMatch'];
+    final goMatching =
+        _careerRecommendations ?? _accountProfile['latestAiJobMatch'];
     return rankJobOpportunities(
       filtered,
       preferredOccupations: _preferredOccupation,
@@ -399,6 +488,12 @@ class _UserProfileState extends State<UserProfile> {
   List<Map<String, dynamic>> _linkedRolesForSelectedNotice() {
     final notice = _selectedJob;
     if (notice == null || notice['aiListingKind'] != 'notice') return [];
+    final embedded = notice['linkedRoles'];
+    if (embedded is List) {
+      return embedded.whereType<Map>()
+          .map((row) => _jobPostingForFeed(Map<String, dynamic>.from(row)))
+          .where(PesoJobCategories.isVisible).toList();
+    }
     final rawIds = notice['linkedRoleIds'];
     if (rawIds is! List) return [];
     final visibleById = <String, Map<String, dynamic>>{
@@ -413,7 +508,40 @@ class _UserProfileState extends State<UserProfile> {
         .toList();
   }
 
+  String get _serverJobSearch {
+    const translated = <String, String>{
+      'karpintero': 'carpenter',
+      'manghihinang': 'welder',
+      'drayber': 'driver',
+      'tsuper': 'driver',
+      'kahera': 'cashier',
+      'kusinero': 'cook',
+      'tagalinis': 'cleaner',
+      'guro': 'teacher',
+      'bantay': 'guard',
+      'konstruksyon': 'construction',
+      'opisina': 'office',
+      'panadero': 'baker',
+      'trabaho': 'job',
+    };
+    return _jobSearchQuery
+        .trim()
+        .toLowerCase()
+        .split(RegExp(r'\s+'))
+        .map((word) => translated[word] ?? word)
+        .join(' ');
+  }
+
+  void _scheduleJobSearch() {
+    _jobSearchDebounce?.cancel();
+    _jobSearchDebounce = Timer(
+      const Duration(milliseconds: 350),
+      () => unawaited(_loadJobPostings()),
+    );
+  }
+
   Future<void> _loadJobPostings() async {
+    final generation = ++_jobRequestGeneration;
     if (mounted) {
       setState(() {
         _jobsLoading = true;
@@ -421,31 +549,46 @@ class _UserProfileState extends State<UserProfile> {
       });
     }
     try {
-      final records = await PesoApiClient.listJobs();
-      final postings = records
+      final result = await PesoApiClient.listJobsPage(
+        limit: 60,
+        search: _serverJobSearch,
+        category: _selectedJobCategory,
+      );
+      final rows = result['jobs'];
+      if (rows is! List) {
+        throw const FormatException('Invalid PESO job response');
+      }
+      final postings = rows
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
           .where(PesoJobCategories.isVisible)
           .map(_jobPostingForFeed)
           .toList();
-      if (!mounted) return;
+      if (!mounted || generation != _jobRequestGeneration) return;
       setState(() {
         _jobsLoading = false;
         _jobLoadError = null;
+        _nextJobPageToken = result['nextPageToken']?.toString();
         _availableJobs
           ..clear()
           ..addAll(postings);
         final visible = _filteredAvailableJobs();
-        if (!_hasManuallySelectedJob ||
-            _selectedJob == null ||
-            !visible.contains(_selectedJob)) {
+        final selectedId = _selectedJob?['id']?.toString();
+        final retained = visible.where(
+          (job) => job['id']?.toString() == selectedId,
+        );
+        if (!_hasManuallySelectedJob || retained.isEmpty) {
           _selectedJob = visible.isEmpty ? null : visible.first;
+          _hasManuallySelectedJob = false;
+        } else {
+          _selectedJob = retained.first;
         }
       });
       unawaited(_translateSelectedJob());
+      unawaited(_refreshCareerRecommendations());
     } catch (error) {
+      if (!mounted || generation != _jobRequestGeneration) return;
       debugPrint('[JOBS] API unavailable (${error.runtimeType}).');
-      if (!mounted) return;
-      // Connection failures are not zero vacancies. Preserve any listings
-      // already shown and offer an explicit retry for the hosted API.
       setState(() {
         _jobsLoading = false;
         _jobLoadError =
@@ -453,8 +596,243 @@ class _UserProfileState extends State<UserProfile> {
                 (error.code == 'unauthenticated' ||
                     error.code == 'invalid_or_expired_token')
             ? 'Your session expired. Sign in again, then reload the job feed.'
-            : 'Could not connect to the PESO job service. The listings have not been deleted; please retry.';
+            : 'Could not load PESO job openings. Existing listings were not deleted; retry.';
       });
+    }
+  }
+
+  Future<void> _loadMoreJobPostings() async {
+    final token = _nextJobPageToken;
+    if (_loadingMoreJobs || _jobsLoading || token == null) return;
+    final generation = _jobRequestGeneration;
+    setState(() => _loadingMoreJobs = true);
+    try {
+      final result = await PesoApiClient.listJobsPage(
+        limit: 60,
+        pageToken: token,
+        search: _serverJobSearch,
+        category: _selectedJobCategory,
+      );
+      final rows = result['jobs'];
+      if (rows is! List) {
+        throw const FormatException('Invalid PESO job response');
+      }
+      if (!mounted || generation != _jobRequestGeneration) return;
+      final existing = _availableJobs
+          .map((job) => job['id']?.toString())
+          .toSet();
+      final additions = rows
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .where(PesoJobCategories.isVisible)
+          .map(_jobPostingForFeed)
+          .where((job) => existing.add(job['id']?.toString()))
+          .toList();
+      setState(() {
+        _availableJobs.addAll(additions);
+        _nextJobPageToken = result['nextPageToken']?.toString();
+        _jobLoadError = null;
+      });
+    } catch (error) {
+      if (mounted && generation == _jobRequestGeneration) {
+        setState(
+          () => _jobLoadError = 'More PESO jobs could not be loaded. Retry.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _loadingMoreJobs = false);
+    }
+  }
+
+  Future<void> _loadMyApplications() async {
+    if (!mounted) return;
+    setState(() {
+      _applicationsLoading = true;
+      _applicationsError = null;
+    });
+    try {
+      final all = <Map<String, dynamic>>[];
+      String? pageToken;
+      do {
+        final result = await PesoApiClient.listMyApplications(
+          limit: 100,
+          pageToken: pageToken,
+        );
+        final rows = result['applications'];
+        if (rows is! List) {
+          throw const FormatException('Invalid application history');
+        }
+        all.addAll(
+          rows.whereType<Map>().map((row) => Map<String, dynamic>.from(row)),
+        );
+        pageToken = result['nextPageToken']?.toString();
+      } while (pageToken != null && pageToken.isNotEmpty && all.length < 500);
+      if (!mounted) return;
+      setState(() {
+        _myApplications = all;
+        _applicationsLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _applicationsLoading = false;
+        _applicationsError = 'Could not refresh application statuses.';
+      });
+    }
+  }
+
+  Future<void> _openNotifications() async {
+    List<Map<String, dynamic>> notices;
+    try {
+      notices = await PesoApiClient.listNotifications();
+    } catch (_) {
+      if (!mounted) return;
+      AppToast.warning(
+        context,
+        'Could not load notifications. Check your connection and retry.',
+      );
+      return;
+    }
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.76,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'PESO application notifications',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Updates shown here come from your saved PESO applications.',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Flexible(
+                  child: notices.isEmpty
+                      ? const Center(
+                          child: Text(
+                            'No submitted applications or updates yet.',
+                          ),
+                        )
+                      : ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: notices.length,
+                          itemBuilder: (_, index) {
+                            final notice = notices[index];
+                            final id =
+                                notice['applicationId']?.toString() ?? '';
+                            return ListTile(
+                              key: ValueKey('notification-application-$id'),
+                              leading: const Icon(
+                                Icons.assignment_turned_in_outlined,
+                              ),
+                              title: Text(
+                                notice['title']?.toString() ??
+                                    'Application update',
+                              ),
+                              subtitle: Text(
+                                notice['message']?.toString() ?? '',
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              trailing: const Icon(Icons.chevron_right_rounded),
+                              onTap: id.isEmpty
+                                  ? null
+                                  : () {
+                                      Navigator.pop(sheetContext);
+                                      if (!mounted) return;
+                                      setState(() {
+                                        _focusedApplicationId = id;
+                                        _selectedIndex = 2;
+                                      });
+                                      unawaited(_loadMyApplications());
+                                    },
+                            );
+                          },
+                        ),
+                ),
+                const SizedBox(height: 8),
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(sheetContext);
+                    if (!mounted) return;
+                    setState(() {
+                      _selectedIndex = 2;
+                      _focusedApplicationId = null;
+                    });
+                    unawaited(_loadMyApplications());
+                  },
+                  child: const Text('View all applications in Outcomes'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Refresh recommendations against all saved, active job postings after both
+  /// profile and job feed have loaded. This uses only saved source evidence
+  /// and the existing Go Mini-AI endpoint; no unverified Gemini claims or MRQ.
+  Future<void> _refreshCareerRecommendations() async {
+    if (_refreshingCareerRecommendations ||
+        !mounted ||
+        _availableJobs.isEmpty ||
+        (_pesoFormData.isEmpty &&
+            _resumeData.isEmpty &&
+            _accountProfile['aiMatchingExtraction'] is! Map)) {
+      return;
+    }
+    final now = DateTime.now();
+    if (_lastCareerRecommendationAttempt != null &&
+        now.difference(_lastCareerRecommendationAttempt!) <
+            const Duration(minutes: 2)) {
+      return;
+    }
+    _lastCareerRecommendationAttempt = now;
+    _refreshingCareerRecommendations = true;
+    try {
+      final result = await PesoApiClient.evaluateCareerRecommendations();
+      if (!mounted ||
+          result['status'] != 'ready' ||
+          result['results'] is! List) {
+        return;
+      }
+      setState(() {
+        _careerRecommendations = <String, dynamic>{
+          'status': 'ready',
+          'jobId': null,
+          'modelVersion': result['modelVersion'],
+          'results': result['results'],
+        };
+        if (!_hasManuallySelectedJob) {
+          final ranked = _filteredAvailableJobs();
+          _selectedJob = ranked.isEmpty ? null : ranked.first;
+        }
+      });
+    } on PesoApiException catch (error) {
+      debugPrint('[JOBS] Mini-AI recommendations unavailable: ${error.code}');
+    } catch (_) {
+      debugPrint('[JOBS] Mini-AI recommendations could not be refreshed.');
+    } finally {
+      _refreshingCareerRecommendations = false;
     }
   }
 
@@ -480,6 +858,128 @@ class _UserProfileState extends State<UserProfile> {
     }
   }
 
+  Future<void> _showRequiredOnboarding() async {
+    if (!mounted || !_welcomeFinished || _onboardingModalShown ||
+        _accountDocuments.isEmpty) return;
+    final resumeMissing = _accountDocuments['resumeSubmitted'] != true;
+    final nsrpMissing = _accountDocuments['formSubmitted'] != true;
+    if (!resumeMissing && !nsrpMissing) return;
+    _onboardingModalShown = true;
+    final choice = await showDialog<String>(
+      context: context, barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Finish your PESO JobKonek onboarding'),
+        content: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 460),
+          child: Column(mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(resumeMissing ? 'Resume: Missing' : 'Resume: Submitted'),
+            const SizedBox(height: 8),
+            Text(nsrpMissing ? 'NSRP Form 1: Missing' : 'NSRP Form 1: Submitted'),
+            const SizedBox(height: 12),
+            const Text('Complete these steps: (1) create or upload a resume, '
+              '(2) complete NSRP Form 1, (3) review AI extraction. '
+              'Gemini errors do not erase saved documents.',
+              style: TextStyle(height: 1.5)),
+          ]),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, 'account'),
+            child: const Text('Open My Account')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, 'continue'),
+            child: const Text('Continue onboarding')),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    if (choice == 'continue') {
+      if (resumeMissing) {
+        await _chooseResumePath();
+      } else if (nsrpMissing) {
+        await _editOfficialNsrp();
+      }
+    } else {
+      setState(() => _selectedIndex = 4);
+    }
+  }
+
+  Future<void> _chooseResumePath() async {
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Resume onboarding'),
+        content: const Text('Use the current resume builder or upload an existing document.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel')),
+          OutlinedButton(onPressed: () => Navigator.pop(dialogContext, 'upload'),
+            child: const Text('Upload resume')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, 'build'),
+            child: const Text('Create resume')),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    if (choice == 'build') await _openResumeBuilder();
+    if (choice == 'upload') {
+      final saved = await _replacePdf('resume_upload');
+      if (saved && mounted && _accountDocuments['formSubmitted'] != true) {
+        await _editOfficialNsrp();
+      }
+    }
+  }
+
+  Future<void> _openResumeBuilder() async {
+    await Navigator.push<void>(context, MaterialPageRoute(
+      builder: (_) => ResumeBuilderWizard(
+        initialValues: <String, String>{
+          'firstName': _accountProfile['firstName']?.toString() ?? '',
+          'lastName': _accountProfile['lastName']?.toString() ?? '',
+          'email': _accountProfile['email']?.toString() ?? '',
+          'phone': _accountProfile['phoneNumber']?.toString() ?? '',
+        },
+        onComplete: (payload) {
+          Navigator.of(context).pop();
+          unawaited(_saveBuiltResume(payload));
+        },
+      ),
+    ));
+  }
+
+  Future<void> _saveBuiltResume(Map<String, dynamic> payload) async {
+    final rawData = payload['resumeData'];
+    if (rawData is! Map) return;
+    try {
+      await PesoApiClient.saveOnboarding(<String, dynamic>{
+        'resumeData': Map<String, dynamic>.from(rawData),
+      });
+      final artifact = ProfileArtifactInput.fromBridgePayload(payload['artifact']);
+      var documentConfirmed = false;
+      if (artifact != null) {
+        final saved = await ProfileArtifactService.saveArtifacts([artifact]);
+        documentConfirmed = saved.records.isNotEmpty && saved.warnings.isEmpty;
+        if (!documentConfirmed && mounted) {
+          AppToast.warning(context, 'Resume details saved; PDF upload needs a retry.');
+        }
+      }
+      if (documentConfirmed) {
+        final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+        await ApplicantDraftService.clear(uid, 'resume');
+      }
+      await _loadAccountProfile();
+      if (!mounted) return;
+      AppToast.success(context, 'Your resume was saved.');
+      if (_accountDocuments['formSubmitted'] != true) {
+        await _editOfficialNsrp();
+      } else {
+        setState(() => _selectedIndex = 1);
+        unawaited(_retryAiExtraction());
+      }
+    } catch (_) {
+      if (mounted) AppToast.error(context,
+        'Could not sync the resume. Your encrypted draft remains available.');
+    }
+  }
+
   Future<void> _loadAccountProfile() async {
     try {
       final data = await AuthService.getCurrentUserProfile();
@@ -500,6 +1000,12 @@ class _UserProfileState extends State<UserProfile> {
           ? Map<String, dynamic>.from(data['pesoFormData'] as Map)
           : <String, dynamic>{};
       var profileArtifacts = <Map<String, dynamic>>[];
+      var documentStatus = <String, dynamic>{};
+      try {
+        documentStatus = await PesoApiClient.getAccountDocuments();
+      } catch (_) {
+        // If the API is unavailable, do not mistakenly report missing records.
+      }
       try {
         profileArtifacts =
             await ProfileArtifactService.getCurrentUserArtifacts();
@@ -514,6 +1020,7 @@ class _UserProfileState extends State<UserProfile> {
             .where((item) => item['category'] != 'profile_photo')
             .toList();
         _accountProfile = data;
+        if (documentStatus.isNotEmpty) _accountDocuments = documentStatus;
         final sorted = _filteredAvailableJobs();
         if (!_hasManuallySelectedJob && sorted.isNotEmpty) {
           _selectedJob = sorted.first;
@@ -576,6 +1083,13 @@ class _UserProfileState extends State<UserProfile> {
         }
       });
       unawaited(_translateSelectedJob());
+      unawaited(_refreshCareerRecommendations());
+      if (_accountDocuments.isNotEmpty && !_onboardingModalShown &&
+          _welcomeFinished) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) unawaited(_showRequiredOnboarding());
+        });
+      }
       final photoId = data['photoArtifactId']?.toString() ?? '';
       if (data['avatarStyle'] == 'photo' &&
           photoId.isNotEmpty &&
@@ -598,8 +1112,10 @@ class _UserProfileState extends State<UserProfile> {
             widget.initialOnboardingText ??
             _accountProfile['onboardingText']?.toString(),
       );
+      final newResume = _pendingResumeExtraction;
       final extracted = await PesoAIEngine.generateProfile(
-        artifacts: widget.retryArtifacts,
+        artifacts: newResume == null
+            ? widget.retryArtifacts : <ProfileArtifactInput>[newResume],
         rawText: safeText,
       );
       if (extracted.isEmpty) throw const FormatException('Empty extraction');
@@ -615,6 +1131,7 @@ class _UserProfileState extends State<UserProfile> {
         _titleController.text = _userTitle;
         _bioController.text = extracted['bilingualBio']?.toString() ?? '';
       });
+      _pendingResumeExtraction = null;
       AppToast.success(context, 'AI extraction was completed.');
     } catch (error) {
       debugPrint('[PROFILE] AI retry unavailable (${error.runtimeType}).');
@@ -676,9 +1193,13 @@ class _UserProfileState extends State<UserProfile> {
       await PesoApiClient.saveOnboarding(<String, dynamic>{
         'pesoFormData': Map<String, dynamic>.from(form),
       });
+      await ApplicantDraftService.clear(
+        FirebaseAuth.instance.currentUser?.uid ?? '', 'nsrp');
       await _loadAccountProfile();
       if (mounted) {
         AppToast.success(context, 'Updated NSRP Form 1 and PDF saved.');
+        setState(() => _selectedIndex = 1);
+        unawaited(_retryAiExtraction());
       }
     } catch (error) {
       debugPrint('[NSRP] Revision sync failed (${error.runtimeType}).');
@@ -719,23 +1240,25 @@ class _UserProfileState extends State<UserProfile> {
     try {
       final picked = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: const ['pdf'],
+        allowedExtensions: category == 'nsrp_form'
+            ? const ['pdf'] : const ['pdf', 'jpg', 'jpeg', 'png'],
         withData: true,
       );
       if (picked == null || picked.files.isEmpty) return false;
       final file = picked.files.single;
       final bytes = file.bytes;
-      if (bytes == null ||
-          bytes.length < 5 ||
-          bytes.length > ProfileArtifactService.maxArtifactBytes ||
-          bytes[0] != 0x25 ||
-          bytes[1] != 0x50 ||
-          bytes[2] != 0x44 ||
-          bytes[3] != 0x46 ||
-          bytes[4] != 0x2D) {
-        if (mounted) {
-          AppToast.error(context, 'Choose a valid PDF under 20 MB.');
-        }
+      final validPdf = bytes != null && bytes.length >= 5 &&
+          bytes[0] == 0x25 && bytes[1] == 0x50 &&
+          bytes[2] == 0x44 && bytes[3] == 0x46 && bytes[4] == 0x2d;
+      final validPng = bytes != null && bytes.length >= 8 &&
+          bytes[0] == 0x89 && bytes[1] == 0x50 &&
+          bytes[2] == 0x4e && bytes[3] == 0x47;
+      final validJpg = bytes != null && bytes.length >= 3 &&
+          bytes[0] == 0xff && bytes[1] == 0xd8 && bytes[2] == 0xff;
+      if (bytes == null || bytes.length > ProfileArtifactService.maxArtifactBytes ||
+          !(validPdf || (category != 'nsrp_form' && (validPng || validJpg)))) {
+        if (mounted) AppToast.error(context,
+          'Choose a PDF/JPG/PNG resume under 20 MB or a PDF for NSRP.');
         return false;
       }
       final newCategory = category == 'nsrp_form'
@@ -744,10 +1267,17 @@ class _UserProfileState extends State<UserProfile> {
       await PesoApiClient.uploadArtifact(
         fileName: file.name,
         category: newCategory,
-        mimeType: 'application/pdf',
+        mimeType: validPdf ? 'application/pdf' :
+          validPng ? 'image/png' : 'image/jpeg',
         bytes: bytes,
       );
       if (newCategory == 'resume_upload') {
+        _pendingResumeExtraction = ProfileArtifactInput(
+          fileName: file.name, category: 'resume_upload',
+          mimeType: validPdf ? 'application/pdf' :
+            validPng ? 'image/png' : 'image/jpeg',
+          bytes: bytes,
+        );
         try {
           await PesoApiClient.saveOnboarding(<String, dynamic>{
             'resumeData': <String, dynamic>{
@@ -767,7 +1297,12 @@ class _UserProfileState extends State<UserProfile> {
       }
       await _loadAccountProfile();
       if (mounted) {
-        AppToast.success(context, 'Revised PDF saved to your PESO account.');
+        AppToast.success(context, 'Revised resume/document saved to your PESO account.');
+        if (newCategory == 'resume_upload' &&
+            _accountDocuments['formSubmitted'] == true) {
+          setState(() => _selectedIndex = 1);
+          unawaited(_retryAiExtraction());
+        }
       }
       return true;
     } on PesoApiException catch (error) {
@@ -944,6 +1479,7 @@ class _UserProfileState extends State<UserProfile> {
   @override
   void dispose() {
     _jobExpiryTimer?.cancel();
+    _jobSearchDebounce?.cancel();
     _jobSearchController.dispose();
     _nameController.dispose();
     _titleController.dispose();
@@ -1041,15 +1577,24 @@ class _UserProfileState extends State<UserProfile> {
               ),
             ),
             const SizedBox(width: 10),
-            Text(
-              'JobKonek',
-              style: TextStyle(
-                color: _textDark,
-                fontSize: 22,
-                fontWeight: FontWeight.w900,
+            Expanded(
+              child: Text(
+                'JobKonek',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: _textDark,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                ),
               ),
             ),
-            const Spacer(),
+            const SizedBox(width: 6),
+            IconButton(
+              tooltip: 'PESO application notifications',
+              icon: const Icon(Icons.notifications_outlined),
+              onPressed: () => unawaited(_openNotifications()),
+            ),
             PopupMenuButton<int>(
               tooltip: 'Open dashboard navigation',
               icon: Icon(Icons.menu, color: _primary),
@@ -1159,8 +1704,8 @@ class _UserProfileState extends State<UserProfile> {
               IconButton(
                 icon: const Icon(Icons.notifications_none, size: 26),
                 color: _textLight,
-                tooltip: 'Notification preferences',
-                onPressed: () => setState(() => _selectedIndex = 3),
+                tooltip: 'View PESO application notifications',
+                onPressed: () => unawaited(_openNotifications()),
               ),
               const SizedBox(width: 20),
               Container(width: 1, height: 30, color: Colors.grey.shade200),
@@ -1341,6 +1886,9 @@ class _UserProfileState extends State<UserProfile> {
           jobsLoading: _jobsLoading,
           jobLoadError: _jobLoadError,
           onRetryJobs: () => unawaited(_loadJobPostings()),
+          hasMoreJobs: _nextJobPageToken != null,
+          loadingMoreJobs: _loadingMoreJobs,
+          onLoadMoreJobs: () => unawaited(_loadMoreJobPostings()),
           interestLabels: recognizedJobInterests(_preferredOccupation),
           preferredOccupation: _preferredOccupation,
           translatedJob:
@@ -1364,7 +1912,7 @@ class _UserProfileState extends State<UserProfile> {
               _selectedJob = visible.isEmpty ? null : visible.first;
               _hasManuallySelectedJob = false;
             });
-            unawaited(_translateSelectedJob());
+            _scheduleJobSearch();
           },
           selectedLanguage: _selectedLanguage,
           newRegistration: widget.newRegistration,
@@ -1376,7 +1924,7 @@ class _UserProfileState extends State<UserProfile> {
               _selectedJob = visible.isEmpty ? null : visible.first;
               _hasManuallySelectedJob = false;
             });
-            unawaited(_translateSelectedJob());
+            unawaited(_loadJobPostings());
           },
           selectedJob: _selectedJob,
           detailsAnchor: _jobDetailsAnchor,
@@ -1433,6 +1981,11 @@ class _UserProfileState extends State<UserProfile> {
       case 2:
         return UserOutcomesTab(
           assessmentOutcomes: _assessmentOutcomes,
+          applications: _myApplications,
+          applicationsLoading: _applicationsLoading,
+          applicationsError: _applicationsError,
+          focusedApplicationId: _focusedApplicationId,
+          onRefreshApplications: () => unawaited(_loadMyApplications()),
           onSubmitReadiness: _submitReadinessApplication,
           onEditQualifications: _editQualifications,
           onEditPersonalInfo: () => setState(() => _selectedIndex = 4),
@@ -1472,6 +2025,11 @@ class _UserProfileState extends State<UserProfile> {
       case 4:
         return UserAccountTab(
           profile: _accountProfile,
+          documents: _accountDocuments,
+          onEditNsrp: () => unawaited(_editOfficialNsrp()),
+          onCreateResume: () => unawaited(_openResumeBuilder()),
+          onReplaceResume: () => _replacePdf('resume_upload'),
+          onReviewAi: () => setState(() => _selectedIndex = 1),
           photoBytes: _profilePhotoBytes,
           onUploadPhoto: _uploadProfilePhoto,
           onChooseAvatar: _setAvatarStyle,
@@ -1585,12 +2143,30 @@ class _UserProfileState extends State<UserProfile> {
             application['status']?.toString() ?? 'submitted';
         report['submittedAt'] = application['submittedAt'];
       });
-      AppToast.success(
-        context,
-        'PESO received your application. You can follow its review status from your profile.',
-        title: 'Application submitted',
-      );
       await _persistOutcomes();
+      unawaited(_loadMyApplications());
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.check_circle_rounded, color: Color(0xFF218352)),
+              SizedBox(width: 10),
+              Expanded(child: Text('Application submitted')),
+            ],
+          ),
+          content: const Text(
+            'PESO received your application for review. This is not an employer hiring decision or guarantee of an interview. View its progress in Outcomes.',
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Got it'),
+            ),
+          ],
+        ),
+      );
     } catch (error) {
       if (mounted) {
         AppToast.error(

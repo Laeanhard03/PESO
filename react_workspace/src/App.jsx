@@ -28,8 +28,113 @@ export default function App() {
   const heightRef = useRef(2400);
   const pinchRef = useRef(null);
   const previewScale = zoomLevel * fitScale;
+  const [dateOfBirth, setDateOfBirth] = useState('');
+  const [sex, setSex] = useState('');
+  const [religion, setReligion] = useState('');
+  const manualDobRef = useRef(null);
+  const [draftStatus, setDraftStatus] = useState('Offline Draft');
+  const ownerUidRef = useRef('');
+  const draftTimerRef = useRef(null);
+  const lastDraftRef = useRef(null);
+  const restoringRef = useRef(false);
+  const draftFieldsRef = useRef({});
+  useEffect(() => {
+    draftFieldsRef.current = { dateOfBirth, sex, religion,
+      careerEducation, experienceStatus, skillsStage, careerSkills, hasSignature };
+  }, [dateOfBirth, sex, religion, careerEducation,
+    experienceStatus, skillsStage, careerSkills, hasSignature]);
+
+  const dobAsText = iso => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(iso || '')) return '';
+    const [year, month, day] = iso.split('-');
+    return month + '/' + day + '/' + year;
+  };
+  const changeTypedDob = value => {
+    const match = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(value.trim());
+    if (!match) { setDateOfBirth(''); return; }
+    const [, m, d, y] = match;
+    const iso = y + '-' + m.padStart(2, '0') + '-' + d.padStart(2, '0');
+    const parsed = new Date(iso + 'T12:00:00');
+    setDateOfBirth(!Number.isNaN(parsed.getTime()) &&
+      parsed.toISOString().slice(0, 10) === iso ? iso : '');
+  };
+
+  const snapshotDraft = () => {
+    const fields = draftFieldsRef.current;
+    const controls = Array.from(document.querySelectorAll(
+      '#zoom-wrapper input, #zoom-wrapper select, #zoom-wrapper textarea',
+    )).filter(node => !['hidden', 'submit', 'button', 'reset', 'file'].includes(
+      (node.type || '').toLowerCase()));
+    return {
+      documentType: 'NSRP Form 1 Draft',
+      draftUpdatedAt: new Date().toISOString(),
+      entries: controls.map((node, index) => {
+        const type = (node.type || node.tagName || '').toLowerCase();
+        const checked = type === 'checkbox' || type === 'radio' ? node.checked : undefined;
+        return {
+          index: index + 1, type, value: checked === undefined
+            ? String(node.value || '').slice(0, 5000) : checked ? 'Selected' : '',
+          ...(checked === undefined ? {} : { checked }),
+        };
+      }),
+      applicantEssentials: {
+        education: fields.careerEducation, experience: fields.experienceStatus,
+        skillsStage: fields.skillsStage,
+        skills: fields.skillsStage === skillsChoices[0] ? fields.careerSkills : '',
+      },
+      dateOfBirth: fields.dateOfBirth, sex: fields.sex, religion: fields.religion,
+      signatureDataUrl: fields.hasSignature && signatureCanvasRef.current
+        ? signatureCanvasRef.current.toDataURL('image/png') : null,
+    };
+  };
+
+  const age = (() => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)) return '';
+    const born = new Date(`${dateOfBirth}T12:00:00`);
+    if (Number.isNaN(born.getTime()) || born.toISOString().slice(0, 10) !== dateOfBirth) return '';
+    const today = new Date();
+    let years = today.getFullYear() - born.getFullYear();
+    if (today.getMonth() < born.getMonth() ||
+        (today.getMonth() === born.getMonth() && today.getDate() < born.getDate())) years--;
+    return years >= 0 && years <= 120 ? String(years) : '';
+  })();
 
   useEffect(() => { zoomRef.current = zoomLevel; }, [zoomLevel]);
+
+  // Debounced encrypted draft persistence is performed in the authenticated
+  // Flutter parent. Never put applicant fields in ordinary cookies/localStorage.
+  useEffect(() => {
+    const schedule = () => {
+      if (restoringRef.current || !ownerUidRef.current) return;
+      setDraftStatus('Saving');
+      if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+      draftTimerRef.current = window.setTimeout(() => {
+        const draft = snapshotDraft();
+        lastDraftRef.current = draft;
+        if (!sendToFlutter({ status: 'draft', kind: 'nsrp_form', formData: draft })) {
+          setDraftStatus('Sync Failed');
+        }
+      }, 900);
+    };
+    const goOnline = () => {
+      if (lastDraftRef.current && ownerUidRef.current) {
+        setDraftStatus('Saving');
+        sendToFlutter({ status: 'draft', kind: 'nsrp_form',
+          formData: lastDraftRef.current });
+      }
+    };
+    document.addEventListener('input', schedule, true);
+    document.addEventListener('change', schedule, true);
+    window.addEventListener('online', goOnline);
+    return () => {
+      document.removeEventListener('input', schedule, true);
+      document.removeEventListener('change', schedule, true);
+      window.removeEventListener('online', goOnline);
+      if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    };
+  // snapshotDraft reads the current controlled fields through draftFieldsRef.
+  }, []);
+
 
   const beginSignature = event => {
     const canvas = signatureCanvasRef.current;
@@ -251,9 +356,20 @@ export default function App() {
       let data;
       try { data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data; }
       catch { return; }
-      if (data?.source !== 'peso-flutter' || data?.event !== 'nsrp-prefill') return;
+      if (data?.source !== 'peso-flutter') return;
+      if (data.event === 'draft-sync-status') {
+        if (['Saving', 'Saved', 'Offline Draft', 'Sync Failed'].includes(data.state)) {
+          setDraftStatus(data.state);
+        }
+        return;
+      }
+      if (data.event !== 'nsrp-prefill') return;
+      if (typeof data.ownerUid === 'string' && data.ownerUid.length > 0) {
+        ownerUidRef.current = data.ownerUid;
+      }
       const entries = data.formData?.entries;
       if (!Array.isArray(entries)) return;
+      restoringRef.current = true;
       // Match the exact control set and ordering used when serializing NSRP.
       // Applicant-career selects live outside the printable zoom wrapper and
       // must NOT shift saved index 1 (surname) onto the education dropdown.
@@ -266,6 +382,8 @@ export default function App() {
         if (!Number.isInteger(i) || i < 0 || i >= controls.length) return;
         const input = controls[i];
         const type = (input.type || '').toLowerCase();
+        if (entry.type && type !== entry.type &&
+            !(['text', 'date'].includes(type) && ['text', 'date'].includes(entry.type))) return;
         if (type === 'checkbox' || type === 'radio') {
           input.checked = entry.checked === true || entry.value === 'Selected';
         } else if (typeof entry.value === 'string') {
@@ -281,6 +399,12 @@ export default function App() {
       });
       // Career choices are controlled by React state and serialized separately
       // from the numbered printable controls. Restore them by named keys.
+      const restoredDob = data.formData?.dateOfBirth || '';
+      setDateOfBirth(restoredDob);
+      if (manualDobRef.current) manualDobRef.current.value = dobAsText(restoredDob);
+      setSex(['Male', 'Female', 'Other'].includes(data.formData?.sex)
+        ? data.formData.sex : (data.verifiedResumeSex || ''));
+      setReligion(data.formData?.religion || '');
       const career = data.formData?.applicantEssentials || {};
       const legacyValue = label => entries.find(entry =>
         entry?.type === 'applicant_essential' && entry.label === label)?.value || '';
@@ -297,6 +421,7 @@ export default function App() {
       setCareerSkills(stage === skillsChoices[0] ? savedSkills.slice(0, 5000) : '');
 
       // Preserve an applicant's drawn signature when they reopen the form.
+      window.setTimeout(() => { restoringRef.current = false; }, 150);
       const signature = data.formData?.signatureDataUrl;
       if (typeof signature === 'string' && /^data:image\/png;base64,/.test(signature)
           && signature.length < 200000) {
@@ -373,6 +498,12 @@ export default function App() {
 
     try {
       // Mirror current control values into the DOM before rendering the PDF.
+      document.querySelectorAll('#zoom-wrapper input, #zoom-wrapper textarea, #zoom-wrapper select').forEach(control => {
+        if (control.type !== 'checkbox' && control.type !== 'radio') {
+          control.style.fontSize = control.value.length > 70 ? '8px' : control.value.length > 35 ? '10px' : '12px';
+          control.style.minWidth = '0';
+        }
+      });
       document.querySelectorAll('input').forEach((input) => {
         if (input.type === 'checkbox' || input.type === 'radio') {
           if (input.checked) input.setAttribute('checked', 'checked');
@@ -384,19 +515,83 @@ export default function App() {
 
       const pdf = new jsPDF('p', 'mm', 'a4');
       const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pages = ['peso-page-1', 'peso-page-2'];
-      for (let index = 0; index < pages.length; index++) {
-        const page = document.getElementById(pages[index]);
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      let pdfPageCount = 0;
+      for (const id of ['peso-page-1', 'peso-page-2']) {
+        const page = document.getElementById(id);
         if (!page) continue;
-        if (index > 0) pdf.addPage();
-        const image = await htmlToImage.toJpeg(page, {
-          quality: 0.96,
-          backgroundColor: '#ffffff',
-          pixelRatio: 1.5,
+        // A print-only DOM copy expands long text into wrapped, full-height
+        // lines. Live editable inputs stay untouched and keep keyboard access.
+        const printPage = page.cloneNode(true);
+        printPage.removeAttribute('id');
+        printPage.style.position = 'absolute';
+        // html-to-image needs the print source inside the visible render surface.
+        // Keep the clone behind the app while rasterizing, then remove it.
+        printPage.style.left = '0';
+        printPage.style.top = '0';
+        printPage.style.zIndex = '-1';
+        printPage.style.pointerEvents = 'none';
+        printPage.style.width = page.offsetWidth + 'px';
+        printPage.style.height = 'auto';
+        printPage.style.transform = 'none';
+        const originals = Array.from(page.querySelectorAll('input, select, textarea'));
+        const copies = Array.from(printPage.querySelectorAll('input, select, textarea'));
+        originals.forEach((source, index) => {
+          const target = copies[index];
+          if (!target) return;
+          const type = (source.type || '').toLowerCase();
+          let visibleValue;
+          if (type === 'checkbox' || type === 'radio') {
+            visibleValue = source.checked ? '?' : '?';
+          } else if (source.tagName === 'SELECT') {
+            visibleValue = source.selectedOptions[0]?.textContent || '';
+          } else if (type === 'date' && source.value) {
+            const parts = source.value.split('-');
+            visibleValue = parts.length === 3 ? [parts[1], parts[2], parts[0]].join('/') : source.value;
+          } else {
+            visibleValue = source.value || '';
+          }
+          const replacement = document.createElement('span');
+          replacement.textContent = visibleValue;
+          replacement.style.cssText = 'display:block;flex:1;min-width:0;max-width:100%;' +
+            'white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;' +
+            'font-size:11px;line-height:1.45;padding:2px 0;min-height:16px;';
+          target.replaceWith(replacement);
         });
-        const imageHeight = (page.offsetHeight * pdfWidth) / page.offsetWidth;
-        pdf.addImage(image, 'JPEG', 0, 0, pdfWidth, imageHeight);
+        const originalCanvases = page.querySelectorAll('canvas');
+        const cloneCanvases = printPage.querySelectorAll('canvas');
+        originalCanvases.forEach((canvas, index) => {
+          const copy = cloneCanvases[index];
+          if (copy) copy.getContext('2d')?.drawImage(canvas, 0, 0);
+        });
+        printPage.querySelectorAll('.h-1\\/2').forEach(element => {
+          element.style.height = 'auto';
+        });
+        document.body.appendChild(printPage);
+        try {
+          const image = await htmlToImage.toCanvas(printPage, {
+            backgroundColor: '#ffffff', pixelRatio: 1.5,
+          });
+          const sliceHeight = Math.floor(image.width * pdfHeight / pdfWidth);
+          for (let top = 0; top < image.height; top += sliceHeight) {
+            const segmentHeight = Math.min(sliceHeight, image.height - top);
+            const segment = document.createElement('canvas');
+            segment.width = image.width;
+            segment.height = segmentHeight;
+            segment.getContext('2d').drawImage(
+              image, 0, top, image.width, segmentHeight,
+              0, 0, image.width, segmentHeight,
+            );
+            if (pdfPageCount > 0) pdf.addPage();
+            pdf.addImage(segment.toDataURL('image/jpeg', 0.89), 'JPEG',
+              0, 0, pdfWidth, segmentHeight * pdfWidth / image.width);
+            pdfPageCount++;
+          }
+        } finally {
+          printPage.remove();
+        }
       }
+      if (pdfPageCount === 0) throw new Error('NSRP pages could not be rendered.');
       pdf.save('NSRP_Form1.pdf');
 
       const normalize = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -499,6 +694,10 @@ export default function App() {
           preferredOccupation: applicantEssentials.preferredOccupation,
           city: applicantEssentials.city,
         },
+        dateOfBirth,
+        age,
+        sex,
+        religion,
         completedAt: new Date().toISOString(),
         signatureDataUrl: hasSignature && signatureCanvasRef.current
           ? signatureCanvasRef.current.toDataURL('image/png')
@@ -664,7 +863,20 @@ export default function App() {
             style={{ width: '850px', transform: `scale(${previewScale})`, transformOrigin: 'top left' }}
           >
         
-        {/* ======================= PAGE 1 ======================= */}
+        <div data-testid="nsrp-draft-status" role="status" aria-live="polite"
+        className="text-xs font-semibold text-emerald-900 bg-white border border-emerald-200 rounded-lg px-3 py-2 mx-auto w-fit mb-3">
+        Draft: {draftStatus}
+        {draftStatus === 'Sync Failed' && (
+          <button type="button" className="underline ml-3"
+            onClick={() => {
+              if (ownerUidRef.current) sendToFlutter({
+                status: 'draft', kind: 'nsrp_form',
+                formData: lastDraftRef.current || snapshotDraft(),
+              });
+            }}>Retry sync</button>
+        )}
+      </div>
+      {/* ======================= PAGE 1 ======================= */}
         <div id="peso-page-1" className="w-[850px] bg-white shadow-sm mb-8 border border-gray-400 p-8 text-xs text-black">
           
           <div className="flex border border-black mb-2">
@@ -700,20 +912,25 @@ export default function App() {
             </div>
 
             <div className="flex border-b border-black divide-x divide-black">
-              <div className="w-1/4 p-1 flex flex-col justify-between"><GreenLabel>DATE OF BIRTH</GreenLabel> (mm/dd/yyyy)<input type="date" className="w-full outline-none mt-1" /></div>
-              <div className="w-1/4 flex divide-x divide-black">
-                  <div className="w-1/2 p-1 flex items-center gap-1"><input type="checkbox"/> Male</div>
-                  <div className="w-1/2 p-1 flex items-center gap-1"><input type="checkbox"/> Female</div>
-              </div>
-              <div className="w-[12.5%] p-1"><GreenLabel>AGE</GreenLabel><input type="text" className="w-full outline-none mt-1" /></div>
+              <div className="w-1/4 p-1 flex flex-col justify-between"><GreenLabel>DATE OF BIRTH</GreenLabel> (mm/dd/yyyy)<div className="flex flex-wrap gap-1 mt-1">
+                <input type="date" aria-label="Choose date of birth" value={dateOfBirth}
+                  onChange={event => { setDateOfBirth(event.target.value); if (manualDobRef.current) manualDobRef.current.value = dobAsText(event.target.value); }}
+                  className="w-full min-w-0 outline-none" />
+                <input type="text" inputMode="numeric" aria-label="Type date of birth"
+                  placeholder="MM/DD/YYYY" maxLength={10} ref={manualDobRef}
+                  onChange={event => changeTypedDob(event.target.value)}
+                  className="w-full min-w-0 border-t border-gray-300 outline-none" />
+              </div></div>
+              <div className="w-1/4 p-1"><GreenLabel>SEX</GreenLabel><select aria-label="Sex" className="w-full min-w-0 text-[11px]" value={sex} onChange={event => setSex(event.target.value)}><option value="">Choose</option><option>Male</option><option>Female</option><option>Other</option></select></div>
+              <div className="w-[12.5%] p-1"><GreenLabel>AGE</GreenLabel><input type="text" aria-label="Age (calculated)" readOnly value={age} className="w-full outline-none mt-1" /></div>
               <div className="w-[37.5%] p-1"><GreenLabel>PLACE OF BIRTH</GreenLabel><input type="text" className="w-full outline-none mt-1" /></div>
             </div>
 
             <div className="flex border-b border-black divide-x divide-black">
               <div className="w-1/2 flex flex-col divide-y divide-black">
                 <div className="flex divide-x divide-black h-1/2">
-                   <div className="w-1/2 p-1 font-bold text-green-700">SEX</div>
-                   <div className="w-1/2 p-1"><GreenLabel>RELIGION</GreenLabel><input type="text" className="w-full outline-none" /></div>
+                   <div className="w-1/2 p-1 font-bold text-green-700">Personal details</div>
+                   <div className="w-1/2 p-1"><GreenLabel>RELIGION</GreenLabel><select aria-label="Religion" className="w-full min-w-0" value={religion} onChange={event => setReligion(event.target.value)}><option value="">Optional / Prefer not to say</option><option>Prefer not to say</option><option>Roman Catholic</option><option>Islam</option><option>Iglesia ni Cristo</option><option>Protestant</option><option>Born Again Christian</option><option>Other</option><option>None</option></select></div>
                 </div>
                 <div className="flex divide-x divide-black h-1/2">
                     <div className="w-1/4 p-1"><GreenLabel>CIVIL STATUS</GreenLabel></div>

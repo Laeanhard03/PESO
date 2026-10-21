@@ -55,6 +55,22 @@ class _ProfilePdfViewState extends State<ProfilePdfView> {
 }
 
 class ProfilePdfDownload {
+  static Future<bool> openForPrint(Uint8List bytes) async {
+    final url = html.Url.createObjectUrlFromBlob(
+      html.Blob(<dynamic>[bytes], 'application/pdf'),
+    );
+    try {
+      // Open the authenticated bytes in the browser PDF toolbar for printing.
+      html.window.open(url, '_blank');
+      await Future<void>.delayed(const Duration(minutes: 1));
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      html.Url.revokeObjectUrl(url);
+    }
+  }
+
   static Future<bool> save(Uint8List bytes, String fileName) async {
     final url = html.Url.createObjectUrlFromBlob(
       html.Blob(<dynamic>[bytes], 'application/pdf'),

@@ -3,5 +3,8 @@
   "framework": "express",
   "installCommand": "npm ci",
   "buildCommand": null,
-  "outputDirectory": null
+  "outputDirectory": null,
+  "functions": {
+    "server.js": { "includeFiles": "mini_ai_runtime/**", "maxDuration": 300 }
+  }
 }

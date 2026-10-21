@@ -17,6 +17,7 @@ import { createGeminiKeyRouter } from './src/gemini-key-routes.js';
 import { decryptApiKey } from './src/gemini-key-vault.js';
 import { createPublicPdfIngestion } from './src/public-pdf-ingestion.js';
 import { extractPdfPagesWithOcr } from './src/public-pdf-extraction.js';
+import { verifyUploadedResumeSex } from './src/applicant-sex-evidence.js';
 import { createPublicPdfAiReaderFromRotator } from './src/gemini-public-pdf-reader.js';
 import {
   retireLegacyPublicPdfCards,
@@ -31,8 +32,13 @@ import {
   fallbackJobFeedback, chooseRelatedJobs, geminiFeedbackPrompt, safeGeminiFeedback,
 } from './src/job-evaluation-feedback.js';
 import { linkedRolesForNotice } from './src/notice-role-linkage.js';
+import { fetchStoredJobPage, ensureJobFeedIndexes } from './src/job-feed-service.js';
 import { validateAdminPdfUrl, inspectAdminPdfUrl } from './src/pdf-link-policy.js';
 import { hasStructuredResume, renderStructuredResume } from './src/resume-preview.js';
+import { RODRIGUEZ_BARANGAYS, normalizeMunicipality, normalizeBarangay,
+  validateResidency, residencyStatus, isVerifiedResident, normalizeSex,
+  normalizeDateOfBirth, ageFromBirthDate, documentSummary } from './src/residency.js';
+import { installAdminApplicantDocumentRoutes } from './src/admin-applicant-documents.js';
 
 
 import {
@@ -277,7 +283,16 @@ async function ensureMongoForRequest() {
 }
 
 app.use((req, res, next) => {
+  // No database I/O for static/public catalog or retired SMS endpoints.
+  // Avoid connecting to Atlas for nonexistent URLs and OPTIONS preflights.
+  if (req.method === 'OPTIONS' || !req.path.startsWith('/api/') ||
+      req.path === '/api/residency/barangays' ||
+      req.path.startsWith('/api/auth/sms/') ||
+      req.path.startsWith('/api/password-reset/sms/')) return next();
   if (state.mongoConnected && state.db && state.bucket) return next();
+  // Injected test identity verifiers use an isolated mock database. Never
+  // reconnect to the real Atlas URI after a test deliberately disables Mongo.
+  if (state.tokenVerifierOverride && process.env.NODE_ENV !== 'production') return next();
   ensureMongoForRequest().then(() => next(), next);
 });
 
@@ -321,6 +336,12 @@ async function connectMongo() {
     await client.connect();
     const db = client.db(DB_NAME);
     await db.command({ ping: 1 });
+    try {
+      await ensureJobFeedIndexes(db);
+    } catch (indexError) {
+      // Index-management permissions should not disable authenticated PESO data.
+      logSafeError('[MongoDB] Job query indexes unavailable', indexError);
+    }
     state.mongoClient = client;
     state.db = db;
     state.bucket = new GridFSBucket(db, { bucketName: 'profileArtifacts' });
@@ -396,6 +417,19 @@ async function requireAuth(req, res, next) {
     } catch (error) { return next(error); }
   }
   return next();
+}
+
+async function requireVerifiedResidency(req, res, next) {
+  if (req.user?.role === 'admin') return next();
+  try {
+    const profile = await usersCollection().findOne({ uid: req.user.uid });
+    if (!isVerifiedResident(profile)) {
+      return res.status(403).json({ ok: false, error: 'residency_verification_required',
+        residencyStatus: residencyStatus(profile),
+        message: 'PESO must verify Montalban residency before this service is available.' });
+    }
+    return next();
+  } catch (error) { return next(error); }
 }
 
 function requireMongo(req, res, next) {
@@ -570,6 +604,10 @@ function profileFromIdentity(identity, requested = {}, legacy = null) {
     emailVerified: identity.emailVerified === true,
     phoneVerified: Boolean(identity.phoneNumber || old.phoneVerified),
     location: String(fieldsFromClient.location || old.location || ''),
+    municipality: normalizeMunicipality(requested.municipality || old.municipality) || '',
+    barangay: normalizeBarangay(requested.barangay || old.barangay) || '',
+    address: String(requested.address || old.address || '').trim().slice(0, 500),
+    residency: { status: 'pending', revision: 0 },
     educationLevel: String(fieldsFromClient.educationLevel || old.educationLevel || ''),
     employmentStatus: String(fieldsFromClient.employmentStatus || old.employmentStatus || 'Looking for work'),
     professionalTitle: String(fieldsFromClient.professionalTitle || old.professionalTitle || ''),
@@ -622,7 +660,24 @@ async function ensureProfile(identity, requested = {}) {
 }
 
 function profileResponse(res, profile) {
-  return res.json({ ok: true, profile: normalizeProfileForClient(profile) });
+  const safe = normalizeProfileForClient(profile);
+  if (safe) {
+    safe.residency = { status: residencyStatus(profile),
+      revision: Number(profile?.residency?.revision || 0),
+      ...(profile?.residency?.reviewedAt ? { reviewedAt: profile.residency.reviewedAt } : {}) };
+    const savedDob = normalizeDateOfBirth(safe.dateOfBirth ||
+      (safe.pesoFormData && safe.pesoFormData.dateOfBirth) || '');
+    if (savedDob) safe.dateOfBirth = savedDob;
+    safe.age = ageFromBirthDate(savedDob) ?? (Number.isInteger(safe.age) ? safe.age : null);
+    if (!safe.sex && safe.pesoFormData?.sex) {
+      safe.sex = normalizeSex(safe.pesoFormData.sex);
+    }
+    // Residency review evidence and audit metadata are administrator-only.
+    delete safe.residencyAudit;
+    safe.documentSummary = documentSummary(profile);
+    safe.onboardingRevision = Number(profile?.onboardingRevision || 0);
+  }
+  return res.json({ ok: true, profile: safe });
 }
 
 function decodeArtifactBase64(body) {
@@ -648,6 +703,12 @@ function artifactFromGridFs(file) {
     uploadedAt: file.uploadDate || new Date(),
   };
 }
+
+// Read-only admin document integration, sharing the AI Profile GridFS store.
+installAdminApplicantDocumentRoutes({
+  app, requireAuth, requireAdmin, requireMongo, state, usersCollection,
+  artifactFromGridFs, isAllowedMimeType, safeFileName,
+});
 
 app.get('/api/health', async (_req, res) => {
   // Managed Gemini keys take precedence over the legacy environment key.
@@ -679,27 +740,30 @@ app.get('/api/health', async (_req, res) => {
   });
 });
 
-app.get('/api/jobs', requireAuth, requireMongo, async (_req, res, next) => {
-  try {
-    const now = new Date();
-    const documents = await state.db.collection('jobPostings')
-      .find({ status: 'active' })
-      .sort({ createdAt: -1 })
-      .limit(PUBLIC_JOB_FEED_LIMIT)
-      .toArray();
-    const visible = documents.filter((job) => isJobPostingVisible(job, now));
-    const jobs = visible.map((job) => {
-      const publicJob = publicJobPosting(job);
-      if (job.aiListingKind === 'notice') {
-        publicJob.linkedRoleIds = linkedRolesForNotice(job, visible, now)
-          .map((role) => String(role._id ?? role.id));
-      }
-      return publicJob;
-    });
-    return res.json({ ok: true, jobs });
-  } catch (error) {
-    return next(error);
+// The public and authenticated feeds share the same MongoDB visibility and
+// paging rules. Never expose profile data, application results, or admin fields.
+function sendJobFeedError(error, res, next) {
+  if (error?.status === 400) {
+    return res.status(400).json({ ok: false, error: String(error.code || 'invalid_job_query') });
   }
+  return next(error);
+}
+app.get('/api/public/jobs', requireMongo, async (req, res, next) => {
+  try {
+    const result = await fetchStoredJobPage(state.db.collection('jobPostings'), req.query,
+      { defaultLimit: 30, maxLimit: 100 });
+    res.set('Cache-Control', 'no-store');
+    return res.json(result);
+  } catch (error) { return sendJobFeedError(error, res, next); }
+});
+
+app.get('/api/jobs', requireAuth, requireMongo, async (req, res, next) => {
+  try {
+    const result = await fetchStoredJobPage(state.db.collection('jobPostings'), req.query,
+      { defaultLimit: 100, maxLimit: 100 });
+    res.set('Cache-Control', 'no-store');
+    return res.json(result);
+  } catch (error) { return sendJobFeedError(error, res, next); }
 });
 
 // Translate a selected public job on demand, never a private applicant profile.
@@ -752,6 +816,21 @@ app.post('/api/jobs/:id/translation', requireAuth, requireMongo, async (req, res
     } }, { upsert: true });
     return res.json({ ok: true, cached: false, language,
       translation: translated, originalLanguage: 'English' });
+  } catch (error) { return next(error); }
+});
+
+// Read-only career recommendations. The applicant's saved NSRP/resume is the
+// source of features; no post-evaluation MRQ, per-job Gemini call or status
+// update is allowed to overwrite an individually evaluated job.
+app.get('/api/ai/job-recommendations', requireAuth, requireMongo, async (req, res, next) => {
+  try {
+    const profile = await usersCollection().findOne({ uid: req.user.uid }) || {};
+    const jobs = await state.db.collection('jobPostings')
+      .find({ status: 'active' }).sort({ createdAt: -1 })
+      .limit(PUBLIC_JOB_FEED_LIMIT).toArray();
+    const result = await evaluateProfileAgainstJobs({ profile, jobs });
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json(result);
   } catch (error) { return next(error); }
 });
 
@@ -863,19 +942,24 @@ app.post('/api/ai/job-feedback', requireAuth, requireMongo, async (req, res, nex
 
 app.get('/api/admin/jobs', requireAuth, requireAdmin, requireMongo, async (req, res, next) => {
   try {
-    const requestedLimit = Number.parseInt(String(req.query.limit || String(PUBLIC_JOB_FEED_LIMIT)), 10);
-    const limit = Number.isFinite(requestedLimit)
-      ? Math.max(1, Math.min(PUBLIC_JOB_FEED_LIMIT, requestedLimit))
-      : PUBLIC_JOB_FEED_LIMIT;
-    const documents = await state.db.collection('jobPostings')
-      .find({})
-      .sort({ createdAt: -1 })
-      .limit(limit)
-      .toArray();
-    return res.json({ ok: true, jobs: documents.map(publicJobPosting) });
-  } catch (error) {
-    return next(error);
-  }
+    const limitRaw = Number.parseInt(String(req.query.limit || '100'), 10);
+    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(500, limitRaw)) : 100;
+    const rawToken = typeof req.query.pageToken === 'string' ? req.query.pageToken : '0';
+    if (!/^(0|[1-9][0-9]{0,8})$/.test(rawToken)) {
+      return res.status(400).json({ ok: false, error: 'invalid_page_token' });
+    }
+    const offset = Number.parseInt(rawToken, 10);
+    // Admins explicitly request deleted history; normal management excludes
+    // soft-deleted records to prevent reactivation and inconsistent counts.
+    const filter = req.query.includeDeleted === '1' ? {} : { status: { $ne: 'deleted' } };
+    const rows = await state.db.collection('jobPostings')
+      .find(filter).sort({ createdAt: -1, _id: -1 })
+      .skip(offset).limit(limit + 1).toArray();
+    const more = rows.length > limit;
+    res.set('Cache-Control', 'no-store');
+    return res.json({ ok: true, jobs: rows.slice(0, limit).map(publicJobPosting),
+      nextPageToken: more ? String(offset + limit) : null });
+  } catch (error) { return next(error); }
 });
 
 app.post('/api/admin/jobs', requireAuth, requireAdmin, requireMongo, async (req, res, next) => {
@@ -889,6 +973,41 @@ app.post('/api/admin/jobs', requireAuth, requireAdmin, requireMongo, async (req,
   } catch (error) {
     return next(error);
   }
+});
+
+// Soft deletion preserves linked applicant submissions, source provenance, and
+// the administrative audit trail. Deleted jobs never appear in active feeds.
+app.delete('/api/admin/jobs/:id', requireAuth, requireAdmin, requireMongo, async (req, res, next) => {
+  try {
+    if (!ObjectId.isValid(req.params.id)) {
+      return res.status(404).json({ ok: false, error: 'job_not_found' });
+    }
+    const id = new ObjectId(req.params.id);
+    const now = new Date();
+    const result = await state.db.collection('jobPostings').updateOne(
+      { _id: id, status: { $ne: 'deleted' } },
+      { $set: { status: 'deleted', deletedAt: now, deletedBy: req.user.uid,
+        updatedAt: now, updatedBy: req.user.uid } },
+    );
+    if (!result.matchedCount) return res.status(404).json({ ok: false, error: 'job_not_found' });
+    return res.json({ ok: true, deleted: 1, id: String(id), retainedHistory: true });
+  } catch (error) { return next(error); }
+});
+
+app.delete('/api/admin/jobs', requireAuth, requireAdmin, requireMongo, async (req, res, next) => {
+  try {
+    if (req.body?.confirmation !== 'DELETE ALL JOBS') {
+      return res.status(400).json({ ok: false, error: 'confirmation_required',
+        message: 'Confirm DELETE ALL JOBS before deleting the job catalog.' });
+    }
+    const now = new Date();
+    const result = await state.db.collection('jobPostings').updateMany(
+      { status: { $ne: 'deleted' } },
+      { $set: { status: 'deleted', deletedAt: now, deletedBy: req.user.uid,
+        updatedAt: now, updatedBy: req.user.uid } },
+    );
+    return res.json({ ok: true, deleted: result.modifiedCount, retainedHistory: true });
+  } catch (error) { return next(error); }
 });
 
 // Public PDF links are verified before being attached to an admin review
@@ -984,7 +1103,9 @@ app.patch('/api/admin/jobs/:id/status', requireAuth, requireAdmin, requireMongo,
     const jobs = state.db.collection('jobPostings');
     const id = new ObjectId(req.params.id);
     const existing = await jobs.findOne({ _id: id });
-    if (!existing) return res.status(404).json({ ok: false, error: 'job_not_found' });
+    if (!existing || existing.status === 'deleted') {
+      return res.status(404).json({ ok: false, error: 'job_not_found' });
+    }
 
     if (req.body.active === true &&
         existing.category === JOB_POSTING_CATEGORIES.LOCAL_RECRUITMENT_ACTIVITY &&
@@ -992,7 +1113,7 @@ app.patch('/api/admin/jobs/:id/status', requireAuth, requireAdmin, requireMongo,
       return res.status(409).json({
         ok: false,
         error: 'job_expired',
-        message: 'This Local Recruitment Activity expired after 24 hours. Publish a new posting instead.',
+        message: 'This Local Recruitment Activity has passed the end of its scheduled recruitment day (Philippine time). Publish a new posting instead.',
       });
     }
 
@@ -1013,25 +1134,197 @@ app.patch('/api/admin/jobs/:id/status', requireAuth, requireAdmin, requireMongo,
   }
 });
 
+// Public registration constants. A selected barangay is a claim, not proof of residency.
+app.get('/api/residency/barangays', (_req, res) => res.json({
+  ok: true, municipality: 'Montalban', province: 'Rizal',
+  barangays: RODRIGUEZ_BARANGAYS, verificationRequired: true,
+}));
+
+// Change requests use compare-and-swap and write audit in the same Mongo document.
+// No self-submitted claim, including valid barangay, can set a verified state.
+async function updateApplicantResidency(uid, body) {
+  const fields = ['municipality', 'barangay', 'address'];
+  if (!fields.some(field => Object.hasOwn(body, field))) return { changed: false };
+  const current = await usersCollection().findOne({ uid });
+  if (!current || current.deleted || current.deletionPending || current.disabled) {
+    return { error: 'account_not_active' };
+  }
+  const source = Object.fromEntries(fields.map(field => [
+    field, Object.hasOwn(body, field) ? body[field] : current[field] || '',
+  ]));
+  const normalized = validateResidency(source, { requireComplete: false });
+  if (normalized.error) return { error: normalized.error };
+  const changedFields = fields.filter(field => String(current[field] || '') !== normalized[field]);
+  if (!changedFields.length) return { changed: false };
+  if (body.expectedRevision !== undefined &&
+      (!Number.isInteger(body.expectedRevision) ||
+       body.expectedRevision !== Number(current.residency?.revision || 0))) {
+    return { error: 'residency_revision_conflict' };
+  }
+  const revision = Number(current.residency?.revision || 0);
+  const revisionFilter = current.residency?.revision === undefined
+    ? { 'residency.revision': { $exists: false } }
+    : { 'residency.revision': revision };
+  const now = new Date();
+  const audit = { uid, actorUid: uid, action: 'claim_changed',
+    previousStatus: residencyStatus(current), status: 'pending',
+    changedFields, revision: revision + 1, createdAt: now };
+  const result = await usersCollection().updateOne({ uid, ...revisionFilter }, {
+    $set: { ...normalized, residency: { status: 'pending', revision: revision + 1,
+      updatedAt: now }, updatedAt: now },
+    $push: { residencyAudit: { $each: [audit], $slice: -100 } },
+  });
+  if (!result.matchedCount) return { error: 'residency_revision_conflict' };
+  return { changed: true, revision: revision + 1 };
+}
+
+app.put('/api/account/residency', requireAuth, requireMongo, async (req, res, next) => {
+  try {
+    const input = validateResidency(req.body, { requireComplete: true });
+    if (input.error) return res.status(400).json({ ok: false, error: input.error });
+    await ensureProfile(req.user);
+    const result = await updateApplicantResidency(req.user.uid, input);
+    if (result.error) return res.status(400).json({ ok: false, error: result.error });
+    return profileResponse(res, await usersCollection().findOne({ uid: req.user.uid }));
+  } catch (error) { return next(error); }
+});
+
+app.get('/api/account/residency', requireAuth, requireMongo, async (req, res, next) => {
+  try {
+    const profile = await ensureProfile(req.user);
+    return res.json({ ok: true, municipality: profile.municipality || '',
+      barangay: profile.barangay || '', address: profile.address || '',
+      verification: { status: residencyStatus(profile),
+        revision: Number(profile?.residency?.revision || 0) } });
+  } catch (error) { return next(error); }
+});
+
+app.patch('/api/admin/users/:uid/residency', requireAuth, requireAdmin, requireMongo, async (req, res, next) => {
+  try {
+    const uid = String(req.params.uid || '').trim();
+    const status = req.body?.status;
+    if (!uid || uid.length > 128) return res.status(400).json({ ok: false, error: 'invalid_uid' });
+    if (!['verified', 'needs_review', 'rejected', 'pending'].includes(status))
+      return res.status(400).json({ ok: false, error: 'invalid_residency_status' });
+    const target = await usersCollection().findOne({ uid });
+    if (!target || target.deleted) return res.status(404).json({ ok: false, error: 'user_not_found' });
+    if (target.role === 'admin' || uid === req.user.uid)
+      return res.status(403).json({ ok: false, error: 'protected_admin_account' });
+    if (target.disabled || target.deletionPending)
+      return res.status(409).json({ ok: false, error: 'account_not_active' });
+    const revision = Number(target.residency?.revision || 0);
+    if (!Number.isInteger(req.body?.expectedRevision) || req.body.expectedRevision !== revision)
+      return res.status(409).json({ ok: false, error: 'residency_review_conflict',
+        currentRevision: revision });
+    const claim = validateResidency(target, { requireComplete: true });
+    if (status === 'verified' && claim.error)
+      return res.status(409).json({ ok: false, error: 'residency_address_incomplete' });
+    if (req.body?.note !== undefined && typeof req.body.note !== 'string')
+      return res.status(400).json({ ok: false, error: 'invalid_review_note' });
+    const note = String(req.body?.note || '').trim().slice(0, 500);
+    const evidenceType = String(req.body?.evidenceType || '').trim();
+    const allowedEvidence = ['barangay_certificate', 'government_record', 'in_person', 'other'];
+    if (status === 'verified' &&
+        (note.length < 8 || !allowedEvidence.includes(evidenceType)))
+      return res.status(400).json({ ok: false, error: 'residency_review_evidence_required',
+        message: 'Record the review method and a meaningful note; a selected barangay is not evidence.' });
+    const now = new Date();
+    const previousStatus = residencyStatus(target);
+    const revisionFilter = target.residency?.revision === undefined
+      ? { 'residency.revision': { $exists: false } }
+      : { 'residency.revision': revision };
+    const record = { uid, actorUid: req.user.uid, action: 'review',
+      previousStatus, status, revision: revision + 1,
+      ...(evidenceType ? { evidenceType } : {}), note, createdAt: now };
+    const result = await usersCollection().updateOne({ uid, ...revisionFilter }, {
+      $set: { residency: { status, revision: revision + 1, reviewedAt: now,
+        reviewedBy: req.user.uid, updatedAt: now }, updatedAt: now },
+      $push: { residencyAudit: { $each: [record], $slice: -100 } },
+    });
+    if (!result.matchedCount) return res.status(409).json({
+      ok: false, error: 'residency_review_conflict' });
+    return res.json({ ok: true, uid, status, revision: revision + 1 });
+  } catch (error) { return next(error); }
+});
+
+app.get('/api/admin/users/:uid/residency/audit', requireAuth, requireAdmin, requireMongo, async (req, res, next) => {
+  try {
+    const uid = String(req.params.uid || '').trim();
+    if (!uid || uid.length > 128) return res.status(400).json({ ok: false, error: 'invalid_uid' });
+    const profile = await usersCollection().findOne({ uid });
+    if (!profile) return res.status(404).json({ ok: false, error: 'user_not_found' });
+    const embedded = Array.isArray(profile.residencyAudit) ? profile.residencyAudit : [];
+    // Backward-readable prior audit rows; all NEW records are embedded atomically.
+    let older = [];
+    try {
+      older = await state.db.collection('residencyAudit').find({ uid })
+        .sort({ createdAt: -1 }).limit(100).toArray();
+    } catch {
+      // Unavailable legacy collection must not hide atomic history.
+    }
+    const entries = [...embedded, ...older]
+      .map(({ _id, ...record }) => record)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 100);
+    return res.json({ ok: true, entries });
+  } catch (error) { return next(error); }
+});
+
 app.post('/api/profile/ensure', requireAuth, requireMongo, async (req, res, next) => {
   try {
-    return profileResponse(res, await ensureProfile(req.user, req.body || {}));
-  } catch (error) {
-    return next(error);
-  }
+    const body = req.body || {};
+    if (['municipality', 'barangay', 'address'].some(field => Object.hasOwn(body, field))) {
+      const result = validateResidency(body, { requireComplete: false });
+      if (result.error) return res.status(400).json({ ok: false, error: result.error });
+    }
+    await ensureProfile(req.user, body);
+    const update = await updateApplicantResidency(req.user.uid, body);
+    if (update.error) return res.status(update.error.endsWith('_conflict') ? 409 : 400)
+      .json({ ok: false, error: update.error });
+    return profileResponse(res, await usersCollection().findOne({ uid: req.user.uid }));
+  } catch (error) { return next(error); }
 });
 
 app.get('/api/profile', requireAuth, requireMongo, async (req, res, next) => {
   try {
-    return profileResponse(res, await ensureProfile(req.user));
-  } catch (error) {
-    return next(error);
-  }
+    const profile = await ensureProfile(req.user);
+    // Legacy GridFS-only documents count as submitted without relying on Gemini flags.
+    let summary = documentSummary(profile);
+    if (!summary.resumeSubmitted || !summary.formSubmitted) {
+      try {
+        const files = await state.bucket.find({ 'metadata.ownerUid': req.user.uid })
+          .sort({ uploadDate: -1 }).limit(500).toArray();
+        summary = documentSummary(profile, files);
+      } catch { /* Metadata listing errors must not erase stored source profile data. */ }
+    }
+    return profileResponse(res, { ...profile, documentSummary: summary });
+  } catch (error) { return next(error); }
 });
 
 app.put('/api/profile', requireAuth, requireMongo, async (req, res, next) => {
   try {
     const changes = sanitizeProfilePatch(req.body || {});
+    // Reject invalid input before any write, including residency changes.
+    if (['municipality', 'barangay', 'address'].some(field => Object.hasOwn(req.body || {}, field))) {
+      const residencyCheck = validateResidency(req.body, { requireComplete: false });
+      if (residencyCheck.error) return res.status(400).json({ ok: false, error: residencyCheck.error });
+    }
+    if (req.body?.dateOfBirth !== undefined) {
+      const date = normalizeDateOfBirth(req.body.dateOfBirth);
+      if (!date || ageFromBirthDate(date) === null) return res.status(400).json({ ok: false, error: 'invalid_date_of_birth' });
+      changes.dateOfBirth = date;
+      changes.age = ageFromBirthDate(date);
+    }
+    if (req.body?.sex !== undefined) {
+      const sex = normalizeSex(req.body.sex);
+      if (!sex) return res.status(400).json({ ok: false, error: 'invalid_sex' });
+      changes.sex = sex;
+    }
+    await ensureProfile(req.user);
+    const residencyChange = await updateApplicantResidency(req.user.uid, req.body || {});
+    if (residencyChange.error)
+      return res.status(residencyChange.error.endsWith('_conflict') ? 409 : 400)
+        .json({ ok: false, error: residencyChange.error });
     if (changes.firstName !== undefined || changes.lastName !== undefined) {
       const current = await usersCollection().findOne({ uid: req.user.uid });
       changes.displayName =
@@ -1055,13 +1348,56 @@ app.put('/api/profile', requireAuth, requireMongo, async (req, res, next) => {
 app.patch('/api/profile/onboarding', requireAuth, requireMongo, async (req, res, next) => {
   try {
     const body = req.body || {};
-    const changes = { updatedAt: new Date(), onboardingCompletedAt: new Date() };
+    const current = await ensureProfile(req.user);
+    const revision = Number(current.onboardingRevision || 0);
+    const expected = body.expectedRevision;
+    const mutationId = body.mutationId;
+    if (mutationId !== undefined &&
+        (typeof mutationId !== 'string' || !/^[a-zA-Z0-9._:-]{12,120}$/.test(mutationId)))
+      return res.status(400).json({ ok: false, error: 'invalid_mutation_id' });
+    // A retry after lost acknowledgement is not another edit.
+    if (mutationId && current.onboardingLastMutationId === mutationId)
+      return profileResponse(res, current);
+    if (expected !== undefined && (!Number.isInteger(expected) || expected !== revision)) {
+      return res.status(409).json({ ok: false, error: 'onboarding_revision_conflict',
+        currentRevision: revision });
+    }
+    const changes = { updatedAt: new Date(),
+      ...(req.body?.draft === true && req.body?.complete !== true ? {} : { onboardingCompletedAt: new Date() }),
+      onboardingRevision: revision + 1,
+      ...(mutationId ? { onboardingLastMutationId: mutationId } : {}) };
     for (const field of ['resumeData', 'pesoFormData']) {
       if (body[field] !== undefined) {
         if (!body[field] || typeof body[field] !== 'object' || Array.isArray(body[field])) {
           return res.status(400).json({ ok: false, error: field + '_must_be_an_object' });
         }
-        changes[field] = body[field];
+        changes[field] = body.draft === true
+          ? { ...(current[field] && typeof current[field] === 'object' ? current[field] : {}), ...body[field] }
+          : body[field];
+        if (field === 'pesoFormData') {
+          const form = changes[field];
+          if (form.dateOfBirth !== undefined && form.dateOfBirth !== '') {
+            const dob = normalizeDateOfBirth(form.dateOfBirth);
+            if (!dob || ageFromBirthDate(dob) === null)
+              return res.status(400).json({ ok: false, error: 'invalid_date_of_birth' });
+            changes.dateOfBirth = dob;
+            changes.age = ageFromBirthDate(dob);
+            form.dateOfBirth = dob;
+            // Manual ages cannot override a valid date of birth.
+            form.age = changes.age;
+          }
+          if (form.sex !== undefined && String(form.sex).trim()) {
+            const sex = normalizeSex(form.sex);
+            if (!sex) return res.status(400).json({ ok: false, error: 'invalid_sex' });
+            changes.sex = sex;
+            form.sex = sex;
+          }
+          if (form.religion !== undefined) {
+            if (typeof form.religion !== 'string' || form.religion.length > 120)
+              return res.status(400).json({ ok: false, error: 'invalid_religion' });
+            form.religion = form.religion.trim();
+          }
+        }
       }
     }
     if (body.onboardingText !== undefined) {
@@ -1072,8 +1408,9 @@ app.patch('/api/profile/onboarding', requireAuth, requireMongo, async (req, res,
     }
     const invalidatesMatch = ['resumeData', 'pesoFormData', 'onboardingText']
       .some(field => Object.hasOwn(changes, field));
-    await usersCollection().updateOne(
-      { uid: req.user.uid },
+    const writeResult = await usersCollection().updateOne(
+      { uid: req.user.uid, ...(expected === undefined ? {} :
+        { onboardingRevision: revision === 0 ? { $in: [0, null] } : revision }) },
       {
         $set: changes,
         ...(invalidatesMatch ? { $unset: { latestAiJobMatch: '' } } : {}),
@@ -1085,8 +1422,10 @@ app.patch('/api/profile/onboarding', requireAuth, requireMongo, async (req, res,
           createdAt: new Date(),
         },
       },
-      { upsert: true },
+      { upsert: expected === undefined },
     );
+    if (expected !== undefined && !writeResult.matchedCount && !writeResult.upsertedCount)
+      return res.status(409).json({ ok: false, error: 'onboarding_revision_conflict' });
     return profileResponse(res, await usersCollection().findOne({ uid: req.user.uid }));
   } catch (error) {
     return next(error);
@@ -1204,6 +1543,44 @@ function publicJobApplication(record, { includeApplicant = false } = {}) {
   };
 }
 
+// Notifications are derived from the applicant's actual saved applications.
+// No fabricated job alerts, unverified match scores, or private third-party
+// details. Each destination names the exact application in Outcomes.
+app.get('/api/notifications', requireAuth, requireMongo, async (req, res, next) => {
+  try {
+    const requested = Number.parseInt(String(req.query.limit || '30'), 10);
+    const limit = Number.isFinite(requested) ? Math.max(1, Math.min(50, requested)) : 30;
+    const rows = await jobApplicationsCollection()
+      .find({ uid: req.user.uid })
+      .sort({ updatedAt: -1, _id: -1 })
+      .limit(limit).toArray();
+    const labels = {
+      submitted: 'Application submitted',
+      under_review: 'Application under review',
+      matched: 'Qualified for PESO referral',
+      accepted: 'Application accepted',
+      rejected: 'Application declined',
+      action_required: 'Action needed for application',
+    };
+    const notifications = rows.map((row) => {
+      const status = String(row.status || 'submitted');
+      const date = row.updatedAt || row.submittedAt || null;
+      return {
+        id: 'application:' + String(row._id ?? ''),
+        kind: 'application',
+        title: labels[status] || 'Application update',
+        message: String(row.jobTitle || 'Saved job').slice(0, 160) + ' — ' +
+          String(row.employer || 'PESO').slice(0, 120),
+        status, applicationId: String(row._id ?? ''),
+        jobId: String(row.jobId || ''), target: 'outcomes',
+        createdAt: date instanceof Date ? date.toISOString() : date,
+      };
+    });
+    res.set('Cache-Control', 'no-store');
+    return res.json({ ok: true, notifications });
+  } catch (error) { return next(error); }
+});
+
 app.get('/api/applications', requireAuth, requireMongo, async (req, res, next) => {
   try {
     const requested = Number.parseInt(String(req.query.limit || '50'), 10);
@@ -1230,51 +1607,66 @@ app.get('/api/applications', requireAuth, requireMongo, async (req, res, next) =
   }
 });
 
-app.post('/api/applications', requireAuth, requireMongo, async (req, res, next) => {
+app.post('/api/applications', requireAuth, requireMongo, requireVerifiedResidency, async (req, res, next) => {
   try {
-    const jobTitle = String(req.body?.jobTitle || '').trim().slice(0, 300);
-    const employer = String(req.body?.employer || '').trim().slice(0, 300);
+    const jobId = String(req.body?.jobId || '').trim();
     const answers = sanitizeApplicationAnswers(req.body?.answers);
-    if (!jobTitle || Object.keys(answers).length === 0) {
-      return res.status(400).json({
-        ok: false,
-        error: 'application_incomplete',
-        message: 'A job title and the minimum screening answers are required.',
-      });
+    if (!ObjectId.isValid(jobId) || Object.keys(answers).length === 0) {
+      return res.status(400).json({ ok: false, error: 'application_incomplete',
+        message: 'Select a saved PESO job and complete its screening questions.' });
     }
     const now = new Date();
-    const jobId = String(req.body?.jobId || '').trim().slice(0, 120);
-    const jobKey = (jobId || jobTitle.toLowerCase()).slice(0, 200);
-    const rawScore = req.body?.matchScore == null || req.body.matchScore === ''
-      ? Number.NaN
-      : Number(req.body.matchScore);
+    const job = await state.db.collection('jobPostings').findOne({
+      _id: new ObjectId(jobId), status: 'active',
+    });
+    if (!job || !isJobPostingVisible(job, now) || job.aiListingKind === 'notice') {
+      return res.status(409).json({ ok: false, error: 'job_not_available',
+        message: 'This saved job is closed or no longer available. Refresh the PESO job feed.' });
+    }
+    // Never trust user-supplied employer, title, location, category or AI score.
+    // Hiring status belongs to PESO/employers, separately from Go guidance.
+    const jobKey = jobId;
+    const applicationId = new ObjectId(crypto.createHash('sha256')
+      .update(JSON.stringify([req.user.uid, jobKey])).digest().subarray(0, 12));
     const record = {
+      _id: applicationId,
       uid: req.user.uid,
       email: String(req.user.email || '').slice(0, 320),
       applicantName: String(req.user.name || '').slice(0, 200),
       jobId,
       jobKey,
-      jobTitle,
-      employer,
-      location: String(req.body?.location || '').trim().slice(0, 200),
-      category: String(req.body?.category || '').trim().slice(0, 60),
-      matchScore: Number.isFinite(rawScore)
-        ? Math.max(0, Math.min(100, Math.round(rawScore)))
-        : null,
+      jobTitle: String(job.title || '').slice(0, 300),
+      employer: String(job.company || '').slice(0, 300),
+      location: String(job.location || '').slice(0, 200),
+      category: String(job.category || '').slice(0, 60),
+      matchScore: null,
       answers,
       status: 'submitted',
       source: 'job_feed_screening',
       updatedAt: now,
     };
-    await jobApplicationsCollection().updateOne(
-      { uid: req.user.uid, jobKey },
-      { $set: record, $setOnInsert: { submittedAt: now } },
-      { upsert: true },
-    );
-    const saved = await jobApplicationsCollection().findOne({ uid: req.user.uid, jobKey });
+    // First submission wins: do not replace screening answers or official review
+    // status when an applicant double-clicks Submit or retries after a timeout.
+    const applications = jobApplicationsCollection();
+    const existing = await applications.findOne({ uid: req.user.uid, jobKey });
+    if (existing) {
+      return res.status(409).json({ ok: false, error: 'application_already_submitted',
+        message: 'Your application was already submitted.',
+        application: publicJobApplication(existing) });
+    }
+    try {
+      await applications.insertOne({ ...record, submittedAt: now });
+    } catch (error) {
+      if (error?.code === 11000) {
+        const saved = await applications.findOne({ uid: req.user.uid, jobKey });
+        return res.status(409).json({ ok: false, error: 'application_already_submitted',
+          message: 'Your application was already submitted.',
+          application: saved ? publicJobApplication(saved) : null });
+      }
+      throw error;
+    }
     return res.status(201).json({
-      ok: true,
-      application: publicJobApplication(saved || { ...record, submittedAt: now }),
+      ok: true, application: publicJobApplication({ ...record, submittedAt: now }),
     });
   } catch (error) {
     return next(error);
@@ -1309,7 +1701,7 @@ app.get('/api/admin/applications', requireAuth, requireAdmin, requireMongo, asyn
   }
 });
 
-const APPLICATION_STATUSES = ['submitted', 'under_review', 'matched', 'accepted', 'rejected'];
+const APPLICATION_STATUSES = ['submitted', 'under_review', 'matched', 'accepted', 'rejected', 'action_required'];
 
 app.patch('/api/admin/applications/:id/status', requireAuth, requireAdmin, requireMongo, async (req, res, next) => {
   try {
@@ -1521,11 +1913,17 @@ function accountFromProfile(profile) {
     firebaseAuthAccountExists: data.firebaseAuthAccountExists === true,
     firebaseDisabled: data.firebaseDisabled === true,
     createdAt: data.createdAt || null, lastSignInAt: data.lastLoginAt || null,
+    municipality: String(data.municipality || ''), barangay: String(data.barangay || ''),
+    address: String(data.address || ''), residencyStatus: residencyStatus(data),
+    residencyRevision: Number(data.residency?.revision || 0),
     location: String(data.location || ''), educationLevel: String(data.educationLevel || ''),
     employmentStatus: String(data.employmentStatus || ''), professionalTitle: String(data.professionalTitle || ''),
     bio: String(data.bio || ''), profileCompleted: data.profileCompleted === true,
-    resumeSubmitted: data.resumeSubmitted === true || Object.keys(resumeData).length > 0 || Boolean(data.resumeFileName || resumeData.fileName),
-    formSubmitted: data.formSubmitted === true || Object.keys(formData).length > 0,
+    resumeSubmitted: data.resumeSubmitted === true ||
+      Object.keys(resumeData).some(key => !['pendingDraft', 'draftOnly', 'draftUpdatedAt'].includes(key)) ||
+      Boolean(data.resumeFileName || resumeData.fileName),
+    formSubmitted: data.formSubmitted === true ||
+      Object.keys(formData).some(key => !['pendingDraft', 'draftOnly', 'draftUpdatedAt'].includes(key)),
     matchStatus: ['matched', 'not_matched', 'pending'].includes(data.matchStatus) ? data.matchStatus : 'pending',
     matchedJobsCount: Number.isFinite(Number(data.matchedJobsCount)) ? Number(data.matchedJobsCount) :
       Array.isArray(matchedJobs) ? matchedJobs.length : matchedJobs && typeof matchedJobs === 'object' ? Object.keys(matchedJobs).length : 0,
@@ -1661,6 +2059,30 @@ app.get('/api/admin/users', requireAuth, requireAdmin, requireMongo, async (req,
     });
   } catch (error) { return next(error); }
 });
+// Server-authorized role promotion; never accept a client-supplied admin claim.
+app.patch('/api/admin/users/:uid/role', requireAuth, requireAdmin, requireMongo, async (req, res, next) => {
+  try {
+    const uid = String(req.params.uid || '').trim();
+    if (!uid || uid.length > 128) return res.status(400).json({ ok: false, error: 'invalid_uid' });
+    if (uid === req.user.uid) return res.status(403).json({ ok: false, error: 'cannot_change_own_admin_role' });
+    if (req.body?.role !== 'admin') return res.status(400).json({ ok: false, error: 'invalid_role' });
+    const target = await usersCollection().findOne({ uid });
+    if (!target || target.deleted === true) return res.status(404).json({ ok: false, error: 'user_not_found' });
+    if (target.disabled === true || target.deletionPending === true) {
+      return res.status(409).json({ ok: false, error: 'account_not_active' });
+    }
+    if (target.role === 'admin') return res.json({ ok: true, user: accountFromProfile(target), unchanged: true });
+    const now = new Date();
+    await usersCollection().updateOne({ uid, deleted: { $ne: true }, disabled: { $ne: true },
+      deletionPending: { $ne: true }, role: { $ne: 'admin' } }, {
+      $set: { role: 'admin', updatedAt: now, roleUpdatedAt: now, roleUpdatedBy: req.user.uid },
+    });
+    const updated = await usersCollection().findOne({ uid });
+    if (updated?.role !== 'admin') return res.status(409).json({ ok: false, error: 'role_change_conflict' });
+    return res.json({ ok: true, user: accountFromProfile(updated) });
+  } catch (error) { return next(error); }
+});
+
 app.patch('/api/admin/users/:uid/profile', requireAuth, requireAdmin, requireMongo, async (req, res, next) => {
   try {
     const uid = String(req.params.uid || '').trim();
@@ -1862,6 +2284,17 @@ app.delete('/api/admin/users/:uid', requireAuth, requireAdmin, requireMongo, asy
   } catch (error) { return next(error); }
 });
 
+// Private metadata only; document bytes remain behind owner/admin authorization.
+app.get('/api/account/documents', requireAuth, requireMongo, async (req, res, next) => {
+  try {
+    const profile = await ensureProfile(req.user);
+    const files = await state.bucket.find({ 'metadata.ownerUid': req.user.uid })
+      .sort({ uploadDate: -1 }).toArray();
+    return res.json({ ok: true, uid: req.user.uid,
+      ...documentSummary(profile, files), artifacts: files.map(artifactFromGridFs) });
+  } catch (error) { return next(error); }
+});
+
 app.get('/api/artifacts', requireAuth, requireMongo, async (req, res, next) => {
   try {
     const files = await state.bucket.find({ 'metadata.ownerUid': req.user.uid })
@@ -1883,6 +2316,21 @@ app.post('/api/artifacts', requireAuth, requireMongo, async (req, res, next) => 
       return res.status(415).json({ ok: false, error: 'unsupported_file_type' });
     }
     const bytes = decodeArtifactBase64(body);
+    const contentSha256 = crypto.createHash('sha256').update(bytes).digest('hex');
+    // A retry after a lost HTTP acknowledgement must not duplicate an already
+    // saved applicant's private resume/NSRP PDF. The content hash is computed
+    // on trusted server bytes; it is never used to identify a different owner.
+    if (category !== 'profile_photo') {
+      const existing = await state.db.collection(BUCKET_NAME + '.files').findOne({
+        'metadata.ownerUid': req.user.uid,
+        'metadata.category': category,
+        'metadata.contentSha256': contentSha256,
+      });
+      if (existing && existing.length === bytes.length) {
+        return res.json({ ok: true, artifact: artifactFromGridFs(existing),
+          reused: true });
+      }
+    }
     if (category === 'profile_photo') {
       const jpeg = mimeType === 'image/jpeg' && bytes.length > 3 &&
         bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
@@ -1901,6 +2349,7 @@ app.post('/api/artifacts', requireAuth, requireMongo, async (req, res, next) => 
         category,
         originalFileName: filename,
         mimeType,
+        contentSha256,
       },
     });
     uploadedId = upload.id;
@@ -1908,6 +2357,13 @@ app.post('/api/artifacts', requireAuth, requireMongo, async (req, res, next) => 
 
     const file = await state.db.collection(BUCKET_NAME + '.files').findOne({ _id: uploadedId });
     if (!file) throw new Error('GridFS upload ended without a file record.');
+    if (/resume/.test(category) || /nsrp|peso_form|employment_form/.test(category)) {
+      await ensureProfile(req.user);
+      await usersCollection().updateOne({ uid: req.user.uid }, {
+        $set: { ['documentSummary.' + (/resume/.test(category)
+          ? 'resumeSubmitted' : 'formSubmitted')]: true, updatedAt: new Date() },
+      });
+    }
     if (category === 'profile_photo') {
       await ensureProfile(req.user);
       await usersCollection().updateOne({ uid: req.user.uid }, {
@@ -2101,6 +2557,12 @@ app.post('/api/ai/profile', requireAuth, requireMongo, async (req, res, next) =>
       ? profile.skills.map((item) => String(item).trim()).filter(Boolean).slice(0, 10)
       : [];
     profile.skills = skills;
+    // Verify the literal sex label in a text-bearing uploaded PDF. Gemini may
+    // not infer sex from names or photos; unknown values remain unset.
+    const verifiedSexEvidence = await verifyUploadedResumeSex(
+      artifacts, decodeArtifactBase64);
+    if (verifiedSexEvidence) profile.verifiedSexEvidence = verifiedSexEvidence;
+    else delete profile.verifiedSexEvidence;
     // Use only source-supported extraction facts for automatic matching. A
     // binary resume attachment alone cannot be text-verified in this endpoint.
     const matchingEvidence = rawText.trim();

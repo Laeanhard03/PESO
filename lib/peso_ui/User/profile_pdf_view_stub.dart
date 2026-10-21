@@ -12,5 +12,6 @@ class ProfilePdfView extends StatelessWidget {
 }
 
 class ProfilePdfDownload {
+  static Future<bool> openForPrint(Uint8List bytes) async => false;
   static Future<bool> save(Uint8List bytes, String fileName) async => false;
 }

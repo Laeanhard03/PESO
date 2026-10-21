@@ -6,6 +6,11 @@ import 'readiness_report_card.dart';
 
 class UserOutcomesTab extends StatelessWidget {
   final List<Map<String, dynamic>> assessmentOutcomes;
+  final List<Map<String, dynamic>> applications;
+  final bool applicationsLoading;
+  final String? applicationsError;
+  final String? focusedApplicationId;
+  final VoidCallback? onRefreshApplications;
   final String Function(String) translate;
   final Color primary;
   final Color textDark;
@@ -19,6 +24,11 @@ class UserOutcomesTab extends StatelessWidget {
   const UserOutcomesTab({
     super.key,
     required this.assessmentOutcomes,
+    this.applications = const [],
+    this.applicationsLoading = false,
+    this.applicationsError,
+    this.focusedApplicationId,
+    this.onRefreshApplications,
     required this.translate,
     required this.primary,
     required this.textDark,
@@ -35,7 +45,10 @@ class UserOutcomesTab extends StatelessWidget {
     final screenWidth = MediaQuery.sizeOf(context).width;
     final compact = screenWidth < 600;
     final medium = screenWidth < 1024;
-    if (assessmentOutcomes.isEmpty) {
+    if (assessmentOutcomes.isEmpty &&
+        applications.isEmpty &&
+        !applicationsLoading &&
+        applicationsError == null) {
       return Center(
         child: SingleChildScrollView(
           padding: EdgeInsets.all(compact ? 16 : 24),
@@ -116,7 +129,9 @@ class UserOutcomesTab extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(height: 40),
+              const SizedBox(height: 22),
+              _buildApplicationHistory(compact),
+              const SizedBox(height: 24),
               ...List.generate(assessmentOutcomes.length, (index) {
                 final outcome = assessmentOutcomes[index];
                 return FadeSlideEntrance(
@@ -540,6 +555,148 @@ class UserOutcomesTab extends StatelessWidget {
     );
   }
 
+  String _officialApplicationStatus(String value) => switch (value) {
+    'under_review' => 'Under review',
+    'matched' => 'Qualified for PESO referral',
+    'accepted' => 'Accepted',
+    'rejected' => 'Declined',
+    'action_required' => 'Action needed',
+    _ => 'Submitted',
+  };
+
+  String _applicationTimestamp(dynamic raw) {
+    final parsed = DateTime.tryParse(raw?.toString() ?? '');
+    if (parsed == null) return 'Date unavailable';
+    final ph = parsed.toUtc().add(const Duration(hours: 8));
+    final formatted = ph.toIso8601String().replaceFirst('T', ' ');
+    return '${formatted.substring(0, 16)} PHT';
+  }
+
+  Widget _buildApplicationHistory(bool compact) {
+    final sorted = [...applications];
+    if (focusedApplicationId != null) {
+      sorted.sort(
+        (a, b) => (a['id'] == focusedApplicationId ? -1 : 0).compareTo(
+          b['id'] == focusedApplicationId ? -1 : 0,
+        ),
+      );
+    }
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(compact ? 16 : 22),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFDDE8E2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Your PESO applications',
+                  style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Refresh saved application statuses',
+                onPressed: onRefreshApplications,
+                icon: const Icon(Icons.refresh_rounded),
+              ),
+            ],
+          ),
+          const Text(
+            'These are official PESO application records, separate from AI recommendations.',
+            style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
+          ),
+          if (applicationsLoading) ...[
+            const SizedBox(height: 12),
+            const LinearProgressIndicator(),
+          ],
+          if (applicationsError != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              applicationsError!,
+              style: const TextStyle(color: Color(0xFFB45309)),
+            ),
+          ],
+          if (sorted.isEmpty && !applicationsLoading) ...[
+            const SizedBox(height: 14),
+            const Text(
+              'No submitted applications are saved to your account yet.',
+            ),
+          ],
+          ...sorted.map((row) {
+            final id = row['id']?.toString() ?? '';
+            final status = _officialApplicationStatus(
+              row['status']?.toString() ?? 'submitted',
+            );
+            final focused = id == focusedApplicationId;
+            return Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Container(
+                decoration: BoxDecoration(
+                  border: Border.all(
+                    color: focused
+                        ? const Color(0xFF236349)
+                        : const Color(0xFFDDE8E2),
+                    width: focused ? 2 : 1,
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: ExpansionTile(
+                  key: ValueKey('application-$id-$focused'),
+                  initiallyExpanded: focused,
+                  title: Text(
+                    row['jobTitle']?.toString() ?? 'Saved job',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text(
+                    '${row['employer'] ?? 'PESO'} • $status',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  leading: const Icon(Icons.assignment_turned_in_outlined),
+                  childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  children: [
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Status: $status',
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Submitted: ${_applicationTimestamp(row['submittedAt'])}',
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    const Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Only PESO and the employer can confirm official hiring decisions.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF64748B),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
   Widget _buildRecommendationCard(
     Map<String, dynamic> data, {
     required bool compact,
@@ -548,6 +705,17 @@ class UserOutcomesTab extends StatelessWidget {
         ? Map<String, dynamic>.from(data['answers'] as Map)
         : <String, dynamic>{};
     final submittedAt = data['submittedAt']?.toString();
+    final rawStatus =
+        data['applicationStatus']?.toString().toLowerCase() ?? 'submitted';
+    final officialStatus = switch (rawStatus) {
+      'reviewing' || 'under_review' || 'in_review' => 'Under review',
+      'qualified' || 'accepted' || 'approved' => 'Qualified',
+      'declined' || 'rejected' || 'not_qualified' => 'Declined',
+      'needs_action' ||
+      'action_required' ||
+      'needs_documents' => 'Action needed',
+      _ => 'Submitted',
+    };
     return Container(
       margin: const EdgeInsets.only(bottom: 24),
       padding: EdgeInsets.all(compact ? 16 : 40),
@@ -591,7 +759,7 @@ class UserOutcomesTab extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'Recommended to PESO Montalban',
+                      'AI-guided recommendation (not a hiring decision)',
                       style: TextStyle(
                         color: Colors.green,
                         fontWeight: FontWeight.w900,
@@ -618,8 +786,19 @@ class UserOutcomesTab extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 20),
+          if (data['applicationSubmitted'] == true) ...[
+            Text(
+              'PESO application: $officialStatus',
+              style: const TextStyle(
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF1D4ED8),
+                fontSize: 15,
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
           Text(
-            data['message']?.toString() ?? 'Your screening answers were sent to PESO Montalban. You are recommended for referral.',
+            data['message']?.toString() ?? 'This AI-guided report is for career planning. PESO or the employer makes official screening and hiring decisions.',
             style: TextStyle(
               color: Colors.grey.shade800,
               fontSize: 16,

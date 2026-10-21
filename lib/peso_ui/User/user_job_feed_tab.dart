@@ -30,6 +30,9 @@ class UserJobFeedTab extends StatelessWidget {
   final bool jobsLoading;
   final String? jobLoadError;
   final VoidCallback? onRetryJobs;
+  final bool hasMoreJobs;
+  final bool loadingMoreJobs;
+  final VoidCallback? onLoadMoreJobs;
   final List<String> interestLabels;
   final String preferredOccupation;
   final TextEditingController? searchController;
@@ -61,6 +64,9 @@ class UserJobFeedTab extends StatelessWidget {
     this.jobsLoading = false,
     this.jobLoadError,
     this.onRetryJobs,
+    this.hasMoreJobs = false,
+    this.loadingMoreJobs = false,
+    this.onLoadMoreJobs,
     this.interestLabels = const [],
     this.preferredOccupation = '',
     this.searchController,
@@ -471,8 +477,7 @@ class UserJobFeedTab extends StatelessWidget {
                             ],
                           ),
                         )
-                      : ListView.builder(
-                          scrollDirection: Axis.horizontal,
+                      : FeaturedOpportunitiesCarousel(
                           itemCount: availableJobs.length,
                           itemBuilder: (context, index) {
                             final job = availableJobs[index];
@@ -552,6 +557,39 @@ class UserJobFeedTab extends StatelessWidget {
                                                   ),
                                                 ),
                                               ),
+                                              if ((job['logoUrl']?.toString() ??
+                                                      '')
+                                                  .isNotEmpty)
+                                                Positioned(
+                                                  bottom: 12,
+                                                  right: 12,
+                                                  child: Container(
+                                                    width: 50,
+                                                    height: 50,
+                                                    padding:
+                                                        const EdgeInsets.all(5),
+                                                    decoration: BoxDecoration(
+                                                      color: Colors.white,
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            12,
+                                                          ),
+                                                    ),
+                                                    child: Image.network(
+                                                      job['logoUrl'].toString(),
+                                                      fit: BoxFit.contain,
+                                                      errorBuilder:
+                                                          (
+                                                            context,
+                                                            error,
+                                                            stackTrace,
+                                                          ) => const Icon(
+                                                            Icons
+                                                                .business_rounded,
+                                                          ),
+                                                    ),
+                                                  ),
+                                                ),
                                               if (job['category'] != null)
                                                 Positioned(
                                                   top: 15,
@@ -737,7 +775,27 @@ class UserJobFeedTab extends StatelessWidget {
                         ),
                 ),
               ),
-              const SizedBox(height: 30),
+              const SizedBox(height: 20),
+              if (hasMoreJobs)
+                Align(
+                  alignment: Alignment.center,
+                  child: FilledButton.tonalIcon(
+                    onPressed: loadingMoreJobs ? null : onLoadMoreJobs,
+                    icon: loadingMoreJobs
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.expand_more_rounded),
+                    label: Text(
+                      loadingMoreJobs
+                          ? 'Loading more jobs...'
+                          : 'Load more PESO jobs',
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 20),
               if (selectedJob != null)
                 KeyedSubtree(
                   key: detailsAnchor,
@@ -1338,6 +1396,98 @@ class FadeSlideEntrance extends StatelessWidget {
       duration: const Duration(milliseconds: 300),
       beginOffset: const Offset(0, 0.025),
       child: child,
+    );
+  }
+}
+
+/// Horizontal featured opportunities with real previous/next controls.
+/// The list remains touch/swipe and trackpad scrollable.
+class FeaturedOpportunitiesCarousel extends StatefulWidget {
+  const FeaturedOpportunitiesCarousel({
+    super.key,
+    required this.itemCount,
+    required this.itemBuilder,
+  });
+
+  final int itemCount;
+  final IndexedWidgetBuilder itemBuilder;
+
+  @override
+  State<FeaturedOpportunitiesCarousel> createState() =>
+      _FeaturedOpportunitiesCarouselState();
+}
+
+class _FeaturedOpportunitiesCarouselState
+    extends State<FeaturedOpportunitiesCarousel> {
+  final ScrollController _controller = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.addListener(_updateArrowState);
+  }
+
+  void _updateArrowState() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_updateArrowState);
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _scroll(int direction) {
+    if (!_controller.hasClients) return;
+    final position = _controller.position;
+    final distance = position.viewportDimension * 0.85;
+    final next = (_controller.offset + direction * distance).clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
+    _controller.animateTo(
+      next.toDouble(),
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final canPrevious =
+        _controller.hasClients &&
+        _controller.offset > _controller.position.minScrollExtent + 1;
+    final canNext =
+        _controller.hasClients &&
+        _controller.offset < _controller.position.maxScrollExtent - 1;
+    return Stack(
+      children: [
+        ListView.builder(
+          controller: _controller,
+          scrollDirection: Axis.horizontal,
+          itemCount: widget.itemCount,
+          itemBuilder: widget.itemBuilder,
+        ),
+        if (canPrevious)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: IconButton.filledTonal(
+              tooltip: 'Previous featured opportunities',
+              onPressed: () => _scroll(-1),
+              icon: const Icon(Icons.chevron_left_rounded),
+            ),
+          ),
+        if (canNext)
+          Align(
+            alignment: Alignment.centerRight,
+            child: IconButton.filledTonal(
+              tooltip: 'Next featured opportunities',
+              onPressed: () => _scroll(1),
+              icon: const Icon(Icons.chevron_right_rounded),
+            ),
+          ),
+      ],
     );
   }
 }

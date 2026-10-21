@@ -70,3 +70,22 @@ Full evidence and reproduction steps: `docs/PESO_LIVE_INTEGRATION_QA_2026-10-21.
 - Chrome private register guest/applicant/admin authorization and auto-refresh **9/9 PASS**. Backend `npm run check` **210/210 PASS**; Flutter focused tests **17/17 PASS**; Go tests/vet PASS; local/staged health PASS.
 - Production model SHA256 `C7F34B0DEAEBE793331273927A275341DAB441BE562EE131250282C5902E41EB` matches preserved baseline; **no retraining or promotion**.
 - Port 3000 remains old running process, not silently restarted; staging 3002 has been running since after adaptive source edits. User-authenticated production Firebase + real Gemini + visible Flutter + logout/login acceptance remains pending. Do not mistake emulator tests and standalone provider tests for one complete production transaction.
+
+## 2026-10-21 - Local-only Mini-AI, job feed, and admin access repairs (NOT PUBLISHED)
+
+### Objective and constraints
+Fix the applicant's "Evaluation unavailable" fallback, rank the saved active job feed from full submitted NSRP/resume evidence, and enable admin-authorized role promotion and an Admin/User login choice. Preserve one existing project. User explicitly forbids publishing: do NOT git add, commit, push, or deploy until separately authorized. No production applicant test writes.
+
+### Architecture
+- Backend Go inference: existing Windows .exe remains local default; Linux/amd64 CGO-disabled ELF is compiled from existing mini_ai source into backend/mini_ai_runtime/peso-mini-ai, alongside unchanged canonical mini_ai/data/model_v1.json. SHA256 for both model copies: 64884C6998156D2E8C2BA3BD2178E17F4B41C3AB65BC3D24037EE81565C73ACE. No retraining and no model version bump.
+- backend/src/mini-ai-service.js: finds bundled Linux model and ELF using source-relative/cwd paths, copies into writable temporary directory and applies execute permissions. backend/vercel.json uses the existing single Express server.js function with includeFiles mini_ai_runtime/** (local configuration change only).
+- GET /api/ai/job-recommendations: authenticated, read-only. Loads owner-scoped saved source facts, tests Go against existing active published role cards only, never mutates the latest individual job evaluation. POST /api/ai/job-match remains authoritative for individually selected job scores.
+- lib/peso_ui/User/user_ui.dart and lib/peso_logic/job_interest_recommendations.dart: use verified Gemini evidence and explicitly entered NSRP/resume essentials, experience, education and preferred occupations; rank visible jobs but never create fake vacancies or show invented match percentages. Recommendations are stored separately in Flutter from selected-job outcomes. A failed Gemini text pass does not block Go evidence-based intake.
+- PATCH /api/admin/users/:uid/role: MongoDB admin-verified role grant for existing active non-admin accounts, with server-side role audit metadata and no self-promotion. UI Add administrator dialog in Admin User Management, and Admin debug Login as User/Login as Admin modal after verified admin sign-in.
+
+### Verification and release boundary
+- LOCAL backend focused tests: 36/36 PASS (including non-admin denial, role promotion, saved NSRP inference and unchanged individual outcomes).
+- LOCAL Flutter targeted tests: 8/8 PASS. LOCAL Go tests: both packages PASS.
+- LOCAL production-configured flutter build web --release --no-pub --no-wasm-dry-run: PASS, output build/web. Flutter static analysis completed without blocking issues; original info-level lints remain in unrelated sections.
+- Hosted peso-psi.vercel.app and peso-jobkonek-api.vercel.app NOT updated by this work. Linux packaged model has not been exercised inside a deployed Vercel Function. Full authenticated production acceptance is pending separate explicit release authorization.
+- Preserve existing unrelated dirty git changes. Newly created backend/mini_ai_runtime assets must be intentionally included on a later authorized deployment; do not assume they exist in the hosted repository.

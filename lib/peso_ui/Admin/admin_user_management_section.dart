@@ -3,9 +3,8 @@ import 'package:flutter/material.dart';
 
 import '../../peso_services/app_toast.dart';
 
-import 'package:url_launcher/url_launcher.dart';
-
 import '../../peso_services/peso_api_client.dart';
+import 'admin_applicant_document_viewer.dart';
 
 /// Admin manages Firebase Authentication accounts joined with MongoDB PESO profiles.
 class AdminUserManagementSection extends StatefulWidget {
@@ -61,7 +60,9 @@ class _AdminUserManagementSectionState
   Future<void> _loadUsers({required bool reset}) async {
     setState(() {
       if (reset) {
+        _loading = true;
         _users.clear();
+        _userApplicationMap.clear();
         _nextPageToken = null;
         _profileStoreReady = null;
         _firebaseAuthSyncAvailable = null;
@@ -96,6 +97,7 @@ class _AdminUserManagementSectionState
         _profileStoreReady = response['mongoDbConnected'] == true;
         _firebaseAuthSyncAvailable =
             response['authProviderMutationsAvailable'] == true;
+        if (!reset) _buildApplicationMap();
       });
       // After loading users, load applications and build map
       if (reset) {
@@ -122,9 +124,6 @@ class _AdminUserManagementSectionState
   }
 
   Future<void> _loadApplications() async {
-    setState(() {
-      _error = null;
-    });
     try {
       final response = await PesoApiClient.adminListApplications(
         limit: _pageSize,
@@ -142,12 +141,10 @@ class _AdminUserManagementSectionState
       });
     } catch (error) {
       if (!mounted) return;
-      setState(() {
-        _error = error is PesoApiException
-            ? error.message
-            : 'Could not load job applications.';
-      });
-      debugPrint('[ADMIN_APPLICATIONS] API load failed: $error');
+      // User Management must still load when a separate applications query fails.
+      _applications.clear();
+      _buildApplicationMap();
+      debugPrint('[ADMIN_APPLICATIONS] API load failed: ${error is PesoApiException ? error.code : 'unavailable'}');
     } finally {
       // _loading is managed by _loadUsers; just ensure state is consistent
       if (mounted) {
@@ -162,20 +159,29 @@ class _AdminUserManagementSectionState
       final uid = _text(user['uid']);
       if (uid.isEmpty) continue;
 
-      // Find the user's application(s) - match by uid or applicantUid
-      Map<String, dynamic>? app;
-      for (final candidate in _applications) {
-        if (_text(candidate['uid']) == uid ||
-            _text(candidate['applicantUid']) == uid ||
-            _text(candidate['applicantEmail']) == _text(user['email'])) {
-          app = candidate;
-          break;
-        }
-      }
+      // Owner UID takes precedence. Legacy email-only records are usable
+      // only when that normalized email maps to exactly one registered UID.
+      final email = _text(user['email']).trim().toLowerCase();
+      final uniquelyIdentifiedByEmail = email.isNotEmpty &&
+          _users.where((entry) =>
+            _text(entry['email']).trim().toLowerCase() == email).length == 1;
+      final owned = _applications.where((candidate) {
+        final knownUid = [
+          candidate['applicantUid'], candidate['userUid'], candidate['uid'],
+        ].map((value) => _text(value).trim())
+          .firstWhere((value) => value.isNotEmpty, orElse: () => '');
+        if (knownUid.isNotEmpty) return knownUid == uid;
+        return uniquelyIdentifiedByEmail &&
+            _text(candidate['applicantEmail']).trim().toLowerCase() == email;
+      }).toList();
+      owned.sort((a, b) =>
+          _text(b['createdAt']).compareTo(_text(a['createdAt'])));
+      final Map<String, dynamic>? app = owned.isEmpty ? null : owned.first;
 
       if (app != null) {
         _userApplicationMap[uid] = {
-          'barangay': _text(user['location']),
+          'barangay': _text(user['barangay']).isNotEmpty
+              ? _text(user['barangay']) : _text(user['location']),
           'targetJob': _text(app['professionalTitle']).isNotEmpty
               ? _text(app['professionalTitle'])
               : _text(app['jobTitle']),
@@ -188,89 +194,14 @@ class _AdminUserManagementSectionState
       } else {
         // No application found for this user
         _userApplicationMap[uid] = {
-          'barangay': _text(user['location']),
+          'barangay': _text(user['barangay']).isNotEmpty
+              ? _text(user['barangay']) : _text(user['location']),
           'targetJob': _text(user['professionalTitle']),
           'registeredDate': _text(user['createdAt']),
           'yearsExperience': _text(user['yearsExperience']),
           'matchStatus': 'pending',
         };
       }
-    }
-    // Rebuild table rows to reflect the new merged data
-    if (mounted) {
-      setState(() {});
-    }
-  }
-
-  Future<void> _openResume(Map<String, dynamic> user) async {
-    final uid = _text(user['uid']).trim();
-    if (uid.isEmpty) return;
-    try {
-      final response = await PesoApiClient.adminCreateResumeLink(uid);
-      final url = (response['url'] ?? response['resumeUrl'])?.toString();
-      final uri = Uri.tryParse(url ?? '');
-      if (!mounted) return;
-      if (uri == null || (uri.scheme != 'https' && uri.scheme != 'http')) {
-        _toast(
-          'No accessible resume link was returned for this account.',
-          error: true,
-        );
-        return;
-      }
-      await showDialog<void>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          title: const Text('View applicant resume'),
-          content: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 460),
-            child: Text(
-              'A short-lived, private document link is ready for ' +
-                  _displayName(user) +
-                  '. Open the resume in a new browser tab to inspect the original file.',
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Close'),
-            ),
-            FilledButton.icon(
-              onPressed: () async {
-                final opened = await launchUrl(
-                  uri,
-                  mode: LaunchMode.platformDefault,
-                  webOnlyWindowName: '_blank',
-                );
-                if (dialogContext.mounted && opened)
-                  Navigator.pop(dialogContext);
-                if (mounted && !opened) {
-                  _toast(
-                    'The browser blocked the resume tab. Allow popups and retry.',
-                    error: true,
-                  );
-                }
-              },
-              icon: const Icon(Icons.open_in_new),
-              label: const Text('Open resume'),
-            ),
-          ],
-        ),
-      );
-    } on PesoApiException catch (error) {
-      if (mounted)
-        _toast(
-          error.code == 'resume_not_found'
-              ? 'This applicant has not uploaded a viewable resume document yet.'
-              : _friendlyError(error),
-          error: true,
-        );
-    } catch (error) {
-      if (mounted)
-        _toast('Could not open this resume. Check the PESO API.', error: true);
-      debugPrint('[ADMIN_USERS] Resume link failed: $error');
     }
   }
 
@@ -404,6 +335,69 @@ class _AdminUserManagementSectionState
     }
   }
 
+  Future<void> _viewUser(Map<String, dynamic> user) async {
+    final uid = _text(user['uid']).trim();
+    if (uid.isEmpty) return;
+    final values = <String, String>{
+      'Account': _displayName(user),
+      'Email': _text(user['email']),
+      'Phone': _text(user['phoneNumber']),
+      'Municipality': _text(user['municipality']).ifEmpty('Not supplied'),
+      'Barangay': _text(user['barangay'])
+          .ifEmpty(_text(user['location']).ifEmpty('Not supplied')),
+      'Address': _text(user['address']).ifEmpty('Not supplied'),
+      'Residency verification': _text(user['residencyStatus']).ifEmpty('Pending review'),
+      'Preferred job': _text(user['professionalTitle']).ifEmpty('Not supplied'),
+      'Role': _text(user['role']),
+      'Account access': user['disabled'] == true ? 'Disabled' : 'Active',
+      'Registered': _displayDate(_text(user['createdAt'])),
+    };
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Applicant record'),
+        content: SizedBox(
+          width: (MediaQuery.sizeOf(context).width - 64).clamp(250.0, 520.0),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: values.entries.map((entry) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: SelectableText(
+                  entry.key + ': ' + entry.value,
+                  style: const TextStyle(fontSize: 13),
+                ),
+              )).toList(),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Close')),
+          OutlinedButton.icon(
+            onPressed: () {
+              Navigator.pop(dialogContext);
+              AdminApplicantDocumentViewer.open(context,
+                  uid: uid, applicantName: _displayName(user), kind: 'resume');
+            },
+            icon: const Icon(Icons.description_outlined),
+            label: const Text('Resume'),
+          ),
+          OutlinedButton.icon(
+            onPressed: () {
+              Navigator.pop(dialogContext);
+              AdminApplicantDocumentViewer.open(context,
+                  uid: uid, applicantName: _displayName(user), kind: 'nsrp');
+            },
+            icon: const Icon(Icons.assignment_outlined),
+            label: const Text('NSRP Form 1'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _editUser(Map<String, dynamic> user) async {
     if (_protected(user)) return;
     const fields = <String, String>{
@@ -520,6 +514,88 @@ class _AdminUserManagementSectionState
     );
   }
 
+  Future<void> _showAdminAdder() async {
+    final candidates = _users.where((user) => !_protected(user) &&
+        user['disabled'] != true && user['deletionPending'] != true &&
+        user['profileMissing'] != true).toList();
+    if (_profileStoreReady != true || candidates.isEmpty) {
+      _toast('No eligible registered users are available to promote.', error: true);
+      return;
+    }
+    final uid = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Add administrator'),
+        content: SizedBox(
+          width: 440,
+          height: 350,
+          child: ListView.builder(
+            itemCount: candidates.length,
+            itemBuilder: (_, index) {
+              final candidate = candidates[index];
+              return ListTile(
+                leading: const Icon(Icons.person_outline),
+                title: Text(_displayName(candidate)),
+                subtitle: Text(_text(candidate['email'])),
+                onTap: () => Navigator.pop(dialogContext, _text(candidate['uid'])),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel')),
+        ],
+      ),
+    );
+    if (!mounted || uid == null) return;
+    final matches = _users.where((user) => _text(user['uid']) == uid);
+    if (matches.isNotEmpty) await _promoteUser(matches.first);
+  }
+
+  Future<void> _promoteUser(Map<String, dynamic> user) async {
+    final uid = _text(user['uid']);
+    if (uid.isEmpty || _protected(user) || _busyUsers.contains(uid) ||
+        user['disabled'] == true || user['deletionPending'] == true ||
+        user['profileMissing'] == true) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Grant administrator access?'),
+        content: Text(
+          'Promote ${_displayName(user)} (${_text(user['email'])}) to PESO administrator? '
+          'This grants access to private applicants, admin tools and account management. '
+          'Only promote a trusted person with an existing verified account.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Grant admin access')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _busyUsers.add(uid));
+    try {
+      final response = await PesoApiClient.adminPromoteUser(uid);
+      final updated = response['user'];
+      if (!mounted) return;
+      final index = _users.indexWhere((account) => _text(account['uid']) == uid);
+      if (index >= 0 && updated is Map) {
+        setState(() => _users[index] = Map<String, dynamic>.from(_users[index])
+          ..addAll(Map<String, dynamic>.from(updated)));
+      }
+      _toast('Administrator access granted. The user can select Admin on next login.');
+    } on PesoApiException catch (error) {
+      if (mounted) _toast(_friendlyError(error), error: true);
+    } catch (_) {
+      if (mounted) _toast('Could not grant administrator access. Please retry.', error: true);
+    } finally {
+      if (mounted) setState(() => _busyUsers.remove(uid));
+    }
+  }
+
   bool _protected(Map<String, dynamic> user) {
     final uid = _text(user['uid']);
     return user['role'] == 'admin' ||
@@ -604,7 +680,15 @@ class _AdminUserManagementSectionState
     try {
       final response = await PesoApiClient.adminDeleteUser(uid);
       if (!mounted) return;
-      setState(() => _users.removeWhere((item) => _text(item['uid']) == uid));
+      // A partial cleanup is not a successful permanent deletion. Reload
+      // canonical state so pending records remain visible for authorized retry.
+      if (response['firebaseAuthAccountDeleted'] == true &&
+          response['cleanupComplete'] == true) {
+        setState(() => _users.removeWhere((item) => _text(item['uid']) == uid));
+      } else {
+        await _loadUsers(reset: true);
+      }
+      if (!mounted) return;
       _toast(
         response['firebaseAuthAccountDeleted'] == true &&
                 response['cleanupComplete'] == true
@@ -644,7 +728,8 @@ class _AdminUserManagementSectionState
     final uid = _text(user['uid']);
     return _userApplicationMap[uid] ??
         {
-          'barangay': _text(user['location']),
+          'barangay': _text(user['barangay']).isNotEmpty
+              ? _text(user['barangay']) : _text(user['location']),
           'targetJob': _text(user['professionalTitle']),
           'registeredDate': _text(user['createdAt']),
           'yearsExperience': _text(user['yearsExperience']),
@@ -760,6 +845,12 @@ class _AdminUserManagementSectionState
               onPressed: _loading ? null : () => _loadUsers(reset: true),
               icon: const Icon(Icons.refresh),
               label: const Text('Refresh'),
+            ),
+            FilledButton.tonalIcon(
+              onPressed: _loading || _profileStoreReady != true
+                  ? null : _showAdminAdder,
+              icon: const Icon(Icons.admin_panel_settings_outlined),
+              label: const Text('Add administrator'),
             ),
             Text(
               _users.length.toString() + ' account(s) loaded',
@@ -930,7 +1021,7 @@ class _AdminUserManagementSectionState
                             label: SizedBox(
                               width: 120,
                               child: Text(
-                                'Resume',
+                                'Resume / NSRP',
                                 style: TextStyle(fontSize: 12),
                               ),
                             ),
@@ -1114,7 +1205,7 @@ class _AdminUserManagementSectionState
                               DataCell(
                                 SizedBox(
                                   width: 120,
-                                  child: IconButton(
+                                  child: Row(mainAxisSize: MainAxisSize.min, children: [IconButton(
                                     tooltip: 'View resume',
                                     icon: const Icon(
                                       Icons.description_outlined,
@@ -1125,8 +1216,15 @@ class _AdminUserManagementSectionState
                                         !profileStoreReady ||
                                             _text(user['uid']).isEmpty
                                         ? null
-                                        : () => _openResume(user),
+                                        : () => AdminApplicantDocumentViewer.open(context,
+                                            uid: uid, applicantName: _displayName(user), kind: 'resume'),
                                   ),
+                                  IconButton(tooltip: 'View NSRP Form 1',
+                                    icon: const Icon(Icons.assignment_outlined, color: _blue, size: 22),
+                                    onPressed: !profileStoreReady || uid.isEmpty ? null
+                                      : () => AdminApplicantDocumentViewer.open(context,
+                                          uid: uid, applicantName: _displayName(user), kind: 'nsrp'),
+                                  ),]),
                                 ),
                               ),
                               // Last sign-in cell
@@ -1204,6 +1302,24 @@ class _AdminUserManagementSectionState
                                 Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
+                                    IconButton(
+                                      tooltip: 'View applicant record',
+                                      onPressed: uid.isEmpty ? null : () => _viewUser(user),
+                                      icon: const Icon(Icons.visibility_outlined,
+                                          size: 19, color: _blue),
+                                    ),
+                                    IconButton(
+                                      tooltip: isAdministrator
+                                          ? 'Already an administrator'
+                                          : 'Grant administrator access',
+                                      onPressed: busy || protected || profileMissing ||
+                                              deletionPending || !profileStoreReady ||
+                                              user['disabled'] == true
+                                          ? null
+                                          : () => _promoteUser(user),
+                                      icon: const Icon(Icons.admin_panel_settings_outlined,
+                                          size: 19, color: _blue),
+                                    ),
                                     IconButton(
                                       tooltip: protected
                                           ? 'Protected administrator profile'

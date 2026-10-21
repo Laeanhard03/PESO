@@ -1,6 +1,23 @@
 const WALK_IN = 'walk_in_application';
 const LOCAL_RECRUITMENT_ACTIVITY = 'local_recruitment_activity';
-const DAY_MS = 24 * 60 * 60 * 1000;
+const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
+
+// A scheduled recruitment day closes at 23:59:59.999 Philippine time.
+// Input dates are calendar dates, never inferred from the viewer's timezone.
+export function lraEndOfDayUtc(value) {
+  const raw = value instanceof Date ? value.toISOString() : String(value || '').trim();
+  const match = /^(\d{4}-\d{2}-\d{2})(?:$|T)/.exec(raw);
+  if (!match) return null;
+  const date = new Date(`${match[1]}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== match[1]) return null;
+  return new Date(date.getTime() + 24 * 60 * 60 * 1000 - MANILA_OFFSET_MS - 1);
+}
+
+function manilaDateString(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Date(date.getTime() + MANILA_OFFSET_MS).toISOString().slice(0, 10);
+}
 
 export const JOB_POSTING_CATEGORIES = Object.freeze({
   WALK_IN,
@@ -26,8 +43,8 @@ function isoOrNull(value) {
 
 /**
  * Validate an admin-supplied job and assign lifecycle timestamps on the server.
- * A Local Recruitment Activity is visible for 24 hours. A Walk-in Application
- * has no time-based expiry and remains visible until an admin deactivates it.
+ * A Local Recruitment Activity expires at the end of its final scheduled
+ * recruitment day in Asia/Manila. Walk-in postings have no time-based expiry.
  */
 export function createJobPostingRecord(body, createdBy, now = new Date()) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
@@ -61,20 +78,33 @@ export function createJobPostingRecord(body, createdBy, now = new Date()) {
   if (Number.isNaN(createdAt.getTime())) {
     throw invalid('The job creation timestamp is invalid.');
   }
-  const expiresAt = category === LOCAL_RECRUITMENT_ACTIVITY
-    ? new Date(createdAt.getTime() + DAY_MS)
+  const recruitmentDate = category === LOCAL_RECRUITMENT_ACTIVITY
+    ? String(body.recruitmentDate || body.eventDate || manilaDateString(createdAt)).trim()
     : null;
+  const recruitmentEndDate = category === LOCAL_RECRUITMENT_ACTIVITY
+    ? String(body.recruitmentEndDate || recruitmentDate).trim()
+    : null;
+  const expiresAt = category === LOCAL_RECRUITMENT_ACTIVITY
+    ? lraEndOfDayUtc(recruitmentEndDate)
+    : null;
+  if (category === LOCAL_RECRUITMENT_ACTIVITY &&
+      (!expiresAt || !lraEndOfDayUtc(recruitmentDate) || recruitmentEndDate < recruitmentDate)) {
+    throw invalid('Enter valid recruitment dates in YYYY-MM-DD format.');
+  }
+  if (category === LOCAL_RECRUITMENT_ACTIVITY && expiresAt <= createdAt) {
+    throw invalid('The scheduled recruitment day has already ended in Philippine time.');
+  }
 
   const imageUrl = typeof body.imageUrl === 'string' ? body.imageUrl.trim() : '';
-  if (imageUrl) {
-    let parsedImageUrl;
-    try {
-      parsedImageUrl = new URL(imageUrl);
-    } catch {
-      throw invalid('imageUrl must be a valid HTTP or HTTPS URL.');
+  const logoUrl = typeof body.logoUrl === 'string' ? body.logoUrl.trim() : '';
+  for (const [field, url] of [['imageUrl', imageUrl], ['logoUrl', logoUrl]]) {
+    if (!url) continue;
+    let parsed;
+    try { parsed = new URL(url); } catch {
+      throw invalid(field + ' must be a valid HTTP or HTTPS URL.');
     }
-    if (!['http:', 'https:'].includes(parsedImageUrl.protocol) || imageUrl.length > 2048) {
-      throw invalid('imageUrl must be a valid HTTP or HTTPS URL.');
+    if (!['http:', 'https:'].includes(parsed.protocol) || url.length > 2048) {
+      throw invalid(field + ' must be a valid HTTP or HTTPS URL.');
     }
   }
 
@@ -87,10 +117,13 @@ export function createJobPostingRecord(body, createdBy, now = new Date()) {
     description,
     requirements,
     imageUrl,
+    logoUrl,
     vacancies,
     category,
     status: 'active',
     createdAt,
+    recruitmentDate,
+    recruitmentEndDate,
     expiresAt,
     createdBy: String(createdBy || '').slice(0, 128),
     updatedAt: createdAt,
@@ -100,13 +133,19 @@ export function createJobPostingRecord(body, createdBy, now = new Date()) {
 export function isJobPostingVisible(job, now = new Date()) {
   if (!job || (job.status && job.status !== 'active')) return false;
   if (job.category !== LOCAL_RECRUITMENT_ACTIVITY) return true;
+  // Old public PDF compilations are evidence of historical notices, not
+  // proof that an unscheduled recruitment event is open today.
+  if (job.isPublicPdfListing === true &&
+      !job.recruitmentDate && !job.recruitmentEndDate) return false;
 
-  let expiresAt = job.expiresAt ? new Date(job.expiresAt) : null;
-  if ((!expiresAt || Number.isNaN(expiresAt.getTime())) && job.createdAt) {
-    const createdAt = new Date(job.createdAt);
-    if (!Number.isNaN(createdAt.getTime())) {
-      expiresAt = new Date(createdAt.getTime() + DAY_MS);
-    }
+  // Legacy records without an event day use the Philippine publication day.
+  const scheduledDay = job.recruitmentEndDate || job.recruitmentDate ||
+    (job.createdAt ? manilaDateString(job.createdAt) : null);
+  let expiresAt = scheduledDay ? lraEndOfDayUtc(scheduledDay) : null;
+  // Only undated legacy records use their previous stored expiry.
+  if (!expiresAt && job.expiresAt) {
+    const legacy = new Date(job.expiresAt);
+    if (!Number.isNaN(legacy.getTime())) expiresAt = legacy;
   }
   return Boolean(expiresAt && !Number.isNaN(expiresAt.getTime()) && expiresAt.getTime() > new Date(now).getTime());
 }
@@ -127,11 +166,17 @@ export function publicJobPosting(job) {
     description: publicDescription(job),
     requirements: Array.isArray(job?.requirements) ? job.requirements.map(String) : [],
     imageUrl: String(job?.imageUrl ?? ''),
+    logoUrl: String(job?.logoUrl ?? job?.companyLogoUrl ?? ''),
     vacancies: job?.isPublicPdfListing ? null : Number(job?.vacancies ?? 1),
     category: String(job?.category ?? WALK_IN),
     status: String(job?.status ?? 'active'),
     createdAt: isoOrNull(job?.createdAt),
-    expiresAt: isoOrNull(job?.expiresAt),
+    expiresAt: isoOrNull(job?.category === LOCAL_RECRUITMENT_ACTIVITY
+      ? (lraEndOfDayUtc(job?.recruitmentEndDate || job?.recruitmentDate ||
+          (job?.createdAt ? manilaDateString(job.createdAt) : null)) || job?.expiresAt)
+      : job?.expiresAt),
+    recruitmentDate: job?.recruitmentDate || null,
+    recruitmentEndDate: job?.recruitmentEndDate || null,
     isPublicPdfListing: Boolean(job?.isPublicPdfListing),
     ...(job?.isPublicPdfListing ? {
       listingLabel: String(job.listingLabel || 'Multiple roles'),

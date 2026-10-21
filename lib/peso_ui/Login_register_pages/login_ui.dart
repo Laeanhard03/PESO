@@ -187,9 +187,35 @@ class _LoginFormState extends State<LoginForm> {
     if (!mounted) return;
 
     if (shouldOpenAdminArea(role)) {
+      final destination = await showDialog<String>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Admin debug'),
+          content: const Text(
+            'Your account has administrator access. Choose which workspace to open. '
+            'The server will still verify your administrator role for all protected actions.',
+          ),
+          actions: [
+            OutlinedButton(
+              onPressed: () => Navigator.pop(dialogContext, 'user'),
+              child: const Text('Login as User'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, 'admin'),
+              child: const Text('Login as Admin'),
+            ),
+          ],
+        ),
+      );
+      if (!mounted) return;
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const AdminDashboard()),
+        MaterialPageRoute(
+          builder: (_) => destination == 'admin'
+              ? const AdminDashboard()
+              : const UserProfile(),
+        ),
       );
       return;
     }

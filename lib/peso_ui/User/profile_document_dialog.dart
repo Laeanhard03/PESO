@@ -12,12 +12,12 @@ class ProfileDocumentDialog extends StatefulWidget {
   const ProfileDocumentDialog({
     super.key,
     required this.artifact,
-    required this.onReplacePdf,
+    this.onReplacePdf,
     this.onEditNsrp,
     this.fetchBytes,
   });
   final Map<String, dynamic> artifact;
-  final Future<bool> Function() onReplacePdf;
+  final Future<bool> Function()? onReplacePdf;
   final VoidCallback? onEditNsrp;
 
   /// Test seam for deterministic owner-checked bytes without network calls.
@@ -137,10 +137,10 @@ class _ProfileDocumentDialogState extends State<ProfileDocumentDialog> {
   }
 
   Future<void> _replace() async {
-    if (_replacing) return;
+    if (_replacing || widget.onReplacePdf == null) return;
     setState(() => _replacing = true);
     try {
-      final saved = await widget.onReplacePdf();
+      final saved = await widget.onReplacePdf!();
       if (saved && mounted) Navigator.of(context).pop();
     } finally {
       if (mounted) setState(() => _replacing = false);
@@ -255,7 +255,7 @@ class _ProfileDocumentDialogState extends State<ProfileDocumentDialog> {
                       icon: const Icon(Icons.edit_note),
                       label: const Text('Edit NSRP form'),
                     ),
-                  if (_category.startsWith('resume') && _isPdf)
+                  if (widget.onReplacePdf != null && _category.startsWith('resume') && _isPdf)
                     OutlinedButton.icon(
                       onPressed: _busy || _bytes == null
                           ? null
@@ -263,12 +263,26 @@ class _ProfileDocumentDialogState extends State<ProfileDocumentDialog> {
                       icon: const Icon(Icons.design_services_outlined),
                       label: const Text('Edit in Canva'),
                     ),
+                  if (_isPdf && widget.onReplacePdf == null)
+                    OutlinedButton.icon(
+                      onPressed: _busy || _bytes == null ? null : () async {
+                        final bytes = _bytes;
+                        if (bytes == null) return;
+                        final opened = await ProfilePdfDownload.openForPrint(bytes);
+                        if (!opened && mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                            content: Text('Use the PDF viewer print control or download the PDF to print.')));
+                        }
+                      },
+                      icon: const Icon(Icons.print_outlined),
+                      label: const Text('Print PDF'),
+                    ),
                   OutlinedButton.icon(
                     onPressed: _busy || _bytes == null ? null : _download,
                     icon: const Icon(Icons.download_outlined),
                     label: const Text('Download PDF'),
                   ),
-                  FilledButton.icon(
+                  if (widget.onReplacePdf != null) FilledButton.icon(
                     style: FilledButton.styleFrom(backgroundColor: _green),
                     onPressed: _replacing ? null : _replace,
                     icon: _replacing

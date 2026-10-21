@@ -71,8 +71,17 @@ void main() {
         ),
       ),
     );
+    // Residency is mandatory before OAuth; fill real required fields first.
+    await tester.enterText(find.byType(TextField).at(4), 'Block 3 Lot 5, Montalban');
+    await tester.ensureVisible(find.byKey(const Key('registration-barangay')));
+    await tester.tap(find.byKey(const Key('registration-barangay')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Balite').last);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Continue with Google'));
     await tester.tap(find.text('Continue with Google'));
     await tester.pump();
+    await tester.ensureVisible(find.text('Cancel Google sign-in / unlock form'));
     await tester.tap(find.text('Cancel Google sign-in / unlock form'));
     await tester.pump();
     final registerButton = tester.widget<ElevatedButton>(
@@ -148,7 +157,13 @@ void main() {
     await tester.enterText(find.byType(TextField).at(0), 'Mina');
     await tester.enterText(find.byType(TextField).at(1), 'Santos');
     await tester.enterText(find.byType(TextField).at(2), 'mina@example.test');
-    await tester.enterText(find.byType(TextField).at(4), 'PastedPassword1');
+    await tester.enterText(find.byType(TextField).at(4), 'Block 3 Lot 5, Montalban');
+    await tester.enterText(find.byKey(const Key('registration-password-field')), 'PastedPassword1');
+    await tester.ensureVisible(find.byKey(const Key('registration-barangay')));
+    await tester.tap(find.byKey(const Key('registration-barangay')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Balite').last);
+    await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('Continue to profile photo'));
     await tester.tap(find.text('Continue to profile photo'));
     await tester.pumpAndSettle();

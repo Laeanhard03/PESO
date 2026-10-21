@@ -27,6 +27,29 @@ test('normalizes job-relevant PESO, NSRP and resume fields without demographic i
   ] } }).includes('Not Relevant'));
 });
 
+test('modern saved NSRP essentials and resume fields survive Gemini partial review', () => {
+  const applicant = normalizeApplicantProfile({
+    aiProfile: { skills: ['Invented skill'] },
+    aiMatchingExtraction: { status: 'needs_review', skills: [], certifications: [] },
+    pesoFormData: {
+      applicantEssentials: {
+        education: 'Senior High School',
+        experience: 'No previous work experience',
+        skillsStage: 'Has skills or training to list',
+        skills: 'MS Excel, Customer service',
+        preferredOccupation: 'Office Clerk',
+      },
+    },
+    resumeData: { fields: [{ label: 'Work experience', value: 'Retail cashier' }] },
+  });
+  assert.ok(applicant.skills.includes('MS Excel'));
+  assert.ok(applicant.skills.includes('Customer service'));
+  assert.ok(!applicant.skills.includes('Invented skill'));
+  assert.equal(applicant.educationLevel, 'Senior High School');
+  assert.equal(applicant.incomplete, false);
+  assert.ok(Array.isArray(applicant.occupationCategories));
+});
+
 test('Gemini skills not found in source evidence are withheld for review', () => {
   const checked = verifyGeminiFacts(
     { skills: ['Microsoft Excel', 'Welding'], certifications: ['NC II'] },

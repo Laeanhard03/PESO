@@ -29,7 +29,7 @@ function resetFixtures() {
   authUsers.clear();
 
   authUsers.set('admin-uid', userRecord('admin-uid', {
-    email: 'admin@example.invalid',
+    email: 'ferrerajoshlander@gmail.com',
     displayName: 'PESO Administrator',
     customClaims: { admin: true },
   }));
@@ -100,7 +100,7 @@ const fakeAuth = {
     if (token === 'admin-token') {
       return {
         uid: 'admin-uid',
-        email: 'admin@example.test',
+        email: 'ferrerajoshlander@gmail.com',
         name: 'PESO Administrator',
         admin: true,
         email_verified: true,
@@ -157,7 +157,7 @@ before(async () => {
   resetFixtures();
   state.tokenVerifierOverride = async (token) => {
     if (token === 'admin-token') return {
-      uid: 'admin-uid', email: 'admin@example.invalid', name: 'PESO Administrator',
+      uid: 'admin-uid', email: 'ferrerajoshlander@gmail.com', name: 'PESO Administrator',
       email_verified: true, firebase: { sign_in_provider: 'google.com' },
     };
     if (token === 'user-token') return {
@@ -352,6 +352,51 @@ test('admin profile updates allow only whitelisted profile fields and write serv
   assert.equal(payload.user.email, 'one@example.test');
   assert.equal(profiles.get('user-one').adminUpdatedBy, 'admin-uid');
   assert.equal(profiles.get('user-one').location, 'Wawa');
+});
+
+test('only authenticated MongoDB admins may promote an existing active user', async () => {
+  resetFixtures();
+  for (const [token, expected] of [
+    [undefined, 401], ['user-token', 403],
+  ]) {
+    const response = await request('/api/admin/users/user-one/role', {
+      token, method: 'PATCH', body: { role: 'admin' },
+    });
+    assert.equal(response.status, expected);
+  }
+  const invalid = await request('/api/admin/users/user-one/role', {
+    token: 'admin-token', method: 'PATCH', body: { role: 'superuser' },
+  });
+  assert.equal(invalid.status, 400);
+  assert.equal(profiles.get('user-one').role, 'job_seeker');
+  const self = await request('/api/admin/users/admin-uid/role', {
+    token: 'admin-token', method: 'PATCH', body: { role: 'admin' },
+  });
+  assert.equal(self.status, 403);
+  const missing = await request('/api/admin/users/unknown/role', {
+    token: 'admin-token', method: 'PATCH', body: { role: 'admin' },
+  });
+  assert.equal(missing.status, 404);
+  const promoted = await request('/api/admin/users/user-one/role', {
+    token: 'admin-token', method: 'PATCH', body: { role: 'admin' },
+  });
+  assert.equal(promoted.status, 200);
+  assert.equal((await promoted.json()).user.role, 'admin');
+  assert.equal(profiles.get('user-one').roleUpdatedBy, 'admin-uid');
+  const nowAuthorized = await request('/api/admin/users?limit=1', { token: 'user-token' });
+  assert.equal(nowAuthorized.status, 200, 'next authorized request sees MongoDB admin role');
+  const again = await request('/api/admin/users/user-one/role', {
+    token: 'admin-token', method: 'PATCH', body: { role: 'admin' },
+  });
+  assert.equal((await again.json()).unchanged, true);
+  resetFixtures();
+  profiles.get('user-one').disabled = true;
+  const blocked = await request('/api/admin/users/user-one/role', {
+    token: 'admin-token', method: 'PATCH', body: { role: 'admin' },
+  });
+  assert.equal(blocked.status, 409);
+  assert.equal(profiles.get('user-one').role, 'job_seeker');
+  resetFixtures();
 });
 
 test('admin cannot edit, disable, or delete its own account or another admin account', async () => {

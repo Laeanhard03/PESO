@@ -95,6 +95,24 @@ void main() {
     );
   });
 
+  test('saved NSRP/resume skill evidence ranks only real existing jobs', () {
+    final ranked = rankJobOpportunities(
+      <Map<String, dynamic>>[
+        {'id': 'construction', 'title': 'Mason', 'aiListingKind': 'role',
+          'reqs': ['Concrete mixing']},
+        {'id': 'office', 'title': 'Office Assistant', 'aiListingKind': 'role',
+          'reqs': ['Microsoft Excel and computer literacy']},
+      ],
+      preferredOccupations: '',
+      sourceSupportedSkills: ['Microsoft Excel'],
+    );
+    expect(ranked.map((job) => job['id']).toList(), ['office', 'construction']);
+    expect(ranked.first['suggestedForInterest'], true);
+    expect(ranked.first['suggestionReason'], contains('NSRP/resume'));
+    expect(ranked.every((job) => !job.containsKey('match')), true,
+        reason: 'profile interest ranking must not fabricate Go scores');
+  });
+
   test('localized UI shows correct Tagalog/Taglish without mutating source', () {
     const original = 'NOW HIRING — JCRCC';
     expect(

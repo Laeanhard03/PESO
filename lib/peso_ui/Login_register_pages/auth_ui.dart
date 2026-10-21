@@ -6,10 +6,13 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 
 import '../../peso_logic/registration_identity_merge.dart';
+import '../../peso_services/applicant_draft_service.dart';
+import '../../peso_services/registration_draft_scope.dart';
 
 import '../../peso_services/app_toast.dart';
 import '../../peso_services/auth_service.dart';
 import '../../peso_services/peso_api_client.dart';
+import '../../peso_services/profile_artifact_service.dart';
 import '../../peso_services/peso_role_policy.dart';
 
 import 'package:file_picker/file_picker.dart';
@@ -34,7 +37,9 @@ enum AuthView { login, register, emailVerification, onboarding }
 
 class AuthPage extends StatefulWidget {
   final bool initialIsLogin;
-  const AuthPage({super.key, this.initialIsLogin = true});
+  final bool resumePendingVerification;
+  const AuthPage({super.key, this.initialIsLogin = true,
+    this.resumePendingVerification = false});
 
   @override
   State<AuthPage> createState() => _AuthPageState();
@@ -61,7 +66,14 @@ class _AuthPageState extends State<AuthPage> {
   @override
   void initState() {
     super.initState();
-    _currentView = widget.initialIsLogin ? AuthView.login : AuthView.register;
+    _currentView = widget.resumePendingVerification
+        ? AuthView.emailVerification
+        : (widget.initialIsLogin ? AuthView.login : AuthView.register);
+    if (widget.resumePendingVerification) {
+      _verificationEmail = FirebaseAuth.instance.currentUser?.email ?? '';
+      _verificationForRegistration = false;
+      _verificationEmailSent = true;
+    }
 
     _scrollController.addListener(() {
       if (_scrollController.offset > 50 && !_isScrolled) {
@@ -121,6 +133,16 @@ class _AuthPageState extends State<AuthPage> {
       builder: (context) => _ResumeAnalysisDialog(progress: progress),
     );
     try {
+      // Store original owner-scoped bytes before non-persisting Gemini preview.
+      final stored = await ProfileArtifactService.saveArtifacts(artifacts);
+      if (stored.warnings.isNotEmpty ||
+          stored.records.length != artifacts.length) {
+        if (mounted) {
+          AppToast.warning(context,
+              'Your resume could not be uploaded yet. Continue with NSRP and retry the resume when online.');
+        }
+        return <String, dynamic>{};
+      }
       final extracted = await PesoAIEngine.generateProfile(
         artifacts: artifacts,
         persist: false,
@@ -176,6 +198,7 @@ class _AuthPageState extends State<AuthPage> {
                 MaterialPageRoute(
                   builder: (context) => PesoRegistrationWizard(
                     initialValues: identity,
+                    verifiedResumeSex: explicitResumeSex(resumeText),
                     onComplete: (pesoPayload) {
                       final pesoFormData = _asStringMap(
                         pesoPayload['formData'],
@@ -246,6 +269,7 @@ class _AuthPageState extends State<AuthPage> {
           MaterialPageRoute(
             builder: (context) => PesoRegistrationWizard(
               initialValues: nsrpIdentity,
+              verifiedResumeSex: verifiedResumeSex(extractedProfile),
               onComplete: (pesoPayload) {
                 final pesoFormData = _asStringMap(pesoPayload['formData']);
                 final pesoText = _aiTextFromPayload(pesoPayload);
@@ -348,9 +372,20 @@ class _AuthPageState extends State<AuthPage> {
         firstName: _registrationIdentity['firstName'],
         lastName: _registrationIdentity['lastName'],
         phoneNumber: _registrationIdentity['phone'],
+        municipality: _registrationIdentity['municipality'],
+        barangay: _registrationIdentity['barangay'],
+        address: _registrationIdentity['address'],
       );
 
       if (_verificationForRegistration) {
+        if ((_registrationIdentity['barangay'] ?? '').isNotEmpty) {
+          await PesoApiClient.updateProfile({
+            'municipality': 'Montalban',
+            'barangay': _registrationIdentity['barangay'],
+            'address': _registrationIdentity['address'] ?? '',
+          });
+        }
+        await ApplicantDraftService.clear(registrationDraftScope(), 'registration');
         await _saveRegistrationAvatar(_verificationRequest);
         if (!mounted) return;
         setState(() {
@@ -402,12 +437,33 @@ class _AuthPageState extends State<AuthPage> {
   Future<void> _openVerifiedUserArea() async {
     final role = await AuthService.getCurrentUserRole();
     if (!mounted) return;
-    final destination = shouldOpenAdminArea(role)
-        ? const AdminDashboard()
-        : const UserProfile();
+    var openAdmin = false;
+    if (shouldOpenAdminArea(role)) {
+      final choice = await showDialog<String>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Admin debug'),
+          content: const Text('Choose your PESO workspace. Admin features still require server authorization.'),
+          actions: [
+            OutlinedButton(
+              onPressed: () => Navigator.pop(dialogContext, 'user'),
+              child: const Text('Login as User'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, 'admin'),
+              child: const Text('Login as Admin'),
+            ),
+          ],
+        ),
+      );
+      if (!mounted) return;
+      openAdmin = choice == 'admin';
+    }
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(builder: (_) => destination),
+      MaterialPageRoute(builder: (_) =>
+          openAdmin ? const AdminDashboard() : const UserProfile()),
     );
   }
 

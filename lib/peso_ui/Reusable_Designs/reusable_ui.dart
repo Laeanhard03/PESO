@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'adaptive_nav_bar.dart';
 import 'design_tokens.dart';
@@ -10,7 +11,6 @@ export 'peso_logo.dart';
 export 'adaptive_nav_bar.dart';
 export 'hero_section.dart';
 export 'cards.dart';
-
 
 // =====================================================================
 // EXPORTED COMPONENT 1: GLOBAL NAV BAR (ANIMATED) - LEGACY
@@ -50,6 +50,7 @@ class GlobalNavBar extends StatelessWidget implements PreferredSizeWidget {
     );
   }
 }
+
 // =====================================================================
 // EXPORTED COMPONENT 2: GLOBAL FOOTER
 // =====================================================================
@@ -57,17 +58,20 @@ class GlobalFooter extends StatelessWidget {
   final Color pesoGreen;
   final Function(int) onTabSelected;
   final VoidCallback onScrollToTop;
+  final ValueChanged<String>? onServiceRequested;
 
   const GlobalFooter({
     super.key,
     required this.pesoGreen,
     required this.onTabSelected,
     required this.onScrollToTop,
+    this.onServiceRequested,
   });
 
   @override
   Widget build(BuildContext context) {
     final compact = MediaQuery.sizeOf(context).width < 760;
+    final veryCompact = MediaQuery.sizeOf(context).width < 520;
     final brand = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -118,11 +122,7 @@ class GlobalFooter extends StatelessWidget {
         const SizedBox(height: 30),
         const Text(
           'An AI-Driven employment bridge built to integrate local residents with DOLE SPRS reporting.',
-          style: TextStyle(
-            color: Colors.white70,
-            height: 1.6,
-            fontSize: 15,
-          ),
+          style: TextStyle(color: Colors.white70, height: 1.6, fontSize: 15),
         ),
       ],
     );
@@ -139,9 +139,15 @@ class GlobalFooter extends StatelessWidget {
         ),
         const SizedBox(height: 25),
         _buildFooterLink('Home', 0),
-        _buildFooterLink('Offline Jobs', 1),
+        _buildFooterLink('Jobs', 1),
         _buildFooterLink('Gallery', 2),
         _buildFooterLink('About', 4),
+        _buildServiceLink('SEAP', 'SEAP'),
+        _buildServiceLink('GIP', 'GIP'),
+        _buildOfficialLink(
+          'Montalban Local Government',
+          'https://montalban.gov.ph/',
+        ),
       ],
     );
     final contacts = Column(
@@ -157,11 +163,11 @@ class GlobalFooter extends StatelessWidget {
         ),
         const SizedBox(height: 25),
         _buildFooterContact(Icons.email, 'peso.rod@gmail.com'),
-        _buildFooterContact(Icons.phone, '+63 123 456 7890'),
         _buildFooterContact(
-          Icons.location_on,
-          'Montalban, Rizal, Philippines',
+          Icons.info_outline,
+          'For current contact details, consult the official Montalban website.',
         ),
+        _buildFooterContact(Icons.location_on, 'Montalban, Rizal, Philippines'),
       ],
     );
 
@@ -179,14 +185,19 @@ class GlobalFooter extends StatelessWidget {
           if (compact) ...[
             brand,
             const SizedBox(height: 36),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(child: quickLinks),
-                const SizedBox(width: 20),
-                Expanded(child: contacts),
-              ],
-            ),
+            if (veryCompact) ...[
+              quickLinks,
+              const SizedBox(height: 28),
+              contacts,
+            ] else
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: quickLinks),
+                  const SizedBox(width: 20),
+                  Expanded(child: contacts),
+                ],
+              ),
           ] else
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -222,7 +233,9 @@ class GlobalFooter extends StatelessWidget {
         ],
       ),
     );
-  }  Widget _buildFooterLink(String text, int targetIndex) {
+  }
+
+  Widget _buildFooterLink(String text, int targetIndex) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 15),
       child: InkWell(
@@ -237,6 +250,48 @@ class GlobalFooter extends StatelessWidget {
       ),
     );
   }
+
+  Widget _buildServiceLink(String label, String code) => Padding(
+    padding: const EdgeInsets.only(bottom: 15),
+    child: InkWell(
+      onTap: () {
+        if (onServiceRequested != null) {
+          onServiceRequested!(code);
+        } else {
+          launchUrl(
+            Uri.parse('https://peis.philjobnet.gov.ph/register.aspx'),
+            mode: LaunchMode.externalApplication,
+          );
+        }
+      },
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: Colors.white,
+          decoration: TextDecoration.underline,
+          decorationColor: Colors.white70,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    ),
+  );
+
+  Widget _buildOfficialLink(String label, String url) => Padding(
+    padding: const EdgeInsets.only(bottom: 15),
+    child: InkWell(
+      onTap: () =>
+          launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: Colors.white70,
+          fontWeight: FontWeight.w600,
+          decoration: TextDecoration.underline,
+          decorationColor: Colors.white70,
+        ),
+      ),
+    ),
+  );
 
   Widget _buildFooterContact(IconData icon, String text) {
     return Padding(

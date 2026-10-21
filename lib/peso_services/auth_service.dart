@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 
 import 'firebase_setup.dart';
 import 'peso_api_client.dart';
+import 'onboarding_draft_sync.dart';
 import 'peso_auth_session.dart';
 import 'peso_role_policy.dart';
 
@@ -94,7 +97,33 @@ class AuthService {
     await _auth.sendPasswordResetEmail(email: email.trim());
   }
 
+  /// Changes a password only after Firebase verifies the existing credential.
+  /// Google-only users should use their Google account security settings.
+  static Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final user = _auth.currentUser;
+    if (user == null || user.email == null) {
+      throw StateError('Sign in with an email/password account first.');
+    }
+    if (currentPassword.isEmpty || newPassword.length < 8) {
+      throw ArgumentError('Provide your current password and a new password of at least 8 characters.');
+    }
+    final hasPasswordProvider = user.providerData.any((provider) =>
+        provider.providerId == 'password');
+    if (!hasPasswordProvider) {
+      throw StateError('This account uses external sign-in. Change its password through that provider.');
+    }
+    final credential = EmailAuthProvider.credential(
+      email: user.email!, password: currentPassword);
+    await user.reauthenticateWithCredential(credential);
+    await user.updatePassword(newPassword);
+    await user.getIdToken(true);
+  }
+
   static Future<void> signOut() async {
+    OnboardingDraftSync.live.stopRetry();
     if (Firebase.apps.isNotEmpty && FirebaseSetup.isConfigured) {
       await FirebaseAuth.instance.signOut();
     }
@@ -105,6 +134,9 @@ class AuthService {
     String? firstName,
     String? lastName,
     String? phoneNumber,
+    String? municipality,
+    String? barangay,
+    String? address,
   }) async {
     final requestedName = ((firstName ?? '') + ' ' + (lastName ?? '')).trim();
     final resolvedName = _nonEmpty(
@@ -127,9 +159,21 @@ class AuthService {
           'lastName': resolvedLastName,
           'displayName': resolvedName,
           'phoneNumber': user.phoneNumber ?? phoneNumber ?? '',
+          if (municipality != null) 'municipality': municipality,
+          if (barangay != null) 'barangay': barangay,
+          if (address != null) 'address': address,
         },
       );
       final profile = response['profile'];
+      if (profile is Map) {
+        try {
+          await OnboardingDraftSync.live.rememberProfile(
+              user.uid, Map<String, dynamic>.from(profile));
+          unawaited(OnboardingDraftSync.live.resumeAfterSignIn(user.uid));
+        } catch (_) {
+          // Local encrypted storage failure never invalidates Firebase login.
+        }
+      }
       return profile is Map
           ? Map<String, dynamic>.from(profile)
           : <String, dynamic>{
@@ -169,9 +213,15 @@ class AuthService {
     }
     final response = await PesoApiClient.getProfile();
     final profile = response['profile'];
-    return profile is Map
-        ? Map<String, dynamic>.from(profile)
-        : <String, dynamic>{};
+    if (profile is Map) {
+      final saved = Map<String, dynamic>.from(profile);
+      try {
+        await OnboardingDraftSync.live.rememberProfile(uid, saved);
+        unawaited(OnboardingDraftSync.live.resumeAfterSignIn(uid));
+      } catch (_) {}
+      return saved;
+    }
+    return <String, dynamic>{};
   }
 
   static Future<Map<String, dynamic>> getCurrentUserProfile() async {
@@ -180,9 +230,18 @@ class AuthService {
     }
     final response = await PesoApiClient.getProfile();
     final profile = response['profile'];
-    return profile is Map
-        ? Map<String, dynamic>.from(profile)
-        : <String, dynamic>{};
+    if (profile is Map) {
+      final saved = Map<String, dynamic>.from(profile);
+      final uid = await PesoAuthSession.currentUid();
+      if (uid != null) {
+        try {
+          await OnboardingDraftSync.live.rememberProfile(uid, saved);
+          unawaited(OnboardingDraftSync.live.resumeAfterSignIn(uid));
+        } catch (_) {}
+      }
+      return saved;
+    }
+    return <String, dynamic>{};
   }
 
   /// Resolve PESO application roles from the authenticated API profile.
@@ -227,8 +286,20 @@ class AuthService {
       'displayName': displayName,
       'phoneNumber': (updates['phoneNumber'] as String? ?? '').trim(),
       'location': (updates['location'] as String? ?? '').trim(),
+      if (updates['municipality'] is String)
+        'municipality': (updates['municipality'] as String).trim(),
+      if (updates['barangay'] is String)
+        'barangay': (updates['barangay'] as String).trim(),
+      if (updates['address'] is String)
+        'address': (updates['address'] as String).trim(),
       'educationLevel': (updates['educationLevel'] as String? ?? '').trim(),
       'employmentStatus': (updates['employmentStatus'] as String? ?? '').trim(),
+      if (updates['municipality'] is String)
+        'municipality': (updates['municipality'] as String).trim(),
+      if (updates['barangay'] is String)
+        'barangay': (updates['barangay'] as String).trim(),
+      if (updates['address'] is String)
+        'address': (updates['address'] as String).trim(),
       if (updates['professionalTitle'] is String)
         'professionalTitle': (updates['professionalTitle'] as String).trim(),
       if (updates['bio'] is String) 'bio': (updates['bio'] as String).trim(),
@@ -251,7 +322,9 @@ class AuthService {
     if (!await PesoAuthSession.hasAuthenticatedSession()) {
       throw StateError('Sign in before saving resume and NSRP form data.');
     }
-    await PesoApiClient.saveOnboarding(<String, dynamic>{
+    final uid = await PesoAuthSession.currentUid();
+    if (uid == null) throw StateError('You must be signed in to save your forms.');
+    await OnboardingDraftSync.live.save(uid: uid, data: <String, dynamic>{
       if (resumeData != null) 'resumeData': resumeData,
       if (pesoFormData != null) 'pesoFormData': pesoFormData,
       if (onboardingText != null) 'onboardingText': onboardingText,

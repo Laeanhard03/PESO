@@ -61,3 +61,28 @@ Map<String, String> _splitResumeFullName(String fullName) {
     'lastName': parts.length > 1 ? parts.last : '',
   };
 }
+
+/// Accept only a source-backed statement explicitly labeling sex/gender.
+/// No inference from a person's name, photograph, title, or pronouns.
+String? explicitResumeSex(String text) {
+  final match = RegExp(
+    r'(?:^|\n)\s*(?:sex|gender)\s*[:=-]\s*(male|female|other)\b',
+    caseSensitive: false,
+  ).firstMatch(text);
+  if (match == null) return null;
+  final value = match.group(1)!.toLowerCase();
+  if (value == 'male') return 'Male';
+  if (value == 'female') return 'Female';
+  return 'Other';
+}
+
+/// A Gemini suggestion is not verified merely because it has a sex field:
+/// require backend-attested evidence and an explicit statement in the quote.
+String? verifiedResumeSex(Map<String, dynamic> extracted) {
+  final evidence = extracted['verifiedSexEvidence'];
+  if (evidence is! Map || evidence['verified'] != true) return null;
+  final source = evidence['sourceQuote'];
+  if (source is! String) return null;
+  final parsed = explicitResumeSex(source);
+  return parsed == evidence['sex'] ? parsed : null;
+}

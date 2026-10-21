@@ -125,3 +125,30 @@ Fix the uploaded resume scan progress UX; mobile NSRP two-finger zoom centering;
 - Local API http://127.0.0.1:3000/api/health SUCCESS after safe restart with `PESO_SKIP_AUTOMATIC_JOB_SYNC=1`, MongoDB `peso_jobkonek` and Firebase verification ready; test users and PDF registry modifications confined to QA MongoDB only. No production PDF re-reads/publishing occurred.
 - Backend unit tests `npm test`: 213/213 passed; new official government PDF HEAD preflight tests 6/6; isolated QA authenticated admin PDF-category endpoints 8/8; Flutter pure recommendation/localization tests 4/4; full Chrome user E2E 34/34; mobile two-finger NSRP zoom under ~2px focal drift. Targeted Flutter analyzer no issues and React lint/build successful.
 - No public web deployment. Historical July 2020 LRA and Walk-in source PDFs are categorized review references only, **not confirmed currently open vacancies**. Admin needs to review dates and publish genuinely active roles. Real production Gemini full-translation reliability and OAuth popup on deployed domain are outside this isolated emulator E2E.
+
+
+## 2026-10-21 — Single-repo GitHub/Vercel auto-deployment and backup branch
+
+### Objective
+Automatic production deployments from `Laeanhard03/PESO` `main` with a static GitHub rollback branch `backup/stable`, without development/feature branches.
+
+### Verified and completed
+- On the user-authorized `marcelino` PC, `C:\Users\Admin\Desktop\Prototype`, fetched `origin/main` and confirmed local HEAD matched remote HEAD `34b6bef046976e4fa105580fdaa5231399939df1`.
+- Created and pushed `backup/stable` at exactly that commit. `main` stayed checked out. No reset, checkout, force push, or staging of 115 existing dirty/untracked files.
+- Vercel `peso` (Flutter), `peso-jobkonek-api` (Express), and `peso_aimatching` (React) each have **Production Branch Tracking = main**. Initial Flutter and backend Git integrations already connected to `Laeanhard03/PESO`.
+- Flutter Vercel uses the existing root `vercel.json` with custom `bash scripts/vercel_install_flutter.sh`, `bash scripts/vercel_build_flutter.sh`, output `build/web`; Flutter SDK pinned to `3.47.1`; build requires HTTPS `PESO_API_BASE_URL` and supplies `PESO_NSRP_WORKSPACE_URL=https://pesoaimatching.vercel.app/`. No npm Flutter substitute.
+- React `peso_aimatching` Vercel project was incorrectly connected to separate GitHub repo `Laeanhard03/peso_aimatching`. Inspection of its Git tree showed an old unrelated Flutter app with **no `react_workspace/src/App.jsx`**. The `PESO` monorepo DOES track `react_workspace` (25 tracked files).
+- Safely disconnected React project's outdated Git repository, reconnected it to `Laeanhard03/PESO` in the existing Vercel project, preserving its domain, Root Directory `react_workspace`, Build Command `npm run build`, Install Command `npm ci`, and Output Directory `dist`.
+- Built React Preview deployment from `backup/stable` commit `34b6bef`; **Ready**. Built React Production deployment explicitly from `main` commit `34b6bef`; **Ready**, assigned `pesoaimatching.vercel.app`. Future relevant commits to `main` automatically deploy through Vercel Git.
+- Live `https://pesoaimatching.vercel.app/` returned HTTP 200 and correct HTML; Chrome Playwright native dropdown regression passed at 1250px and 510px with selections preserved, no JS errors.
+- Never auto-update `backup/stable`. Vercel may create preview builds for backup branch; backup branch does **not** deploy to production. Use `git revert` or an explicitly reviewed restore commit on `main` to roll back while preserving history; avoid forced rewrite of main.
+- Existing dirty/untracked local changes were NOT committed or pushed. Review/test/selectively stage intended work before future `git push origin main`. Git/Vercel will take over without manual Vercel redeploy.
+
+### Deployment model
+- `PESO/main` -> Vercel `peso`: Flutter SDK + web build to `build/web`.
+- `PESO/main` -> Vercel `peso_aimmatching`: Vite build in `react_workspace` -> `dist`.
+- `PESO/main` -> Vercel `peso-jobkonek-api`: Express deploy with Root Directory `backend`.
+- `PESO/backup/stable`: static GitHub rollback point `34b6bef`, not a production deployment branch.
+
+### Technical references
+Vercel Git auto-build documentation: `https://vercel.com/docs/git`; Vercel monorepo behavior: `https://vercel.com/docs/monorepos`; Flutter build web: `https://docs.flutter.dev/deployment/web`.

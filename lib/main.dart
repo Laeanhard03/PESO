@@ -7,8 +7,8 @@ import 'package:flutter/material.dart';
 
 import 'firebase_options.dart';
 import 'peso_services/firebase_setup.dart';
+import 'peso_services/auth_session_gate.dart';
 import 'peso_services/peso_image_cache_manager.dart';
-import 'peso_ui/Landingpage/landingpage_ui.dart';
 import 'peso_ui/Admin/admin_live_applicants_page.dart';
 import 'peso_ui/Reusable_Designs/peso_theme.dart';
 
@@ -33,8 +33,10 @@ Future<void> main() async {
         // In emulator browser QA, remember a signed-in admin across tabs so
         // the private spreadsheet bookmark can recheck its server-side role.
         // No production persistence policy is changed by this test-only flag.
-        await FirebaseAuth.instance.setPersistence(Persistence.LOCAL);
       }
+      // Persistent browser session survives browser Back and page refresh.
+      // Authentication expiry and explicit sign-out still clear access.
+      if (kIsWeb) await FirebaseAuth.instance.setPersistence(Persistence.LOCAL);
     } else {
       debugPrint(
         '[CONFIG] Firebase placeholders detected. Run `flutterfire configure`.',
@@ -61,7 +63,7 @@ class PesoApp extends StatelessWidget {
       theme: PesoTheme.light,
       home: kIsWeb && Uri.base.queryParameters['liveApplicants'] == '1'
           ? const AdminLiveApplicantsPage()
-          : const LandingPage(),
+          : const AuthSessionGate(),
       debugShowCheckedModeBanner: false,
     );
   }

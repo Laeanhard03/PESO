@@ -27,8 +27,8 @@ class PesoJobCategories {
           ? 'Local Recruitment Activity (LRA)'
           : label(category);
 
-  /// Stored server expiration wins. Legacy LRA records without expiresAt use
-  /// createdAt + 24 hours as a compatibility fallback. Walk-in never expires.
+  /// The end of the scheduled recruitment day in Asia/Manila wins. Legacy
+  /// records use their Philippine publication day, never a rolling 24 hours.
   static DateTime? effectiveExpiryAt(Map<String, dynamic> job) {
     final category = job['category']?.toString();
     if (category == walkInApplication) return null;
@@ -38,11 +38,17 @@ class PesoJobCategories {
       if (parsed != null) return parsed.toLocal();
     }
     if (category != localRecruitmentActivity) return null;
-    final rawCreatedAt = job['createdAt'];
-    if (rawCreatedAt == null) return null;
-    return DateTime.tryParse(rawCreatedAt.toString())
-        ?.toLocal()
-        .add(const Duration(hours: 24));
+    if (job['isPublicPdfListing'] == true &&
+        job['recruitmentDate'] == null && job['recruitmentEndDate'] == null) {
+      return null;
+    }
+    final scheduled = DateTime.tryParse(
+      (job['recruitmentEndDate'] ?? job['recruitmentDate'] ?? '').toString());
+    final created = DateTime.tryParse(job['createdAt']?.toString() ?? '');
+    final philippineDay = scheduled ?? created?.toUtc().add(const Duration(hours: 8));
+    if (philippineDay == null) return null;
+    return DateTime.utc(philippineDay.year, philippineDay.month,
+      philippineDay.day, 15, 59, 59, 999).toLocal();
   }
 
   static bool isVisible(Map<String, dynamic> job, {DateTime? now}) {

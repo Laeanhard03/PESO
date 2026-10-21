@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../Login_register_pages/auth_ui.dart';
 import '../Reusable_Designs/reusable_ui.dart';
 import '../Reusable_Designs/peso_images.dart';
+import '../../peso_services/peso_api_client.dart';
+import 'peso_public_services.dart';
 
 class LandingPage extends StatefulWidget {
   const LandingPage({super.key});
@@ -20,11 +23,137 @@ class _LandingPageState extends State<LandingPage> {
   int _activePageIndex = 0;
   String _selectedJobFilter = 'All roles';
   bool _isScrolled = false;
+  List<_LandingJob> _landingJobs = const [];
+  List<_LandingJob> _featuredJobs = const [];
+  String? _publicNextPageToken;
+  bool _publicLoadingMore = false;
+  int _publicRequestGeneration = 0;
+  Timer? _publicSearchDebounce;
+  Timer? _publicSyncTimer;
+  bool _publicJobsLoading = true;
+  String? _publicJobsError;
 
   @override
   void initState() {
     super.initState();
     _scrollController.addListener(_handleScroll);
+    _loadPublicJobs();
+    _publicSyncTimer = Timer.periodic(const Duration(minutes: 2), (_) {
+      if (!mounted || _publicJobsLoading || _publicLoadingMore) return;
+      unawaited(_loadPublicJobs());
+      unawaited(_refreshFeaturedJobs());
+    });
+  }
+
+  String? get _publicCategory => switch (_selectedJobFilter) {
+    'Walk-in Application' => 'walk_in_application',
+    'Local Recruitment Activity' => 'local_recruitment_activity',
+    _ => null,
+  };
+  String? get _publicEmploymentType =>
+      _selectedJobFilter == 'All roles' || _publicCategory != null
+      ? null
+      : _selectedJobFilter;
+
+  void _schedulePublicJobSearch() {
+    _publicSearchDebounce?.cancel();
+    _publicSearchDebounce = Timer(
+      const Duration(milliseconds: 350),
+      () => unawaited(_loadPublicJobs()),
+    );
+  }
+
+  Future<void> _refreshFeaturedJobs() async {
+    try {
+      final response = await PesoApiClient.publicListJobs(limit: 6);
+      final page = response['jobs'];
+      if (!mounted || page is! List) return;
+      setState(
+        () => _featuredJobs = page
+            .whereType<Map>()
+            .map((job) => _LandingJob.fromApi(Map<String, dynamic>.from(job)))
+            .toList(),
+      );
+    } catch (_) {
+      // Keep the last verified saved opportunities if temporarily offline.
+    }
+  }
+
+  Future<void> _loadPublicJobs() async {
+    final generation = ++_publicRequestGeneration;
+    final search = _jobSearchController.text.trim();
+    if (mounted) {
+      setState(() {
+        _publicJobsLoading = true;
+        _publicJobsError = null;
+      });
+    }
+    try {
+      final result = await PesoApiClient.publicListJobs(
+        limit: 60,
+        search: search,
+        category: _publicCategory,
+        employmentType: _publicEmploymentType,
+      );
+      final page = result['jobs'];
+      if (page is! List)
+        throw const FormatException('Invalid PESO job response');
+      final records = page
+          .whereType<Map>()
+          .map((item) => _LandingJob.fromApi(Map<String, dynamic>.from(item)))
+          .toList();
+      if (!mounted || generation != _publicRequestGeneration) return;
+      setState(() {
+        _landingJobs = records;
+        _publicNextPageToken = result['nextPageToken']?.toString();
+        _publicJobsLoading = false;
+        _publicJobsError = null;
+        if (search.isEmpty && _selectedJobFilter == 'All roles') {
+          _featuredJobs = records.take(6).toList();
+        }
+      });
+    } catch (_) {
+      if (!mounted || generation != _publicRequestGeneration) return;
+      setState(() {
+        _publicJobsLoading = false;
+        _publicJobsError = 'Could not load published PESO jobs. Please retry.';
+      });
+    }
+  }
+
+  Future<void> _loadMorePublicJobs() async {
+    final token = _publicNextPageToken;
+    if (_publicJobsLoading || _publicLoadingMore || token == null) return;
+    final generation = _publicRequestGeneration;
+    setState(() => _publicLoadingMore = true);
+    try {
+      final result = await PesoApiClient.publicListJobs(
+        limit: 60,
+        pageToken: token,
+        search: _jobSearchController.text.trim(),
+        category: _publicCategory,
+        employmentType: _publicEmploymentType,
+      );
+      final page = result['jobs'];
+      if (page is! List)
+        throw const FormatException('Invalid PESO job response');
+      if (!mounted || generation != _publicRequestGeneration) return;
+      final known = _landingJobs.map((job) => job.id).toSet();
+      final additions = page
+          .whereType<Map>()
+          .map((item) => _LandingJob.fromApi(Map<String, dynamic>.from(item)))
+          .where((job) => known.add(job.id))
+          .toList();
+      setState(() {
+        _landingJobs.addAll(additions);
+        _publicNextPageToken = result['nextPageToken']?.toString();
+      });
+    } catch (_) {
+      if (mounted)
+        setState(() => _publicJobsError = 'Could not load more jobs. Retry.');
+    } finally {
+      if (mounted) setState(() => _publicLoadingMore = false);
+    }
   }
 
   void _handleScroll() {
@@ -52,6 +181,8 @@ class _LandingPageState extends State<LandingPage> {
 
   @override
   void dispose() {
+    _publicSearchDebounce?.cancel();
+    _publicSyncTimer?.cancel();
     _scrollController.dispose();
     _jobSearchController.dispose();
     super.dispose();
@@ -128,6 +259,8 @@ class _LandingPageState extends State<LandingPage> {
                 _scrollToTop();
               },
               onScrollToTop: _scrollToTop,
+              onServiceRequested: (code) =>
+                  PesoPublicServices.showDetails(context, code),
             ),
           ],
         ),
@@ -190,7 +323,7 @@ class _LandingPageState extends State<LandingPage> {
         _ScrollReveal(
           key: const ValueKey<String>('home-programs-scroll-reveal'),
           scrollController: _scrollController,
-          child: _buildPesoPrograms(),
+          child: const PesoPublicServices(),
         ),
       ],
     );
@@ -233,9 +366,8 @@ class _LandingPageState extends State<LandingPage> {
           ].any((value) => value.toLowerCase().contains(searchQuery));
       final matchesFilter =
           _selectedJobFilter == 'All roles' ||
-          (_selectedJobFilter == 'Entry level'
-              ? job.tags.contains('Entry Level')
-              : job.type == _selectedJobFilter);
+          job.categoryLabel == _selectedJobFilter ||
+          job.type == _selectedJobFilter;
       return matchesSearch && matchesFilter;
     }).toList();
 
@@ -266,6 +398,26 @@ class _LandingPageState extends State<LandingPage> {
                   delay: 180,
                   child: _buildJobsResults(visibleJobs, isMobile),
                 ),
+                if (_publicNextPageToken != null && !_publicJobsLoading)
+                  Center(
+                    child: FilledButton.tonalIcon(
+                      onPressed: _publicLoadingMore
+                          ? null
+                          : _loadMorePublicJobs,
+                      icon: _publicLoadingMore
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.expand_more_rounded),
+                      label: Text(
+                        _publicLoadingMore
+                            ? 'Loading jobs...'
+                            : 'Load more saved jobs',
+                      ),
+                    ),
+                  ),
                 const SizedBox(height: PesoTokens.spacing3XL),
                 AnimatedEntrance(
                   delay: 260,
@@ -336,13 +488,21 @@ class _LandingPageState extends State<LandingPage> {
   }
 
   Widget _buildJobsSearchAndFilters(bool isMobile) {
-    const filters = <String>[
+    final filters = <String>[
       'All roles',
-      'Entry level',
-      'Full-Time',
-      'Part-Time',
-      'Internship',
-      'Contract',
+      'Walk-in Application',
+      'Local Recruitment Activity',
+      ..._landingJobs
+          .map((job) => job.type)
+          .where((type) => type.isNotEmpty)
+          .toSet(),
+      if (!{
+            'All roles',
+            'Walk-in Application',
+            'Local Recruitment Activity',
+          }.contains(_selectedJobFilter) &&
+          !_landingJobs.any((job) => job.type == _selectedJobFilter))
+        _selectedJobFilter,
     ];
 
     return Container(
@@ -360,7 +520,10 @@ class _LandingPageState extends State<LandingPage> {
         children: [
           TextField(
             controller: _jobSearchController,
-            onChanged: (_) => setState(() {}),
+            onChanged: (_) {
+              setState(() {});
+              _schedulePublicJobSearch();
+            },
             textInputAction: TextInputAction.search,
             decoration: InputDecoration(
               hintText: 'Search by role, organization, or location',
@@ -372,6 +535,7 @@ class _LandingPageState extends State<LandingPage> {
                       onPressed: () {
                         _jobSearchController.clear();
                         setState(() {});
+                        unawaited(_loadPublicJobs());
                       },
                       icon: const Icon(Icons.close_rounded),
                     ),
@@ -396,7 +560,10 @@ class _LandingPageState extends State<LandingPage> {
               return ChoiceChip(
                 label: Text(filter),
                 selected: selected,
-                onSelected: (_) => setState(() => _selectedJobFilter = filter),
+                onSelected: (_) {
+                  setState(() => _selectedJobFilter = filter);
+                  unawaited(_loadPublicJobs());
+                },
                 selectedColor: PesoTokens.brandGreenLight,
                 backgroundColor: Colors.white,
                 side: BorderSide(
@@ -441,7 +608,7 @@ class _LandingPageState extends State<LandingPage> {
                   ),
                   const SizedBox(height: PesoTokens.spacingXS),
                   Text(
-                    '${jobs.length} ${jobs.length == 1 ? 'role' : 'roles'} to explore',
+                    '${jobs.length} ${jobs.length == 1 ? 'role' : 'roles'} shown',
                     style: PesoTokens.bodyMedium.copyWith(
                       color: PesoTokens.textMuted,
                     ),
@@ -457,7 +624,15 @@ class _LandingPageState extends State<LandingPage> {
           ],
         ),
         const SizedBox(height: PesoTokens.spacingLG),
-        if (jobs.isEmpty)
+        if (_publicJobsLoading)
+          const Center(child: CircularProgressIndicator())
+        else if (_publicJobsError != null)
+          TextButton.icon(
+            onPressed: _loadPublicJobs,
+            icon: const Icon(Icons.refresh_rounded),
+            label: Text(_publicJobsError!),
+          )
+        else if (jobs.isEmpty)
           _buildJobsEmptyState()
         else
           LayoutBuilder(
@@ -628,18 +803,19 @@ class _LandingPageState extends State<LandingPage> {
           AnimatedEntrance(
             delay: 100,
             child: Text(
-              'A glimpse into our job fairs, training seminars, and community outreach programs.',
+              'Recruitment activities and job fairs shown in the PESO Montalban project reference.',
               style: PesoTokens.bodyLarge.copyWith(color: PesoTokens.textMuted),
             ),
           ),
           const SizedBox(height: PesoTokens.spacing2XL),
           Wrap(
+            alignment: WrapAlignment.center,
             spacing: PesoTokens.spacingLG,
             runSpacing: PesoTokens.spacingLG,
             children: List.generate(images.length, (index) {
               return AnimatedEntrance(
                 delay: 200 + (index * 100),
-                child: _buildGalleryImageCard(images[index]),
+                child: _buildGalleryImageCard(images[index], index),
               );
             }),
           ),
@@ -648,17 +824,49 @@ class _LandingPageState extends State<LandingPage> {
     );
   }
 
-  Widget _buildGalleryImageCard(String imagePath) {
+  Widget _buildGalleryImageCard(String imagePath, int index) {
+    const captions = <String>[
+      'Local recruitment activity — PESO Montalban',
+      'Local recruitment activity — applicant orientation',
+      'Local recruitment activity — briefing',
+      'PESO Montalban mega job fair',
+      'Local recruitment activity — waiting area',
+      'Local recruitment activity — PESO partners',
+    ];
     final width = MediaQuery.sizeOf(context).width;
     final isMobile = width < PesoTokens.breakpointCompact;
-
-    return Container(
-      width: isMobile ? width - 32 : 400,
-      height: 300,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(PesoTokens.radiusContainer),
-        boxShadow: PesoTokens.shadowMD,
-        image: DecorationImage(image: AssetImage(imagePath), fit: BoxFit.cover),
+    return Semantics(
+      label: captions[index],
+      image: true,
+      child: SizedBox(
+        width: isMobile ? width - 32 : 360,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(PesoTokens.radiusContainer),
+              child: AspectRatio(
+                aspectRatio: 4 / 3,
+                child: Image.asset(
+                  imagePath,
+                  fit: BoxFit.contain,
+                  cacheWidth: isMobile ? 760 : 850,
+                  errorBuilder: (_, _, _) =>
+                      const Center(child: Icon(Icons.broken_image_outlined)),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              captions[index],
+              style: PesoTokens.bodySmall.copyWith(color: PesoTokens.textMuted),
+            ),
+            const Text(
+              'Source: PESO Montalban project photo reference',
+              style: TextStyle(fontSize: 11, color: Colors.black54),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -699,7 +907,7 @@ class _LandingPageState extends State<LandingPage> {
                     ),
                     const SizedBox(height: PesoTokens.spacingSM),
                     Text(
-                      'A look at how local employment support has grown and where it is headed.',
+                      'Verified national legal milestones for public employment services. These are not dates of local PESO office establishment.',
                       style: PesoTokens.bodyMedium.copyWith(
                         color: PesoTokens.textMuted,
                       ),
@@ -797,7 +1005,7 @@ class _LandingPageState extends State<LandingPage> {
         ),
         const SizedBox(height: PesoTokens.spacingSM),
         Text(
-          'Tracing the milestones of PESO Montalban and its continuing work to connect residents with employment support.',
+          'The public employment service framework behind local PESO programs and jobseeker support.',
           style: PesoTokens.bodyLarge.copyWith(color: PesoTokens.textMuted),
         ),
       ],
@@ -1064,7 +1272,6 @@ class _LandingPageState extends State<LandingPage> {
   Widget _buildRecommendedJobs() {
     final width = MediaQuery.sizeOf(context).width;
     final isMobile = width < PesoTokens.breakpointCompact;
-
     return Container(
       color: PesoTokens.surfaceNeutral,
       padding: EdgeInsets.only(
@@ -1076,148 +1283,139 @@ class _LandingPageState extends State<LandingPage> {
       child: Wrap(
         spacing: PesoTokens.spacingLG,
         runSpacing: PesoTokens.spacingLG,
-        alignment: WrapAlignment.start,
         children: [
-          JobCard(
-            title: 'IT Support Intern',
-            company: 'Montalban LGU',
-            location: 'Rosario, Montalban',
-            salary: '₱10,000 - ₱12,000',
-            type: 'Internship',
-            tags: ['Entry Level', 'Internship', 'On-site'],
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => const AuthPage(initialIsLogin: true),
-              ),
-            ),
-          ),
-          JobCard(
-            title: 'Software QA Tester',
-            company: 'OmniCore',
-            location: 'San Jose, Montalban',
-            salary: '₱20,000 - ₱25,000',
-            type: 'Full-Time',
-            tags: ['Associate', 'Full-Time', 'Hybrid'],
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => const AuthPage(initialIsLogin: true),
-              ),
-            ),
-          ),
-          JobCard(
-            title: 'Data Encoder',
-            company: 'Prime BPO',
-            location: 'San Mateo, Rizal',
-            salary: '₱15,000 - ₱18,000',
-            type: 'Part-Time',
-            tags: ['Entry Level', 'Part-Time', 'On-site'],
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => const AuthPage(initialIsLogin: true),
-              ),
-            ),
-          ),
-          JobCard(
-            title: 'Administrative Assistant',
-            company: 'Local Government',
-            location: 'Montalban, Rizal',
-            salary: '₱12,000 - ₱15,000',
-            type: 'Full-Time',
-            tags: ['Entry Level', 'Full-Time', 'On-site'],
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => const AuthPage(initialIsLogin: true),
-              ),
-            ),
-          ),
-          JobCard(
-            title: 'Network Technician',
-            company: 'TechNova',
-            location: 'Rodriguez, Rizal',
-            salary: '₱25,000 - ₱30,000',
-            type: 'Contract',
-            tags: ['Mid Level', 'Contract', 'On-site'],
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => const AuthPage(initialIsLogin: true),
-              ),
-            ),
-          ),
+          if (_publicJobsLoading)
+            const CircularProgressIndicator()
+          else if (_publicJobsError != null)
+            TextButton.icon(
+              onPressed: _loadPublicJobs,
+              icon: const Icon(Icons.refresh_rounded),
+              label: Text(_publicJobsError!),
+            )
+          else if (_featuredJobs.isEmpty)
+            const Text(
+              'No confirmed active PESO vacancies are currently published.',
+            )
+          else
+            ..._featuredJobs
+                .take(6)
+                .map(
+                  (job) => SizedBox(
+                    width: isMobile ? width - PesoTokens.spacingMD * 2 : 330,
+                    child: _LandingJobCard(
+                      job: job,
+                      onApply: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const AuthPage(initialIsLogin: true),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
         ],
       ),
     );
   }
 
   Widget _buildAboutSection() {
-    final width = MediaQuery.sizeOf(context).width;
-    final isMobile = width < PesoTokens.breakpointCompact;
+    final isMobile =
+        MediaQuery.sizeOf(context).width < PesoTokens.breakpointCompact;
+    final image = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(PesoTokens.radiusContainer),
+          child: AspectRatio(
+            aspectRatio: 4 / 3,
+            child: Image.asset(
+              PesoImageAssets.aboutBanner,
+              fit: BoxFit.contain,
+              semanticLabel: 'PESO Montalban team at a Mega Job Fair, from the supplied reference',
+              cacheWidth: isMobile ? 720 : 1100,
+              errorBuilder: (_, _, _) =>
+                  const Center(child: Icon(Icons.broken_image_outlined)),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'PESO Montalban Mega Job Fair photo from the supplied project reference.',
+          style: PesoTokens.bodySmall.copyWith(color: PesoTokens.textMuted),
+        ),
+      ],
+    );
+
+    final description = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'About JobKonek',
+          style: PesoTokens.labelLarge.copyWith(
+            color: PesoTokens.brandGreen,
+            letterSpacing: 2,
+          ),
+        ),
+        const SizedBox(height: PesoTokens.spacingLG),
+        Text(
+          'Connecting Montalban jobseekers with opportunity.',
+          style: PesoTokens.displayMedium.copyWith(
+            fontSize: isMobile ? 30 : 40,
+            height: 1.15,
+          ),
+        ),
+        const SizedBox(height: PesoTokens.spacingLG),
+        Text(
+          'JobKonek is a locally developed digital platform designed to support '
+          'PESO Montalban. It helps jobseekers build an applicant profile and '
+          'review available opportunities with qualification guidance.',
+          style: PesoTokens.bodyLarge.copyWith(
+            color: PesoTokens.textSecondary,
+            height: 1.55,
+          ),
+        ),
+        const SizedBox(height: PesoTokens.spacingMD),
+        Text(
+          'Its purpose is to complement public employment services and support '
+          'local job referrals. JobKonek is not the official PhilJobNet or DOLE '
+          'portal; applicants should confirm programs and requirements directly '
+          'with PESO and the relevant government agency.',
+          style: PesoTokens.bodyLarge.copyWith(
+            color: PesoTokens.textSecondary,
+            height: 1.55,
+          ),
+        ),
+      ],
+    );
 
     return Container(
+      width: double.infinity,
       padding: EdgeInsets.symmetric(
-        vertical: PesoTokens.spacing4XL,
+        vertical: isMobile ? PesoTokens.spacing2XL : PesoTokens.spacing4XL,
         horizontal: isMobile ? PesoTokens.spacingMD : PesoTokens.spacing2XL,
       ),
       color: Colors.white,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Expanded(
-            child: Container(
-              height: isMobile ? 250 : 400,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(PesoTokens.radiusContainer),
-                image: const DecorationImage(
-                  image: AssetImage(PesoImageAssets.aboutBanner),
-                  fit: BoxFit.cover,
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1150),
+          child: isMobile
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    image,
+                    const SizedBox(height: PesoTokens.spacing2XL),
+                    description,
+                  ],
+                )
+              : Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(child: image),
+                    const SizedBox(width: PesoTokens.spacing3XL),
+                    Expanded(child: description),
+                  ],
                 ),
-              ),
-            ),
-          ),
-          if (!isMobile) const SizedBox(width: PesoTokens.spacing3XL),
-          if (isMobile) const SizedBox(height: PesoTokens.spacing2XL),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'About JobKonek',
-                  style: PesoTokens.labelLarge.copyWith(
-                    color: PesoTokens.brandGreen,
-                    letterSpacing: 2,
-                  ),
-                ),
-                const SizedBox(height: PesoTokens.spacingLG),
-                Text(
-                  'Eliminating Manual Bottlenecks for Montalban.',
-                  style: PesoTokens.displayMedium.copyWith(
-                    fontSize: isMobile ? 36 : 48,
-                  ),
-                ),
-                const SizedBox(height: PesoTokens.spacingLG),
-                Text(
-                  'JobKonek is an advanced digital initiative designed specifically for the Montalban PESO office. Recognizing that employers already use DOLE\'s PhilJobNet, our system acts strictly as an AI-driven skill pre-screening bridge for local residents.',
-                  style: PesoTokens.bodyLarge.copyWith(
-                    color: PesoTokens.textSecondary,
-                    height: 1.6,
-                  ),
-                ),
-                const SizedBox(height: PesoTokens.spacingMD),
-                Text(
-                  'By taking offline Excel job postings and returning DOLE SPRS-formatted pre-vetted candidates, we optimize municipal placement while guiding jobseekers toward suitable roles or targeted upskilling.',
-                  style: PesoTokens.bodyLarge.copyWith(
-                    color: PesoTokens.textSecondary,
-                    height: 1.6,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -1261,93 +1459,6 @@ class _LandingPageState extends State<LandingPage> {
             ],
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildPesoPrograms() {
-    final width = MediaQuery.sizeOf(context).width;
-    final isMobile = width < PesoTokens.breakpointCompact;
-
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: PesoTokens.surfaceDark,
-        image: const DecorationImage(
-          image: AssetImage(PesoImageAssets.programsBanner),
-          fit: BoxFit.cover,
-        ),
-      ),
-      child: Container(
-        color: PesoTokens.brandGreen.withValues(alpha: 0.9),
-        padding: EdgeInsets.symmetric(
-          vertical: PesoTokens.spacing4XL,
-          horizontal: isMobile ? PesoTokens.spacingMD : PesoTokens.spacing2XL,
-        ),
-        child: Column(
-          children: [
-            Text(
-              'PESO Core Programs Support',
-              style: PesoTokens.headlineLarge.copyWith(color: Colors.white),
-            ),
-            const SizedBox(height: PesoTokens.spacingSM),
-            Text(
-              'Your digital portal for national employment assistance initiatives.',
-              style: PesoTokens.bodyLarge.copyWith(color: Colors.white70),
-            ),
-            const SizedBox(height: PesoTokens.spacing2XL),
-            Wrap(
-              spacing: PesoTokens.spacingLG,
-              runSpacing: PesoTokens.spacingLG,
-              alignment: WrapAlignment.center,
-              children: [
-                ProgramCard(
-                  title: 'SPES',
-                  description: 'Special Program for Employment of Students',
-                  icon: Icons.school_rounded,
-                  accentColor: Colors.amber,
-                  stats: const [
-                    ProgramStat(label: 'Students/Year', value: '500+'),
-                    ProgramStat(label: 'LGU Partners', value: '12'),
-                  ],
-                  onTap: () => launchUrl(
-                    Uri.parse('https://tesda.gov.ph'),
-                    mode: LaunchMode.externalApplication,
-                  ),
-                ),
-                ProgramCard(
-                  title: 'TUPAD',
-                  description:
-                      'Tulong Panghanapbuhay sa Ating Disadvantaged Workers',
-                  icon: Icons.work_history_rounded,
-                  accentColor: Colors.lightBlue,
-                  stats: const [
-                    ProgramStat(label: 'Beneficiaries', value: '1,200+'),
-                    ProgramStat(label: 'Barangays', value: '26'),
-                  ],
-                  onTap: () => launchUrl(
-                    Uri.parse('https://dole.gov.ph'),
-                    mode: LaunchMode.externalApplication,
-                  ),
-                ),
-                ProgramCard(
-                  title: 'RA 11261',
-                  description: 'First Time Jobseekers Assistance Verification',
-                  icon: Icons.verified_user_rounded,
-                  accentColor: Colors.pinkAccent,
-                  stats: const [
-                    ProgramStat(label: 'Verified', value: '800+'),
-                    ProgramStat(label: 'Fee Waivers', value: '100%'),
-                  ],
-                  onTap: () => launchUrl(
-                    Uri.parse('https://www.tesda.gov.ph/ra-11261'),
-                    mode: LaunchMode.externalApplication,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -1474,96 +1585,81 @@ class _LandingPageState extends State<LandingPage> {
   }
 }
 
-const List<_LandingJob> _landingJobs = [
-  _LandingJob(
-    title: 'IT Support Intern',
-    company: 'Montalban LGU',
-    location: 'Rosario, Montalban',
-    salary: '₱10,000 - ₱12,000',
-    type: 'Internship',
-    tags: ['Entry Level', 'On-site'],
-  ),
-  _LandingJob(
-    title: 'Software QA Tester',
-    company: 'OmniCore',
-    location: 'San Jose, Montalban',
-    salary: '₱20,000 - ₱25,000',
-    type: 'Full-Time',
-    tags: ['Associate', 'Hybrid'],
-  ),
-  _LandingJob(
-    title: 'Data Encoder',
-    company: 'Prime BPO',
-    location: 'San Mateo, Rizal',
-    salary: '₱15,000 - ₱18,000',
-    type: 'Part-Time',
-    tags: ['Entry Level', 'On-site'],
-  ),
-  _LandingJob(
-    title: 'Administrative Assistant',
-    company: 'Local Government',
-    location: 'Montalban, Rizal',
-    salary: '₱12,000 - ₱15,000',
-    type: 'Full-Time',
-    tags: ['Entry Level', 'On-site'],
-  ),
-  _LandingJob(
-    title: 'Network Technician',
-    company: 'TechNova',
-    location: 'Rodriguez, Rizal',
-    salary: '₱25,000 - ₱30,000',
-    type: 'Contract',
-    tags: ['Mid Level', 'On-site'],
-  ),
-];
-
+// National legal milestones, not claims about PESO Montalban's establishment.
 const List<_HistoryMilestoneData> _historyMilestones = [
   _HistoryMilestoneData(
-    year: '2018',
-    title: 'PESO Office Established',
-    description: 'The local government officially launched the Public Employment Service Office to bridge employers and local residents.',
+    year: '2000',
+    title: 'PESO Act of 1999 (RA 8759)',
+    description: 'Republic Act No. 8759 established the public employment service network. The Act was approved in February 2000.',
     icon: Icons.account_balance_rounded,
     color: PesoTokens.brandGreen,
   ),
   _HistoryMilestoneData(
-    year: '2020',
-    title: 'Pandemic Response Initiatives',
-    description: 'Transitioned to online job boards and implemented TUPAD programs to assist displaced workers during lockdowns.',
-    icon: Icons.diversity_1_rounded,
+    year: '2015',
+    title: 'Stronger Local PESO Network',
+    description: 'Republic Act No. 10691 defined LGU and DOLE responsibilities for operating Public Employment Service Offices.',
+    icon: Icons.hub_outlined,
     color: PesoTokens.infoBlue,
   ),
   _HistoryMilestoneData(
-    year: '2023',
-    title: 'Record High Placements',
-    description: 'Successfully placed over 5,000 Montalban residents in regular positions across Metro Manila and Rizal.',
-    icon: Icons.trending_up_rounded,
+    year: '2019',
+    title: 'First Time Jobseekers Assistance',
+    description: 'Republic Act No. 11261 created a one-time waiver of eligible government pre-employment document fees, subject to conditions.',
+    icon: Icons.verified_user_outlined,
     color: PesoTokens.warningAmber,
   ),
   _HistoryMilestoneData(
-    year: '2026',
-    title: 'JobKonek AI Launch',
-    description: 'Revolutionized job placement by introducing Generative AI skill extraction and DOLE SPRS matching integration.',
-    icon: Icons.auto_awesome_rounded,
+    year: '2022',
+    title: 'Montalban Naming Legislation',
+    description: 'Republic Act No. 11812 provides for renaming the Municipality of Rodriguez as Montalban, subject to a plebiscite.',
+    icon: Icons.location_city_outlined,
     color: PesoTokens.brandGreen,
   ),
 ];
 
 class _LandingJob {
   const _LandingJob({
+    required this.id,
     required this.title,
     required this.company,
     required this.location,
     required this.salary,
     required this.type,
     required this.tags,
+    required this.categoryLabel,
+    required this.logoUrl,
+    required this.imageUrl,
   });
 
+  factory _LandingJob.fromApi(Map<String, dynamic> job) {
+    final category = job['category']?.toString();
+    final label = category == 'local_recruitment_activity'
+        ? 'Local Recruitment Activity'
+        : 'Walk-in Application';
+    return _LandingJob(
+      id: job['id']?.toString() ?? '',
+      title: job['title']?.toString() ?? '',
+      company: job['company']?.toString() ?? '',
+      location: job['location']?.toString() ?? '',
+      salary: job['salary']?.toString() ?? 'Not specified',
+      type: job['employmentType']?.toString() ?? 'Not specified',
+      tags: [label],
+      categoryLabel: label,
+      logoUrl: job['logoUrl']?.toString() ?? '',
+      imageUrl: job['imageUrl']?.toString() ?? '',
+    );
+  }
+
+  final String id;
   final String title;
   final String company;
   final String location;
   final String salary;
   final String type;
   final List<String> tags;
+  final String categoryLabel;
+  final String logoUrl;
+  final String imageUrl;
 }
 
 class _LandingJobCard extends StatelessWidget {
@@ -1585,6 +1681,24 @@ class _LandingJobCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (job.imageUrl.isNotEmpty) ...[
+            ClipRRect(
+              borderRadius: BorderRadius.circular(PesoTokens.radiusMD),
+              child: AspectRatio(
+                aspectRatio: 16 / 9,
+                child: Image.network(
+                  job.imageUrl,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) =>
+                      const ColoredBox(
+                        color: PesoTokens.surfaceNeutral,
+                        child: Center(child: Icon(Icons.work_outline_rounded)),
+                      ),
+                ),
+              ),
+            ),
+            const SizedBox(height: PesoTokens.spacingMD),
+          ],
           Row(
             children: [
               Container(
@@ -1594,10 +1708,25 @@ class _LandingJobCard extends StatelessWidget {
                   color: PesoTokens.brandGreenPale,
                   borderRadius: BorderRadius.circular(PesoTokens.radiusMD),
                 ),
-                child: const Icon(
-                  Icons.business_rounded,
-                  color: PesoTokens.brandGreen,
-                ),
+                child: job.logoUrl.isEmpty
+                    ? const Icon(
+                        Icons.business_rounded,
+                        color: PesoTokens.brandGreen,
+                      )
+                    : ClipRRect(
+                        borderRadius: BorderRadius.circular(
+                          PesoTokens.radiusMD,
+                        ),
+                        child: Image.network(
+                          job.logoUrl,
+                          fit: BoxFit.contain,
+                          errorBuilder: (context, error, stackTrace) =>
+                              const Icon(
+                                Icons.business_rounded,
+                                color: PesoTokens.brandGreen,
+                              ),
+                        ),
+                      ),
               ),
               const SizedBox(width: PesoTokens.spacingMD),
               Expanded(

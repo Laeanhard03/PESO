@@ -24,74 +24,9 @@ class PesoImageAssets {
     'lib/assets/peso_gallery_career.jpg',
   ];
 
-  /// Choose a bundled visual from the job's existing metadata; this changes no
-  /// job data and is only a fallback when the API did not provide usable art.
-  /// Stable visual variety across jobs, avoiding repeated generic office photos.
-  /// All photos are bundled Pexels Free License assets; no new network request
-  /// is made for every scrolled job tile. Real employer artwork takes priority.
-  static String jobFallbackFor(Map<String, dynamic>? job) {
-    final title = (job?['title'] ?? '').toString().toLowerCase();
-    final haystack = [
-      title,
-      (job?['industry'] ?? '').toString().toLowerCase(),
-      (job?['category'] ?? '').toString().toLowerCase(),
-    ].join(' ');
-    final prefix = 'lib/assets/job_photos/';
-    final List<String> pool;
-
-    if (RegExp(r'paint|spray|auto.?body|body.?shop').hasMatch(title)) {
-      pool = ['painter_1.jpg', 'painter_2.jpg'];
-    } else if (RegExp(r'auto.?electric|electrician|electrical|wiring')
-        .hasMatch(title)) {
-      pool = ['electrician_1.jpg', 'mechanic_1.jpg'];
-    } else if (RegExp(
-      r'bulldozer|excavat|backhoe|heavy.?equipment|grader|crane|operator|loader',
-    ).hasMatch(title)) {
-      pool = ['equipment_1.jpg', 'equipment_2.jpg', 'equipment_3.jpg'];
-    } else if (RegExp(r'mechanic|automotive|vehicle|auto.?technician|repair')
-        .hasMatch(title)) {
-      pool = ['mechanic_1.jpg', 'mechanic_2.jpg'];
-    } else if (RegExp(r'warehouse|forklift|logistic|inventory|stockroom')
-        .hasMatch(haystack)) {
-      pool = ['warehouse_1.jpg', 'warehouse_2.jpg', 'warehouse_3.jpg'];
-    } else if (RegExp(
-      r'construction|labor|builder|carpenter|mason|foreman|civil|site',
-    ).hasMatch(haystack)) {
-      pool = [
-        'construction_1.jpg',
-        'construction_3.jpg',
-        'equipment_1.jpg',
-        'equipment_2.jpg',
-        'equipment_3.jpg',
-      ];
-    } else if (RegExp(
-      r'develop|program|data|software|tech|network|computer|it support',
-    ).hasMatch(haystack)) {
-      pool = ['office_1.jpg', 'office_2.jpg', 'warehouse_2.jpg'];
-    } else if (RegExp(
-      r'account|admin|office|clerical|secretary|encoder|assistant',
-    ).hasMatch(haystack)) {
-      pool = ['office_1.jpg', 'office_2.jpg'];
-    } else {
-      pool = [
-        'construction_1.jpg',
-        'construction_3.jpg',
-        'warehouse_1.jpg',
-        'office_1.jpg',
-        'office_2.jpg',
-      ];
-    }
-    final identity = [
-      (job?['id'] ?? '').toString(),
-      (job?['title'] ?? '').toString(),
-      (job?['company'] ?? '').toString(),
-    ].join('|');
-    var hash = 2166136261;
-    for (final code in identity.codeUnits) {
-      hash = ((hash ^ code) * 16777619) & 0x7fffffff;
-    }
-    return prefix + pool[hash % pool.length];
-  }
+  /// Neutral fallback; never suggest a stock photo belongs to an employer.
+  /// An actual stored employer image takes priority in PesoNetworkImage.
+  static String jobFallbackFor(Map<String, dynamic>? job) => jobDefault;
 }
 
 /// Loads remote photos when supplied, but always displays a bundled local image

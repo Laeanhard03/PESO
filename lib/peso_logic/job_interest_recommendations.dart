@@ -117,11 +117,26 @@ List<Map<String, dynamic>> rankJobOpportunities(
       (phrase) => _containsPhrase(roleTitle, phrase),
     );
 
-    final verifiedSkills = sourceSupportedSkills
+    final verifiedEvidence = sourceSupportedSkills
         .map((skill) => skill.trim().toLowerCase())
-        .where((skill) => skill.length >= 4)
-        .where((skill) => _containsPhrase(roleTitle, skill))
-        .length;
+        .where((skill) => skill.length >= 4 && skill.length <= 90)
+        .toSet();
+    final requirementText = (job['reqs'] is List
+        ? (job['reqs'] as List).join(' ')
+        : job['requirements'] is List
+        ? (job['requirements'] as List).join(' ')
+        : '').toLowerCase();
+    final detailText = [
+      roleTitle,
+      requirementText,
+      (job['description'] ?? '').toString().toLowerCase().substring(
+        0,
+        (job['description'] ?? '').toString().length.clamp(0, 1500),
+      ),
+    ].join(' ');
+    final verifiedSkills = verifiedEvidence
+        .where((term) => _containsPhrase(detailText, term))
+        .length.clamp(0, 5);
     final jobId = job['id']?.toString() ?? '';
     final modelScore = goScores[jobId];
     // Job-specific posts come first; employer-wide notices are not a career
@@ -140,11 +155,13 @@ List<Map<String, dynamic>> rankJobOpportunities(
       priority: priority,
       job: <String, dynamic>{
         ...job,
-        'suggestedForInterest': hasInterest && !notice,
-        if (hasInterest && !notice)
+        'suggestedForInterest': (hasInterest || verifiedSkills > 0) && !notice,
+        if ((hasInterest || verifiedSkills > 0) && !notice)
           'suggestionReason': matchedFamilies.isNotEmpty
               ? 'Your interests: ${matchedFamilies.join(', ')}'
-              : 'Your preferred occupation',
+              : directMatch
+              ? 'Your preferred occupation'
+              : 'Related to the work or skills saved in your NSRP/resume',
         if (modelScore != null) 'match': modelScore.round(),
       },
     ));

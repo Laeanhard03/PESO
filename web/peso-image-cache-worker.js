@@ -1,17 +1,12 @@
 const CACHE_NAME = 'peso-remote-images-v1';
-const BUNDLED_CACHE_NAME = 'peso-bundled-assets-v1';
+const BUNDLED_CACHE_NAME = 'peso-bundled-assets-v2';
 const MAX_CACHED_IMAGES = 300;
 
 const BUNDLED_ASSET_IMAGES = [
+  // Warm only first-view and common job fallback imagery.
+  // Gallery/About photos are loaded and cached on first visit instead of
+  // downloading the entire photo set during initial landing-page startup.
   'assets/lib/assets/peso_hero_career.jpg',
-  'assets/lib/assets/peso_programs_workshop.jpg',
-  'assets/lib/assets/peso_about_team.jpg',
-  'assets/lib/assets/peso_gallery_conference.jpg',
-  'assets/lib/assets/peso_gallery_workspace.jpg',
-  'assets/lib/assets/peso_gallery_team.jpg',
-  'assets/lib/assets/peso_gallery_meeting.jpg',
-  'assets/lib/assets/peso_gallery_event.jpg',
-  'assets/lib/assets/peso_gallery_career.jpg',
   'assets/lib/assets/peso_job_default.jpg',
   'assets/lib/assets/peso_job_technology.jpg',
 ];
@@ -163,7 +158,7 @@ self.addEventListener('activate', (event) => {
     const names = await caches.keys();
     await Promise.all(
       names
-        .filter((name) => name.startsWith('peso-remote-images-') && name !== CACHE_NAME)
+        .filter((name) => (name.startsWith('peso-remote-images-') && name !== CACHE_NAME) || (name.startsWith('peso-bundled-assets-') && name !== BUNDLED_CACHE_NAME))
         .map((name) => caches.delete(name))
     );
     await self.clients.claim();

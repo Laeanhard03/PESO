@@ -76,7 +76,7 @@ void main() {
     await tester.pump(const Duration(seconds: 2));
     await tester.pump(const Duration(seconds: 1));
     expect(find.text('SOURCE_NOT_SAVED'), findsOneWidget);
-    expect(actions, ['source-attempt', 'documents', 'extract']);
+    expect(actions, ['source-attempt', 'documents'], reason: 'Gemini must not run before source persistence succeeds.');
     expect(outcome!.sourceSaved, isFalse);
     expect(outcome!.aiProfile, isNull);
     expect(outcome!.extractionUnavailable, isTrue);

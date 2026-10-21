@@ -109,11 +109,10 @@ void _handleMessage(web.MessageEvent event) {
 }
 
 /// Transfer private fields only to the selected workspace at an exact origin.
-void postReactNsrpPrefill(Map<String, dynamic> formData) {
+void postReactWorkspaceMessage(Map<String, dynamic> payload) {
   final json = jsonEncode(<String, dynamic>{
     'source': 'peso-flutter',
-    'event': 'nsrp-prefill',
-    'formData': formData,
+    ...payload,
   });
   for (final frame in _trustedWorkspaceFrames()) {
     final uri = Uri.tryParse(frame.src ?? '');

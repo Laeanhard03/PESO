@@ -15,6 +15,17 @@ class JobApplicationsSection extends StatefulWidget {
 class _JobApplicationsSectionState extends State<JobApplicationsSection> {
   List<Map<String, dynamic>> _applications = <Map<String, dynamic>>[];
   bool _loading = false;
+  bool _loadingMore = false;
+  String? _nextPageToken;
+  String? _savingStatusId;
+  static const _statusNames = <String, String>{
+    'submitted': 'Submitted',
+    'under_review': 'Under review',
+    'matched': 'Qualified for PESO referral',
+    'accepted': 'Accepted',
+    'rejected': 'Declined',
+    'action_required': 'Action needed',
+  };
   String? _loadError;
   int? _expandedIndex;
 
@@ -30,7 +41,7 @@ class _JobApplicationsSectionState extends State<JobApplicationsSection> {
       _loadError = null;
     });
     try {
-      final response = await PesoApiClient.adminListApplications(limit: 200);
+      final response = await PesoApiClient.adminListApplications(limit: 100);
       final records = response['applications'];
       if (!mounted) return;
       setState(() {
@@ -40,6 +51,8 @@ class _JobApplicationsSectionState extends State<JobApplicationsSection> {
                   .map((item) => Map<String, dynamic>.from(item))
                   .toList()
             : <Map<String, dynamic>>[];
+        _nextPageToken = response['nextPageToken']?.toString();
+        _expandedIndex = null;
       });
     } catch (error) {
       if (!mounted) return;
@@ -50,6 +63,87 @@ class _JobApplicationsSectionState extends State<JobApplicationsSection> {
       });
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _loadMoreApplications() async {
+    final token = _nextPageToken;
+    if (token == null || _loadingMore || _loading) return;
+    setState(() => _loadingMore = true);
+    try {
+      final response = await PesoApiClient.adminListApplications(
+        limit: 100,
+        pageToken: token,
+      );
+      final rows = response['applications'];
+      if (rows is! List)
+        throw const FormatException('Invalid applications response');
+      if (!mounted) return;
+      final ids = _applications.map((row) => row['id']?.toString()).toSet();
+      setState(() {
+        _applications.addAll(
+          rows
+              .whereType<Map>()
+              .map((row) => Map<String, dynamic>.from(row))
+              .where((row) => ids.add(row['id']?.toString())),
+        );
+        _nextPageToken = response['nextPageToken']?.toString();
+      });
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not load more applications. Retry.'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _loadingMore = false);
+    }
+  }
+
+  Future<void> _setOfficialStatus(
+    Map<String, dynamic> row,
+    String status,
+  ) async {
+    final id = row['id']?.toString() ?? '';
+    if (id.isEmpty || _savingStatusId != null) return;
+    setState(() => _savingStatusId = id);
+    try {
+      final response = await PesoApiClient.adminSetApplicationStatus(
+        id,
+        status,
+      );
+      final saved = response['application'];
+      if (saved is! Map)
+        throw const FormatException('Invalid application status response');
+      if (!mounted) return;
+      final index = _applications.indexWhere(
+        (item) => item['id']?.toString() == id,
+      );
+      setState(() {
+        if (index >= 0) _applications[index] = Map<String, dynamic>.from(saved);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Official status updated: ${_statusNames[status] ?? status}.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            error is PesoApiException
+                ? error.message
+                : 'Unable to save the official application status.',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _savingStatusId = null);
     }
   }
 
@@ -98,18 +192,35 @@ class _JobApplicationsSectionState extends State<JobApplicationsSection> {
       );
     }
     if (_applications.isEmpty) {
-      return const Center(
-        child: Text('No job applications submitted yet.'),
-      );
+      return const Center(child: Text('No job applications submitted yet.'));
     }
 
     return RefreshIndicator(
       onRefresh: _loadApplications,
       child: ListView.separated(
         padding: const EdgeInsets.all(16),
-        itemCount: _applications.length,
+        itemCount: _applications.length + (_nextPageToken == null ? 0 : 1),
         separatorBuilder: (_, __) => const SizedBox(height: 12),
         itemBuilder: (context, index) {
+          if (index == _applications.length) {
+            return Center(
+              child: FilledButton.tonalIcon(
+                onPressed: _loadingMore ? null : _loadMoreApplications,
+                icon: _loadingMore
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.expand_more_rounded),
+                label: Text(
+                  _loadingMore
+                      ? 'Loading applications...'
+                      : 'Load more applications',
+                ),
+              ),
+            );
+          }
           final app = _applications[index];
           final answers = app['answers'] is Map
               ? Map<String, dynamic>.from(app['answers'] as Map)
@@ -134,7 +245,10 @@ class _JobApplicationsSectionState extends State<JobApplicationsSection> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: <Widget>[
                             Text(
-                              (app['applicantName'] ?? app['applicantEmail'] ?? 'Applicant').toString(),
+                              (app['applicantName'] ??
+                                      app['applicantEmail'] ??
+                                      'Applicant')
+                                  .toString(),
                               style: const TextStyle(
                                 fontWeight: FontWeight.w900,
                                 fontSize: 16,
@@ -152,13 +266,17 @@ class _JobApplicationsSectionState extends State<JobApplicationsSection> {
                         ),
                       ),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.green.shade50,
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Text(
-                          (app['status'] ?? 'submitted').toString(),
+                          _statusNames[app['status']?.toString()] ??
+                              'Submitted',
                           style: TextStyle(
                             color: Colors.green.shade800,
                             fontWeight: FontWeight.w800,
@@ -166,12 +284,37 @@ class _JobApplicationsSectionState extends State<JobApplicationsSection> {
                           ),
                         ),
                       ),
+                      PopupMenuButton<String>(
+                        tooltip: 'Update official PESO application status',
+                        enabled: _savingStatusId == null,
+                        icon: _savingStatusId == app['id']?.toString()
+                            ? const SizedBox(
+                                height: 20,
+                                width: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.edit_note_rounded),
+                        onSelected: (status) => _setOfficialStatus(app, status),
+                        itemBuilder: (context) => _statusNames.entries
+                            .map(
+                              (entry) => PopupMenuItem(
+                                value: entry.key,
+                                child: Text(entry.value),
+                              ),
+                            )
+                            .toList(),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 12),
                   Text(
                     '${app['jobTitle'] ?? 'Untitled job'} @ ${app['employer'] ?? 'Employer'}',
-                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                    ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -187,7 +330,9 @@ class _JobApplicationsSectionState extends State<JobApplicationsSection> {
                     onPressed: () => setState(() {
                       _expandedIndex = expanded ? null : index;
                     }),
-                    icon: Icon(expanded ? Icons.expand_less : Icons.expand_more),
+                    icon: Icon(
+                      expanded ? Icons.expand_less : Icons.expand_more,
+                    ),
                     label: Text(expanded ? 'Hide answers' : 'View answers'),
                   ),
                   if (expanded) ...<Widget>[
@@ -196,13 +341,15 @@ class _JobApplicationsSectionState extends State<JobApplicationsSection> {
                       spacing: 8,
                       runSpacing: 8,
                       children: answers.entries
-                          .map((entry) => Chip(
-                                label: Text(
-                                  '${_labelFor(entry.key)}: ${entry.value}',
-                                  style: const TextStyle(fontSize: 12),
-                                ),
-                                backgroundColor: Colors.blue.shade50,
-                              ))
+                          .map(
+                            (entry) => Chip(
+                              label: Text(
+                                '${_labelFor(entry.key)}: ${entry.value}',
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                              backgroundColor: Colors.blue.shade50,
+                            ),
+                          )
                           .toList(),
                     ),
                   ],

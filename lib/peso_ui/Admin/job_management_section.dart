@@ -23,16 +23,26 @@ class _JobManagementSectionState extends State<JobManagementSection> {
   final _description = TextEditingController();
   final _requirements = TextEditingController();
   final _vacancies = TextEditingController(text: '1');
+  final _logoUrl = TextEditingController();
+  final _imageUrl = TextEditingController();
+  final _recruitmentDate = TextEditingController();
+  final _recruitmentEndDate = TextEditingController();
 
   String _category = PesoJobCategories.walkInApplication;
   List<Map<String, dynamic>> _jobs = <Map<String, dynamic>>[];
   bool _loading = false;
   bool _saving = false;
+  bool _loadingMore = false;
+  String? _nextPageToken;
+  int _visibleJobs = 24;
   String? _loadError;
 
   @override
   void initState() {
     super.initState();
+    final today = DateTime.now().toUtc().add(const Duration(hours: 8));
+    _recruitmentDate.text = _dateOnly(today);
+    _recruitmentEndDate.text = _dateOnly(today);
     _loadJobs();
   }
 
@@ -46,25 +56,50 @@ class _JobManagementSectionState extends State<JobManagementSection> {
     _description.dispose();
     _requirements.dispose();
     _vacancies.dispose();
+    _logoUrl.dispose();
+    _imageUrl.dispose();
+    _recruitmentDate.dispose();
+    _recruitmentEndDate.dispose();
     super.dispose();
   }
 
+  static String _dateOnly(DateTime date) =>
+      '${date.year.toString().padLeft(4, '0')}-'
+      '${date.month.toString().padLeft(2, '0')}-'
+      '${date.day.toString().padLeft(2, '0')}';
+
+  Future<void> _pickRecruitmentDay(TextEditingController controller) async {
+    final current = DateTime.tryParse(controller.text) ?? DateTime.now();
+    final selected = await showDatePicker(
+      context: context,
+      initialDate: current,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now().add(const Duration(days: 1095)),
+      helpText: 'Choose recruitment day (Philippine time)',
+    );
+    if (selected != null && mounted) {
+      setState(() => controller.text = _dateOnly(selected));
+    }
+  }
+
   Future<void> _loadJobs() async {
+    if (!mounted) return;
     setState(() {
       _loading = true;
       _loadError = null;
     });
     try {
-      final response = await PesoApiClient.adminListJobs(limit: 300);
-      final records = response['jobs'];
+      final response = await PesoApiClient.adminListJobs(limit: 100);
+      final rows = response['jobs'];
+      if (rows is! List)
+        throw const FormatException('Invalid saved jobs response');
       if (!mounted) return;
       setState(() {
-        _jobs = records is List
-            ? records
-                  .whereType<Map>()
-                  .map((item) => Map<String, dynamic>.from(item))
-                  .toList()
-            : <Map<String, dynamic>>[];
+        _jobs = rows
+            .whereType<Map>()
+            .map((item) => Map<String, dynamic>.from(item))
+            .toList();
+        _nextPageToken = response['nextPageToken']?.toString();
       });
     } catch (error) {
       if (!mounted) return;
@@ -75,6 +110,36 @@ class _JobManagementSectionState extends State<JobManagementSection> {
       );
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _loadMoreJobs() async {
+    final token = _nextPageToken;
+    if (!mounted || _loading || _loadingMore || token == null) return;
+    setState(() => _loadingMore = true);
+    try {
+      final response = await PesoApiClient.adminListJobs(
+        limit: 100,
+        pageToken: token,
+      );
+      final rows = response['jobs'];
+      if (rows is! List)
+        throw const FormatException('Invalid saved jobs response');
+      if (!mounted) return;
+      final known = _jobs.map((item) => item['id']?.toString()).toSet();
+      setState(() {
+        _jobs.addAll(
+          rows
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .where((item) => known.add(item['id']?.toString())),
+        );
+        _nextPageToken = response['nextPageToken']?.toString();
+      });
+    } catch (_) {
+      if (mounted) _notice('Could not load more saved jobs.', isError: true);
+    } finally {
+      if (mounted) setState(() => _loadingMore = false);
     }
   }
 
@@ -96,6 +161,12 @@ class _JobManagementSectionState extends State<JobManagementSection> {
             .toList(),
         'vacancies': int.parse(_vacancies.text.trim()),
         'category': _category,
+        'imageUrl': _imageUrl.text.trim(),
+        'logoUrl': _logoUrl.text.trim(),
+        if (_category == PesoJobCategories.localRecruitmentActivity) ...{
+          'recruitmentDate': _recruitmentDate.text,
+          'recruitmentEndDate': _recruitmentEndDate.text,
+        },
       });
       final created = response['job'];
       if (!mounted) return;
@@ -106,6 +177,8 @@ class _JobManagementSectionState extends State<JobManagementSection> {
         _salary.clear();
         _description.clear();
         _requirements.clear();
+        _imageUrl.clear();
+        _logoUrl.clear();
         _vacancies.text = '1';
       });
       _notice('Job posting created successfully.');
@@ -153,6 +226,108 @@ class _JobManagementSectionState extends State<JobManagementSection> {
             : 'Could not update this job posting.',
         isError: true,
       );
+    }
+  }
+
+  Future<void> _deleteJob(Map<String, dynamic> job) async {
+    final id = job['id']?.toString() ?? '';
+    if (id.isEmpty || _saving) return;
+    final approved = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: const Text('Remove this job from listings?'),
+        content: Text(
+          'Remove "' + (job['title']?.toString() ?? 'Untitled job') + '" from all active listings? Saved applications and history remain for audit.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialog, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialog, true),
+            child: const Text('Delete job'),
+          ),
+        ],
+      ),
+    );
+    if (approved != true || !mounted) return;
+    setState(() => _saving = true);
+    try {
+      await PesoApiClient.adminDeleteJob(id);
+      if (mounted) {
+        await _loadJobs();
+        if (mounted) _notice('Job removed from the saved database.');
+      }
+    } catch (error) {
+      if (mounted)
+        _notice(
+          error is PesoApiException ? error.message : 'Could not delete the job. The backend deletion API may not be ready.',
+          isError: true,
+        );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _deleteAllJobs() async {
+    if (_jobs.isEmpty || _loading || _saving) return;
+    final controller = TextEditingController();
+    final approved = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => StatefulBuilder(
+        builder: (context, update) => AlertDialog(
+          title: const Text('Remove ALL stored jobs?'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'This removes every stored job from active listings, '
+                'including jobs not displayed here. Historical applications and '
+                'audit records remain. Type DELETE ALL JOBS to confirm.',
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                onChanged: (_) => update(() {}),
+                decoration: const InputDecoration(
+                  labelText: 'Confirmation phrase',
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialog, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: controller.text.trim() != 'DELETE ALL JOBS'
+                  ? null
+                  : () => Navigator.pop(dialog, true),
+              child: const Text('Permanently delete all jobs'),
+            ),
+          ],
+        ),
+      ),
+    );
+    controller.dispose();
+    if (approved != true || !mounted) return;
+    setState(() => _saving = true);
+    try {
+      await PesoApiClient.adminDeleteAllJobs(confirmation: 'DELETE ALL JOBS');
+      if (mounted) {
+        await _loadJobs();
+        if (mounted) _notice('All stored jobs removed from active listings.');
+      }
+    } catch (error) {
+      if (mounted)
+        _notice(
+          error is PesoApiException ? error.message : 'Could not delete jobs. The backend deletion API may not be ready.',
+          isError: true,
+        );
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
   }
 
@@ -207,7 +382,11 @@ class _JobManagementSectionState extends State<JobManagementSection> {
 
   Widget _jobCard(Map<String, dynamic> job, bool compact) {
     final category = job['category']?.toString();
-    final active = (job['status']?.toString() ?? 'active') == 'active';
+    final expired =
+        category == PesoJobCategories.localRecruitmentActivity &&
+        !PesoJobCategories.isVisible(job);
+    final active =
+        (job['status']?.toString() ?? 'active') == 'active' && !expired;
     final expiry = PesoJobCategories.expiryText(job);
     return Card(
       margin: EdgeInsets.zero,
@@ -232,7 +411,7 @@ class _JobManagementSectionState extends State<JobManagementSection> {
                   const Color(0xFF1D4ED8),
                 ),
                 _badge(
-                  active ? 'Active' : 'Inactive',
+                  expired ? 'Expired' : (active ? 'Active' : 'Inactive'),
                   active ? const Color(0xFFDCFCE7) : const Color(0xFFF1F5F9),
                   active ? const Color(0xFF166534) : const Color(0xFF475569),
                 ),
@@ -291,14 +470,27 @@ class _JobManagementSectionState extends State<JobManagementSection> {
             const SizedBox(height: 12),
             Align(
               alignment: Alignment.centerRight,
-              child: OutlinedButton.icon(
-                onPressed: () => _setJobActive(job, !active),
-                icon: Icon(
-                  active
-                      ? Icons.pause_circle_outline
-                      : Icons.play_circle_outline,
-                ),
-                label: Text(active ? 'Deactivate' : 'Reactivate'),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: _saving || expired
+                        ? null
+                        : () => _setJobActive(job, !active),
+                    icon: Icon(
+                      active
+                          ? Icons.pause_circle_outline
+                          : Icons.play_circle_outline,
+                    ),
+                    label: Text(active ? 'Deactivate' : 'Reactivate'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: _saving ? null : () => _deleteJob(job),
+                    icon: const Icon(Icons.delete_outline),
+                    label: const Text('Delete'),
+                  ),
+                ],
               ),
             ),
           ],
@@ -417,8 +609,9 @@ class _JobManagementSectionState extends State<JobManagementSection> {
                           onChanged: _saving
                               ? null
                               : (value) {
-                                  if (value != null)
+                                  if (value != null) {
                                     setState(() => _category = value);
+                                  }
                                 },
                         ),
                         const SizedBox(height: 10),
@@ -432,7 +625,7 @@ class _JobManagementSectionState extends State<JobManagementSection> {
                           child: Text(
                             _category == PesoJobCategories.walkInApplication
                                 ? 'Walk-in Application: remains listed until an Admin deactivates it. No automatic expiration.'
-                                : 'Local Recruitment Activity: remains listed for 24 hours from the server-recorded creation time, then is hidden automatically.',
+                                : 'Local Recruitment Activity: expires at the end of the final scheduled recruitment day (11:59 PM Philippine time).',
                             style: const TextStyle(
                               color: Color(0xFF1E40AF),
                               height: 1.4,
@@ -440,6 +633,58 @@ class _JobManagementSectionState extends State<JobManagementSection> {
                           ),
                         ),
                         const SizedBox(height: 16),
+                        if (_category ==
+                            PesoJobCategories.localRecruitmentActivity) ...[
+                          const SizedBox(height: 12),
+                          Wrap(
+                            spacing: 12,
+                            runSpacing: 12,
+                            children: [
+                              for (final entry
+                                  in <(TextEditingController, String)>[
+                                    (
+                                      _recruitmentDate,
+                                      'First recruitment day (PHT)',
+                                    ),
+                                    (
+                                      _recruitmentEndDate,
+                                      'Final recruitment day (PHT)',
+                                    ),
+                                  ])
+                                SizedBox(
+                                  width: fieldWidth,
+                                  child: TextFormField(
+                                    controller: entry.$1,
+                                    readOnly: true,
+                                    onTap: () => _pickRecruitmentDay(entry.$1),
+                                    decoration: InputDecoration(
+                                      labelText: entry.$2,
+                                      suffixIcon: const Icon(
+                                        Icons.calendar_month,
+                                      ),
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                    ),
+                                    validator: (value) {
+                                      if (DateTime.tryParse(value ?? '') ==
+                                          null) {
+                                        return 'Choose a recruitment date';
+                                      }
+                                      if (entry.$1 == _recruitmentEndDate &&
+                                          _recruitmentEndDate.text.compareTo(
+                                                _recruitmentDate.text,
+                                              ) <
+                                              0) {
+                                        return 'Final day cannot be before first day';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ],
                         Wrap(
                           spacing: 12,
                           runSpacing: 12,
@@ -485,6 +730,24 @@ class _JobManagementSectionState extends State<JobManagementSection> {
                             SizedBox(
                               width: fieldWidth,
                               child: _field(
+                                _logoUrl,
+                                'Employer logo URL (optional)',
+                                keyboardType: TextInputType.url,
+                                validator: (_) => null,
+                              ),
+                            ),
+                            SizedBox(
+                              width: fieldWidth,
+                              child: _field(
+                                _imageUrl,
+                                'Job image URL (optional)',
+                                keyboardType: TextInputType.url,
+                                validator: (_) => null,
+                              ),
+                            ),
+                            SizedBox(
+                              width: fieldWidth,
+                              child: _field(
                                 _requirements,
                                 'Requirements (comma-separated)',
                                 maxLines: 2,
@@ -519,25 +782,49 @@ class _JobManagementSectionState extends State<JobManagementSection> {
                 ),
               ),
               const SizedBox(height: 28),
-              Row(
+              Wrap(
+                spacing: 12,
+                runSpacing: 10,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  const Expanded(
-                    child: Text(
-                      'Saved job postings',
-                      style: TextStyle(
-                        fontSize: 21,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF0F172A),
-                      ),
+                  const Text(
+                    'Saved job postings',
+                    style: TextStyle(
+                      fontSize: 21,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF0F172A),
                     ),
                   ),
                   Text(
-                    '${_jobs.length} total',
+                    '${_jobs.length} saved',
                     style: const TextStyle(color: Color(0xFF64748B)),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: _saving || _loading || _jobs.isEmpty
+                        ? null
+                        : _deleteAllJobs,
+                    icon: const Icon(Icons.delete_forever_outlined),
+                    label: const Text('Delete all stored jobs'),
                   ),
                 ],
               ),
               const SizedBox(height: 12),
+              if (_nextPageToken != null && !_loading)
+                Center(
+                  child: FilledButton.tonalIcon(
+                    onPressed: _loadingMore ? null : _loadMoreJobs,
+                    icon: _loadingMore
+                        ? const SizedBox(
+                            height: 16,
+                            width: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.expand_more),
+                    label: Text(
+                      _loadingMore ? 'Loading...' : 'Load more saved jobs',
+                    ),
+                  ),
+                ),
               if (_loadError != null)
                 Container(
                   width: double.infinity,
@@ -567,19 +854,37 @@ class _JobManagementSectionState extends State<JobManagementSection> {
               else
                 LayoutBuilder(
                   builder: (context, constraints) {
-                    final columns = constraints.maxWidth >= 900 ? 2 : 1;
-                    return GridView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: _jobs.length,
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: columns,
-                        crossAxisSpacing: 12,
-                        mainAxisSpacing: 12,
-                        mainAxisExtent: 320,
-                      ),
-                      itemBuilder: (context, index) =>
-                          _jobCard(_jobs[index], compact),
+                    final cardWidth = constraints.maxWidth >= 900
+                        ? (constraints.maxWidth - 12) / 2
+                        : constraints.maxWidth;
+                    return Column(
+                      children: [
+                        Wrap(
+                          spacing: 12,
+                          runSpacing: 12,
+                          children: _jobs
+                              .take(_visibleJobs)
+                              .map(
+                                (job) => SizedBox(
+                                  width: cardWidth,
+                                  child: _jobCard(job, compact),
+                                ),
+                              )
+                              .toList(),
+                        ),
+                        if (_visibleJobs < _jobs.length)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 16),
+                            child: OutlinedButton.icon(
+                              onPressed: () =>
+                                  setState(() => _visibleJobs += 24),
+                              icon: const Icon(Icons.expand_more),
+                              label: Text(
+                                'Show more saved jobs (${_visibleJobs}/${_jobs.length})',
+                              ),
+                            ),
+                          ),
+                      ],
                     );
                   },
                 ),

@@ -2,6 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
+import '../../peso_services/applicant_draft_service.dart';
+import '../../peso_services/peso_api_client.dart';
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
@@ -15,12 +19,14 @@ class PesoRegistrationWizard extends StatefulWidget {
   /// cellphone fields start with the registered applicant's details.
   final Map<String, String> initialValues;
   final Map<String, dynamic> savedFormData;
+  final String? verifiedResumeSex;
 
   const PesoRegistrationWizard({
     super.key,
     required this.onComplete,
     this.initialValues = const <String, String>{},
     this.savedFormData = const <String, dynamic>{},
+    this.verifiedResumeSex,
   });
 
   @override
@@ -31,12 +37,20 @@ class _PesoRegistrationWizardState extends State<PesoRegistrationWizard> {
   late final WebViewController _controller;
   StreamSubscription<String>? _webMessageSubscription;
   bool _isLoading = true;
+  bool _draftSyncRunning = false;
+  Timer? _draftRetryTimer;
+  String? _lastSyncedDraftAt;
+  bool _formFinished = false;
+  Map<String, dynamic>? _nextDraft;
   final Color _primary = const Color(0xFF2E7D32);
 
   @override
   void initState() {
     super.initState();
     _controller = WebViewController();
+    _draftRetryTimer = Timer.periodic(const Duration(seconds: 25), (_) {
+      if (mounted && !_formFinished && !_draftSyncRunning) unawaited(_retryEncryptedDraft());
+    });
 
     if (kIsWeb) {
       // webview_flutter_web is iframe-backed and does not support native
@@ -91,26 +105,106 @@ class _PesoRegistrationWizardState extends State<PesoRegistrationWizard> {
     return query.isEmpty ? base : base.replace(queryParameters: query);
   }
 
+  void _postToWorkspace(Map<String, dynamic> payload) {
+    final message = <String, dynamic>{'source': 'peso-flutter', ...payload};
+    if (kIsWeb) {
+      postReactWorkspaceMessage(payload);
+    } else {
+      _controller.runJavaScript(
+        'window.postMessage(' + jsonEncode(jsonEncode(message)) + ', "*");',
+      );
+    }
+  }
+
+  Future<void> _restoreDraft() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    if (uid.isEmpty) return;
+    final saved = widget.savedFormData;
+    final remote = saved['pendingDraft'] is Map
+        ? Map<String, dynamic>.from(saved['pendingDraft'] as Map)
+        : <String, dynamic>{};
+    final local = await ApplicantDraftService.read(uid, 'nsrp');
+    final pending = ApplicantDraftService.newest(remote, local);
+    final completedAt = DateTime.tryParse(saved['completedAt']?.toString() ?? '');
+    final pendingAt = DateTime.tryParse(pending['draftUpdatedAt']?.toString() ?? '');
+    final restorePending = pending.isNotEmpty &&
+        (completedAt == null || (pendingAt != null && pendingAt.isAfter(completedAt)));
+    final data = restorePending ? pending : saved;
+    if (!mounted) return;
+    _postToWorkspace(<String, dynamic>{
+      'event': 'nsrp-prefill',
+      'ownerUid': uid,
+      'formData': data,
+      'verifiedResumeSex': widget.verifiedResumeSex,
+    });
+    if (restorePending && (local != null && local.isNotEmpty)) {
+      _nextDraft = pending;
+      if (!_draftSyncRunning) unawaited(_drainDrafts());
+    }
+  }
+
+  Future<void> _retryEncryptedDraft() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    if (uid.isEmpty) return;
+    final local = await ApplicantDraftService.read(uid, 'nsrp');
+    if (!mounted || _formFinished || local == null || local.isEmpty ||
+        local['draftUpdatedAt'] == _lastSyncedDraftAt) return;
+    _queueDraft(local);
+  }
+
+  void _queueDraft(Map<String, dynamic> draft) {
+    if (_formFinished) return;
+    _nextDraft = draft;
+    if (!_draftSyncRunning) unawaited(_drainDrafts());
+  }
+
+  Future<void> _drainDrafts() async {
+    _draftSyncRunning = true;
+    try {
+      while (!_formFinished && _nextDraft != null) {
+        final draft = _nextDraft!;
+        _nextDraft = null;
+        final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+        _postToWorkspace({'event': 'draft-sync-status', 'state': 'Saving'});
+        try {
+          await ApplicantDraftService.write(uid, 'nsrp', draft);
+        } catch (_) {
+          _postToWorkspace({'event': 'draft-sync-status', 'state': 'Sync Failed'});
+          continue;
+        }
+        if (_formFinished) break;
+        try {
+          await ApplicantDraftService.sync('nsrp', draft);
+          _lastSyncedDraftAt = draft['draftUpdatedAt']?.toString();
+          _postToWorkspace({'event': 'draft-sync-status', 'state': 'Saved'});
+        } on PesoApiException catch (error) {
+          _postToWorkspace({'event': 'draft-sync-status',
+            'state': error.statusCode == 0 ? 'Offline Draft' : 'Sync Failed'});
+        } catch (_) {
+          _postToWorkspace({'event': 'draft-sync-status', 'state': 'Sync Failed'});
+        }
+      }
+    } finally {
+      _draftSyncRunning = false;
+    }
+  }
+
   void _handleBridgePayload(String rawMessage) {
     try {
       final decoded = jsonDecode(rawMessage);
       if (decoded is Map &&
           decoded['status'] == 'ready' &&
-          decoded['kind'] == 'nsrp_form' &&
-          widget.savedFormData.isNotEmpty) {
-        if (kIsWeb) {
-          postReactNsrpPrefill(widget.savedFormData);
-        } else {
-          final json = jsonEncode(<String, dynamic>{
-            'source': 'peso-flutter',
-            'event': 'nsrp-prefill',
-            'formData': widget.savedFormData,
-          });
-          _controller.runJavaScript(
-            ['window.postMessage(', jsonEncode(json), ', "*");'].join(),
-          );
-        }
-      } else if (decoded is Map && decoded['status'] == 'completed') {
+          decoded['kind'] == 'nsrp_form') {
+        unawaited(_restoreDraft());
+      } else if (decoded is Map && decoded['status'] == 'draft' &&
+          decoded['kind'] == 'nsrp_form' && decoded['formData'] is Map) {
+        _queueDraft(Map<String, dynamic>.from(decoded['formData'] as Map));
+      } else if (decoded is Map && decoded['status'] == 'completed' &&
+          decoded['kind'] == 'nsrp_form') {
+        _formFinished = true;
+        _nextDraft = null;
+        // Do not discard the encrypted draft until the backend confirms that
+        // the finished PDF AND form fields were persisted successfully.
         widget.onComplete(Map<String, dynamic>.from(decoded));
       }
     } catch (error) {
@@ -120,6 +214,7 @@ class _PesoRegistrationWizardState extends State<PesoRegistrationWizard> {
 
   @override
   void dispose() {
+    _draftRetryTimer?.cancel();
     _webMessageSubscription?.cancel();
     super.dispose();
   }

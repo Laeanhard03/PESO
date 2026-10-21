@@ -17,8 +17,21 @@ function jobCopy(job) {
 
 function matches(job, filter = {}) {
   return Object.entries(filter).every(([key, value]) => {
-    if (value instanceof ObjectId) return String(job[key]) === String(value);
-    return job[key] === value;
+    if (key === '$and') return value.every((term) => matches(job, term));
+    if (key === '$or') return value.some((term) => matches(job, term));
+    const actual = job[key];
+    if (value instanceof ObjectId) return String(actual) === String(value);
+    if (value && typeof value === 'object' && !(value instanceof Date)) {
+      if ('$ne' in value && actual === value.$ne) return false;
+      if ('$in' in value && !value.$in.some((item) => item === actual ||
+          (item === null && actual === undefined))) return false;
+      if ('$exists' in value && (actual !== undefined) !== value.$exists) return false;
+      if ('$gte' in value && !(actual >= value.$gte)) return false;
+      if ('$gt' in value && !(actual > value.$gt)) return false;
+      if ('$regex' in value && !value.$regex.test(String(actual ?? ''))) return false;
+      return true;
+    }
+    return actual === value;
   });
 }
 
@@ -35,6 +48,10 @@ const jobCollection = {
             return (av - bv) * (direction < 0 ? -1 : 1);
           });
         }
+        return cursor;
+      },
+      skip(offset) {
+        documents = documents.slice(offset);
         return cursor;
       },
       limit(maximum) {
@@ -62,6 +79,11 @@ const jobCollection = {
     Object.assign(existing, structuredClone(update.$set || {}));
     return { matchedCount: 1, modifiedCount: 1 };
   },
+  async updateMany(filter, update) {
+    const matching = [...jobs.values()].filter((job) => matches(job, filter));
+    for (const job of matching) Object.assign(job, structuredClone(update.$set || {}));
+    return { matchedCount: matching.length, modifiedCount: matching.length };
+  },
 };
 
 const userProfiles = new Map();
@@ -78,7 +100,7 @@ const userCollection = {
 const adminAuth = {
   async verifyIdToken(token) {
     if (token === 'admin-token') {
-      return { uid: 'test-admin', email: 'admin@example.test', admin: true, email_verified: true };
+      return { uid: 'test-admin', email: 'ferrerajoshlander@gmail.com', admin: true, email_verified: true };
     }
     if (token === 'regular-token') {
       return { uid: 'test-user', email: 'user@example.test', admin: false, email_verified: true };
@@ -95,7 +117,7 @@ before(async () => {
   userProfiles.clear();
   state.tokenVerifierOverride = async (token) => {
     if (token === 'admin-token') return {
-      uid: 'test-admin', email: 'admin@example.invalid', name: 'PESO Administrator',
+      uid: 'test-admin', email: 'ferrerajoshlander@gmail.com', name: 'PESO Administrator',
       email_verified: true, firebase: { sign_in_provider: 'google.com' },
     };
     if (token === 'regular-token') return {
@@ -178,7 +200,64 @@ test('unverified accounts cannot access authenticated PESO routes', async () => 
   assert.equal(userProfiles.has('unverified-user'), false);
 });
 
-test('Local Recruitment Activity is persisted with an exact 24-hour expiry and appears in the user feed', async () => {
+test('read-only job recommendations use saved NSRP evidence without replacing a single-job evaluation', async () => {
+  const id = new ObjectId();
+  const existingProfile = userProfiles.has('test-user')
+    ? structuredClone(userProfiles.get('test-user')) : null;
+  const priorMatch = {
+    status: 'ready',
+    jobId: 'previous-job-evaluation',
+    results: [{ jobId: 'previous-job-evaluation', score: 61 }],
+  };
+  userProfiles.set('test-user', {
+    uid: 'test-user',
+    role: 'job_seeker',
+    pesoFormData: {
+      applicantEssentials: {
+        education: 'Senior High School',
+        experience: 'No previous work experience',
+        skillsStage: 'Has skills or training to list',
+        skills: 'Microsoft Excel, data encoding',
+        preferredOccupation: 'Office Clerk',
+      },
+    },
+    resumeData: { fields: [{ label: 'Other skills acquired', value: 'Customer service' }] },
+    latestAiJobMatch: structuredClone(priorMatch),
+  });
+  jobs.set(String(id), {
+    _id: id,
+    title: 'Data Encoder',
+    company: 'Fictional QA Employer',
+    status: 'active',
+    aiListingKind: 'role',
+    category: 'walk_in_application',
+    requirements: ['Microsoft Excel'],
+    createdAt: new Date(),
+    isSynthetic: false,
+  });
+  try {
+    const denied = await request('/api/ai/job-recommendations');
+    assert.equal(denied.status, 401);
+    const response = await request('/api/ai/job-recommendations', {
+      token: 'regular-token',
+    });
+    assert.equal(response.status, 200);
+    const data = await response.json();
+    assert.equal(data.ok, true);
+    assert.equal(data.status, 'ready');
+    assert.ok(data.results.some(row => row.jobId === String(id)));
+    assert.ok(data.applicant.skills.includes('Microsoft Excel'));
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.deepEqual(userProfiles.get('test-user').latestAiJobMatch, priorMatch,
+      'feed recommendations cannot replace the result of a selected job');
+  } finally {
+    jobs.delete(String(id));
+    if (existingProfile) userProfiles.set('test-user', existingProfile);
+    else userProfiles.delete('test-user');
+  }
+});
+
+test('Local Recruitment Activity expires at the end of its Philippine recruitment day', async () => {
   const response = await request('/api/admin/jobs', {
     token: 'admin-token',
     method: 'POST',
@@ -188,7 +267,8 @@ test('Local Recruitment Activity is persisted with an exact 24-hour expiry and a
   const payload = await response.json();
   const posted = payload.job;
   assert.equal(posted.category, 'local_recruitment_activity');
-  assert.equal(Date.parse(posted.expiresAt) - Date.parse(posted.createdAt), 24 * 60 * 60 * 1000);
+  assert.equal(posted.recruitmentDate, new Date(Date.parse(posted.createdAt) + 8 * 60 * 60 * 1000).toISOString().slice(0, 10));
+  assert.equal(posted.expiresAt, new Date(Date.parse(`${posted.recruitmentDate}T00:00:00Z`) + 16 * 60 * 60 * 1000 - 1).toISOString());
   assert.equal(Object.hasOwn(posted, 'createdBy'), false);
 
   const feedResponse = await request('/api/jobs', { token: 'regular-token' });
@@ -233,8 +313,10 @@ test('expired LRA is hidden and cannot be reactivated as a fresh listing', async
   });
   const posted = (await response.json()).job;
   const stored = jobs.get(posted.id);
-  stored.createdAt = new Date(Date.now() - 25 * 60 * 60 * 1000);
-  stored.expiresAt = new Date(Date.now() - 60 * 60 * 1000);
+  stored.createdAt = new Date(Date.now() - 48 * 60 * 60 * 1000);
+  stored.recruitmentDate = '2010-01-01';
+  stored.recruitmentEndDate = '2010-01-01';
+  stored.expiresAt = new Date('2010-01-01T15:59:59.999Z');
 
   const feedResponse = await request('/api/jobs', { token: 'regular-token' });
   assert.ok(!(await feedResponse.json()).jobs.some((job) => job.id === posted.id));
@@ -338,4 +420,134 @@ test('notice matching refuses missing source provenance, expired jobs, and simil
     { ...good, id: 'synthetic', isSynthetic: true },
     { ...good, id: 'inactive', status: 'inactive' },
   ]), []);
+});
+
+
+test('public paginated discovery uses only saved, active records', async () => {
+  const published = await request('/api/admin/jobs', {
+    token: 'admin-token', method: 'POST', body: jobBody('walk_in_application'),
+  });
+  assert.equal(published.status, 201);
+  const record = (await published.json()).job;
+  const response = await request('/api/public/jobs?limit=1');
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.ok, true);
+  assert.equal(payload.jobs.length, 1);
+  assert.ok(payload.jobs.every((job) => job.status === 'active'));
+  assert.equal(Object.hasOwn(payload.jobs[0], 'createdBy'), false);
+  const badPage = await request('/api/public/jobs?pageToken=-1');
+  assert.equal(badPage.status, 400);
+  jobs.delete(record.id);
+});
+
+test('admin soft deletion hides jobs, retains history and requires authorization', async () => {
+  const create = await request('/api/admin/jobs', {
+    token: 'admin-token', method: 'POST', body: jobBody('walk_in_application'),
+  });
+  assert.equal(create.status, 201);
+  const id = (await create.json()).job.id;
+  const outsider = await request('/api/admin/jobs/' + id, {
+    token: 'regular-token', method: 'DELETE',
+  });
+  assert.equal(outsider.status, 403);
+  const deleted = await request('/api/admin/jobs/' + id, {
+    token: 'admin-token', method: 'DELETE',
+  });
+  assert.equal(deleted.status, 200);
+  assert.equal((await deleted.json()).retainedHistory, true);
+  assert.equal(jobs.get(id).status, 'deleted');
+  assert.ok(jobs.get(id).deletedAt);
+  const visible = await request('/api/public/jobs?limit=100');
+  assert.ok(!(await visible.json()).jobs.some((job) => job.id === id));
+  const revive = await request('/api/admin/jobs/' + id + '/status', {
+    token: 'admin-token', method: 'PATCH', body: { active: true },
+  });
+  assert.equal(revive.status, 404);
+  jobs.delete(id);
+});
+
+test('bulk deletion requires explicit confirmation and retains every record', async () => {
+  const first = await request('/api/admin/jobs', {
+    token: 'admin-token', method: 'POST', body: jobBody('walk_in_application'),
+  });
+  const second = await request('/api/admin/jobs', {
+    token: 'admin-token', method: 'POST', body: jobBody('walk_in_application'),
+  });
+  const ids = [(await first.json()).job.id, (await second.json()).job.id];
+  const refused = await request('/api/admin/jobs', {
+    token: 'admin-token', method: 'DELETE', body: { confirmation: 'yes' },
+  });
+  assert.equal(refused.status, 400);
+  assert.equal(jobs.get(ids[0]).status, 'active');
+  const result = await request('/api/admin/jobs', {
+    token: 'admin-token', method: 'DELETE', body: { confirmation: 'DELETE ALL JOBS' },
+  });
+  assert.equal(result.status, 200);
+  const payload = await result.json();
+  assert.ok(payload.deleted >= 2);
+  assert.ok(ids.every((id) => jobs.get(id).status === 'deleted'));
+  for (const id of ids) jobs.delete(id);
+});
+
+test('server-side category/search paging cannot mix LRA and walk-in jobs', async () => {
+  const phTomorrow = new Date(Date.now() + 32 * 3600000).toISOString().slice(0, 10);
+  const walk = await request('/api/admin/jobs', {
+    token: 'admin-token', method: 'POST',
+    body: jobBody('walk_in_application', { title: 'C++ Clerk role' }),
+  });
+  const lra = await request('/api/admin/jobs', {
+    token: 'admin-token', method: 'POST',
+    body: jobBody('local_recruitment_activity', {
+      title: 'C++ Clerk recruitment event',
+      recruitmentDate: phTomorrow, recruitmentEndDate: phTomorrow,
+    }),
+  });
+  assert.equal(walk.status, 201);
+  assert.equal(lra.status, 201);
+  const walkId = (await walk.json()).job.id;
+  const lraId = (await lra.json()).job.id;
+  try {
+    const onlyLra = await request('/api/public/jobs?category=local_recruitment_activity&q=C%2B%2B');
+    assert.equal(onlyLra.status, 200);
+    const result = await onlyLra.json();
+    assert.ok(result.jobs.some((job) => job.id === lraId));
+    assert.ok(result.jobs.every((job) => job.category === 'local_recruitment_activity'));
+    assert.ok(!result.jobs.some((job) => job.id === walkId));
+    const onlyWalk = await request('/api/public/jobs?category=walk_in_application&q=C%2B%2B');
+    assert.ok((await onlyWalk.json()).jobs.some((job) => job.id === walkId));
+    const signed = await request('/api/jobs?category=local_recruitment_activity&q=C%2B%2B',
+      { token: 'regular-token' });
+    assert.ok((await signed.json()).jobs.some((job) => job.id === lraId));
+    const invalid = await request('/api/public/jobs?category=not-real');
+    assert.equal(invalid.status, 400);
+  } finally {
+    jobs.delete(walkId);
+    jobs.delete(lraId);
+  }
+});
+
+test('stable job paging returns a distinct second page without missing persisted records', async () => {
+  const records = [];
+  for (let n = 0; n < 4; n++) {
+    const response = await request('/api/admin/jobs', {
+      token: 'admin-token', method: 'POST',
+      body: jobBody('walk_in_application', { title: 'Pageable job ' + n }),
+    });
+    assert.equal(response.status, 201);
+    records.push((await response.json()).job.id);
+  }
+  try {
+    const first = await request('/api/public/jobs?limit=2');
+    const pageOne = await first.json();
+    assert.equal(pageOne.jobs.length, 2);
+    assert.equal(pageOne.nextPageToken, '2');
+    const second = await request('/api/public/jobs?limit=2&pageToken=2');
+    const pageTwo = await second.json();
+    assert.equal(pageTwo.jobs.length, 2);
+    assert.ok(pageTwo.jobs.every((job) =>
+      !pageOne.jobs.some((firstJob) => firstJob.id === job.id)));
+  } finally {
+    for (const id of records) jobs.delete(id);
+  }
 });

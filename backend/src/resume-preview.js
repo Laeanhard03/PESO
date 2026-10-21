@@ -41,7 +41,8 @@ export function hasStructuredResume(profile) {
   const resume = profile?.resumeData;
   if (!resume || typeof resume !== 'object' || Array.isArray(resume)) return false;
   const keys = Object.keys(resume).filter((key) =>
-    !['documentType', 'fileName', 'fileExtension'].includes(key));
+    !['documentType', 'fileName', 'fileExtension', 'pendingDraft',
+      'draftOnly', 'draftUpdatedAt'].includes(key));
   return keys.some((key) => {
     const value = resume[key];
     if (value == null) return false;
