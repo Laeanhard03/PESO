@@ -196,12 +196,16 @@ class AuthService {
       final profile = await getUserProfile(uid);
       return normalizePesoRole(profile['role']);
     } catch (error) {
+      // Never pretend that an unavailable backend returned "job_seeker".
+      // That silently hides the Admin area and masks a broken Vercel API.
+      // Keep the user on the sign-in screen until the trusted role lookup
+      // succeeds. This grants no admin privileges without backend proof.
       debugPrint(
-        '[AUTH] MongoDB profile-role lookup unavailable (' +
+        '[AUTH] Trusted profile-role lookup failed (' +
             error.runtimeType.toString() +
-            '); using job_seeker.',
+            '). Sign-in navigation was not changed.',
       );
-      return 'job_seeker';
+      rethrow;
     }
   }
 

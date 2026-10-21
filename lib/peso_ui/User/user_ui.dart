@@ -100,6 +100,8 @@ class _UserProfileState extends State<UserProfile> {
 
   // --- JOB FEED DATA ---
   final List<Map<String, dynamic>> _availableJobs = <Map<String, dynamic>>[];
+  bool _jobsLoading = true;
+  String? _jobLoadError;
 
   Map<String, dynamic>? _selectedJob;
   bool _hasManuallySelectedJob = false;
@@ -412,6 +414,12 @@ class _UserProfileState extends State<UserProfile> {
   }
 
   Future<void> _loadJobPostings() async {
+    if (mounted) {
+      setState(() {
+        _jobsLoading = true;
+        _jobLoadError = null;
+      });
+    }
     try {
       final records = await PesoApiClient.listJobs();
       final postings = records
@@ -420,6 +428,8 @@ class _UserProfileState extends State<UserProfile> {
           .toList();
       if (!mounted) return;
       setState(() {
+        _jobsLoading = false;
+        _jobLoadError = null;
         _availableJobs
           ..clear()
           ..addAll(postings);
@@ -433,6 +443,18 @@ class _UserProfileState extends State<UserProfile> {
       unawaited(_translateSelectedJob());
     } catch (error) {
       debugPrint('[JOBS] API unavailable (${error.runtimeType}).');
+      if (!mounted) return;
+      // Connection failures are not zero vacancies. Preserve any listings
+      // already shown and offer an explicit retry for the hosted API.
+      setState(() {
+        _jobsLoading = false;
+        _jobLoadError =
+            error is PesoApiException &&
+                (error.code == 'unauthenticated' ||
+                    error.code == 'invalid_or_expired_token')
+            ? 'Your session expired. Sign in again, then reload the job feed.'
+            : 'Could not connect to the PESO job service. The listings have not been deleted; please retry.';
+      });
     }
   }
 
@@ -1316,6 +1338,9 @@ class _UserProfileState extends State<UserProfile> {
         return UserJobFeedTab(
           userName: _userName,
           availableJobs: _filteredAvailableJobs(),
+          jobsLoading: _jobsLoading,
+          jobLoadError: _jobLoadError,
+          onRetryJobs: () => unawaited(_loadJobPostings()),
           interestLabels: recognizedJobInterests(_preferredOccupation),
           preferredOccupation: _preferredOccupation,
           translatedJob:

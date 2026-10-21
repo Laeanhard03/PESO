@@ -6,7 +6,7 @@ import { pipeline } from 'node:stream/promises';
 
 import dotenv from 'dotenv';
 import express from 'express';
-import { applicationDefault, getApps, initializeApp } from 'firebase-admin/app';
+import { applicationDefault, cert, getApps, initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { GridFSBucket, MongoClient, ObjectId } from 'mongodb';
 import { verifyFirebaseIdToken } from './src/firebase-id-token.js';
@@ -259,6 +259,28 @@ app.use((req, res, next) => {
   next();
 });
 
+// Vercel invokes the exported Express app without calling startServer().
+// Initialize MongoDB on the first normal request, coalesce concurrent cold starts,
+// and back off briefly after failures instead of opening a new socket per request.
+let requestMongoInitialization = null;
+let requestMongoRetryAfter = 0;
+async function ensureMongoForRequest() {
+  if (state.mongoConnected && state.db && state.bucket) return;
+  if (requestMongoInitialization) return requestMongoInitialization;
+  if (Date.now() < requestMongoRetryAfter) return;
+
+  requestMongoInitialization = connectMongo().finally(() => {
+    requestMongoInitialization = null;
+    if (!state.mongoConnected) requestMongoRetryAfter = Date.now() + 15000;
+  });
+  return requestMongoInitialization;
+}
+
+app.use((req, res, next) => {
+  if (state.mongoConnected && state.db && state.bucket) return next();
+  ensureMongoForRequest().then(() => next(), next);
+});
+
 app.use(express.json({ limit: '32mb' }));
 
 function isBootstrapAdmin(identity) {
@@ -417,7 +439,33 @@ function getFirebaseAdminAuth() {
   }
   let adminApp = getApps().find((app) => app.name === 'peso-admin-auth');
   if (!adminApp) {
-    adminApp = initializeApp({ credential: applicationDefault(), projectId: PROJECT_ID }, 'peso-admin-auth');
+    // Vercel does not have a local GOOGLE_APPLICATION_CREDENTIALS file.
+    // Keep the service account as an encrypted server-side environment value.
+    // Never ship or expose its JSON to the Flutter web bundle or GitHub.
+    let credential = applicationDefault();
+    // Base64 form avoids multiline private keys being damaged by .env import.
+    // This is NOT public or encryption; Vercel protects the server-only value.
+    const serviceAccountB64 = String(
+      process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT_B64 || '',
+    ).trim();
+    const serviceAccountJson = serviceAccountB64
+      ? Buffer.from(serviceAccountB64, 'base64').toString('utf8')
+      : String(process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON || '').trim();
+    if (serviceAccountJson) {
+      let serviceAccount;
+      try {
+        serviceAccount = JSON.parse(serviceAccountJson);
+      } catch {
+        throw new Error('firebase_service_account_invalid_json');
+      }
+      if (serviceAccount?.project_id !== PROJECT_ID ||
+          typeof serviceAccount?.private_key !== 'string' ||
+          typeof serviceAccount?.client_email !== 'string') {
+        throw new Error('firebase_service_account_project_mismatch');
+      }
+      credential = cert(serviceAccount);
+    }
+    adminApp = initializeApp({ credential, projectId: PROJECT_ID }, 'peso-admin-auth');
   }
   return getAuth(adminApp);
 }
@@ -1155,6 +1203,32 @@ function publicJobApplication(record, { includeApplicant = false } = {}) {
     } : {}),
   };
 }
+
+app.get('/api/applications', requireAuth, requireMongo, async (req, res, next) => {
+  try {
+    const requested = Number.parseInt(String(req.query.limit || '50'), 10);
+    const limit = Number.isFinite(requested) ? Math.max(1, Math.min(100, requested)) : 50;
+    const rawToken = typeof req.query.pageToken === 'string' ? req.query.pageToken : '0';
+    if (!/^(0|[1-9][0-9]{0,8})$/.test(rawToken)) {
+      return res.status(400).json({ ok: false, error: 'invalid_page_token' });
+    }
+    const offset = Number.parseInt(rawToken, 10);
+    const rows = await jobApplicationsCollection()
+      .find({ uid: req.user.uid })
+      .sort({ submittedAt: -1, _id: -1 })
+      .skip(offset)
+      .limit(limit + 1)
+      .toArray();
+    const hasMore = rows.length > limit;
+    return res.json({
+      ok: true,
+      applications: rows.slice(0, limit).map((row) => publicJobApplication(row)),
+      nextPageToken: hasMore ? String(offset + limit) : null,
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
 
 app.post('/api/applications', requireAuth, requireMongo, async (req, res, next) => {
   try {
@@ -2248,4 +2322,5 @@ if (isMainModule) {
   });
 }
 
+export default app;
 export { app, state };

@@ -27,6 +27,9 @@ Future<void> _openPublicPdfSource(String? value) async {
 class UserJobFeedTab extends StatelessWidget {
   final String userName;
   final List<Map<String, dynamic>> availableJobs;
+  final bool jobsLoading;
+  final String? jobLoadError;
+  final VoidCallback? onRetryJobs;
   final List<String> interestLabels;
   final String preferredOccupation;
   final TextEditingController? searchController;
@@ -55,6 +58,9 @@ class UserJobFeedTab extends StatelessWidget {
     super.key,
     required this.userName,
     required this.availableJobs,
+    this.jobsLoading = false,
+    this.jobLoadError,
+    this.onRetryJobs,
     this.interestLabels = const [],
     this.preferredOccupation = '',
     this.searchController,
@@ -139,6 +145,63 @@ class UserJobFeedTab extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 22),
+              if (jobsLoading || jobLoadError != null) ...[
+                Semantics(
+                  liveRegion: true,
+                  child: Container(
+                    key: const ValueKey('job-feed-service-status'),
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: jobsLoading
+                          ? const Color(0xFFEAF5EF)
+                          : const Color(0xFFFFF5E6),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: jobsLoading
+                            ? const Color(0xFF9ECCAD)
+                            : const Color(0xFFEAC58F),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        if (jobsLoading)
+                          const SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(strokeWidth: 2.5),
+                          )
+                        else
+                          const Icon(
+                            Icons.cloud_off_outlined,
+                            color: Color(0xFF965F16),
+                          ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            jobsLoading
+                                ? 'Loading published PESO vacancies...'
+                                : jobLoadError!,
+                            style: const TextStyle(
+                              color: Color(0xFF24483A),
+                              fontWeight: FontWeight.w700,
+                              height: 1.4,
+                            ),
+                          ),
+                        ),
+                        if (!jobsLoading && onRetryJobs != null)
+                          TextButton.icon(
+                            key: const ValueKey('retry-peso-jobs'),
+                            onPressed: onRetryJobs,
+                            icon: const Icon(Icons.refresh_rounded),
+                            label: const Text('Retry'),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+              ],
               Container(
                 width: double.infinity,
                 padding: EdgeInsets.all(compact ? 18 : 24),
@@ -320,16 +383,24 @@ class UserJobFeedTab extends StatelessWidget {
                     onSelected: (_) => onCategoryChanged(PesoJobCategories.all),
                   ),
                   ChoiceChip(
-                    label: Text(localizedJobHeading(
-                      'Walk-in Application', selectedLanguage)),
+                    label: Text(
+                      localizedJobHeading(
+                        'Walk-in Application',
+                        selectedLanguage,
+                      ),
+                    ),
                     selected:
                         selectedCategory == PesoJobCategories.walkInApplication,
                     onSelected: (_) =>
                         onCategoryChanged(PesoJobCategories.walkInApplication),
                   ),
                   ChoiceChip(
-                    label: Text(localizedJobHeading(
-                      'Local Recruitment Activity', selectedLanguage)),
+                    label: Text(
+                      localizedJobHeading(
+                        'Local Recruitment Activity',
+                        selectedLanguage,
+                      ),
+                    ),
                     selected:
                         selectedCategory ==
                         PesoJobCategories.localRecruitmentActivity,
@@ -349,38 +420,52 @@ class UserJobFeedTab extends StatelessWidget {
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(Icons.event_busy_outlined,
-                                size: 30, color: textLight),
+                              Icon(
+                                Icons.event_busy_outlined,
+                                size: 30,
+                                color: textLight,
+                              ),
                               const SizedBox(height: 10),
                               Text(
-                                selectedCategory == PesoJobCategories.localRecruitmentActivity
+                                selectedCategory ==
+                                        PesoJobCategories
+                                            .localRecruitmentActivity
                                     ? selectedLanguage == 'Tagalog'
-                                        ? 'Wala pang kumpirmadong aktibong lokal na recruitment ngayon.'
-                                        : selectedLanguage == 'Taglish'
-                                            ? 'Wala pang confirmed active local recruitment ngayon.'
-                                            : 'No confirmed active local recruitment activities at the moment.'
+                                          ? 'Wala pang kumpirmadong aktibong lokal na recruitment ngayon.'
+                                          : selectedLanguage == 'Taglish'
+                                          ? 'Wala pang confirmed active local recruitment ngayon.'
+                                          : 'No confirmed active local recruitment activities at the moment.'
                                     : selectedLanguage == 'Tagalog'
-                                        ? 'Wala pang aktibong trabaho sa kategoryang ito.'
-                                        : selectedLanguage == 'Taglish'
-                                            ? 'Wala pang active jobs sa category na ito.'
-                                            : 'No active jobs in this category yet.',
+                                    ? 'Wala pang aktibong trabaho sa kategoryang ito.'
+                                    : selectedLanguage == 'Taglish'
+                                    ? 'Wala pang active jobs sa category na ito.'
+                                    : 'No active jobs in this category yet.',
                                 textAlign: TextAlign.center,
-                                style: TextStyle(color: textLight,
-                                  fontWeight: FontWeight.w700),
+                                style: TextStyle(
+                                  color: textLight,
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
-                              if (selectedCategory == PesoJobCategories.localRecruitmentActivity) ...[
+                              if (selectedCategory ==
+                                  PesoJobCategories
+                                      .localRecruitmentActivity) ...[
                                 const SizedBox(height: 7),
                                 const Text(
                                   '2020 PESO LRA PDF is a historical reference, not a confirmed open recruitment event.',
                                   textAlign: TextAlign.center,
-                                  style: TextStyle(color: Color(0xFF64748B),fontSize: 12),
+                                  style: TextStyle(
+                                    color: Color(0xFF64748B),
+                                    fontSize: 12,
+                                  ),
                                 ),
                                 TextButton.icon(
                                   onPressed: () => _openPublicPdfSource(
                                     'https://dev.montalban.gov.ph/wp-content/uploads/2020/07/PARA-SA-MONTALBENO.pdf',
                                   ),
                                   icon: const Icon(Icons.open_in_new_rounded),
-                                  label: const Text('View historical LRA source PDF'),
+                                  label: const Text(
+                                    'View historical LRA source PDF',
+                                  ),
                                 ),
                               ],
                             ],

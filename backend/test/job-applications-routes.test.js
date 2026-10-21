@@ -217,6 +217,54 @@ test('screening answers are sanitized and capped', async () => {
   assert.ok(!('bad-key!' in stored.answers));
 });
 
+test('applicants can list only their own submitted jobs and paginate safely', async () => {
+  const previousApplications = new Map(applications);
+  try {
+    applications.clear();
+  const newerId = new ObjectId();
+  const olderId = new ObjectId();
+  const foreignId = new ObjectId();
+  const makeApplication = (id, uid, jobId, submittedAt, email) => ({
+    _id: id,
+    uid,
+    email,
+    applicantName: uid,
+    jobId,
+    jobKey: jobId,
+    jobTitle: jobId,
+    employer: 'PESO test employer',
+    location: 'Rodriguez, Rizal',
+    category: 'walk_in_application',
+    answers: { experience: 'Just starting' },
+    status: 'submitted',
+    submittedAt: new Date(submittedAt),
+  });
+  applications.set(String(newerId), makeApplication(newerId, 'test-user', 'own-newer-job', '2026-10-21T10:00:00Z', 'user@example.test'));
+  applications.set(String(olderId), makeApplication(olderId, 'test-user', 'own-older-job', '2026-10-20T10:00:00Z', 'user@example.test'));
+  applications.set(String(foreignId), makeApplication(foreignId, 'other-user', 'foreign-job', '2026-10-22T10:00:00Z', 'other@example.test'));
+
+  const first = await request('/api/applications?limit=1', { token: 'regular-token' });
+  assert.equal(first.status, 200);
+  const pageOne = first.body;
+  assert.deepEqual(pageOne.applications.map((row) => row.jobId), ['own-newer-job']);
+  assert.equal(pageOne.nextPageToken, '1');
+  assert.equal(Object.hasOwn(pageOne.applications[0], 'uid'), false);
+  assert.equal(Object.hasOwn(pageOne.applications[0], 'email'), false);
+
+  const second = await request('/api/applications?limit=1&pageToken=1', { token: 'regular-token' });
+  assert.equal(second.status, 200);
+  assert.deepEqual(second.body.applications.map((row) => row.jobId), ['own-older-job']);
+
+  const invalid = await request('/api/applications?pageToken=not-a-number', { token: 'regular-token' });
+  assert.equal(invalid.status, 400);
+  assert.equal(invalid.status, 400);
+  assert.equal(invalid.body.error, 'invalid_page_token');
+  } finally {
+    applications.clear();
+    for (const [id, row] of previousApplications) applications.set(id, row);
+  }
+});
+
 test('admin applications paginate without hiding later entries', async () => {
   const first = await request('/api/admin/applications?limit=1', { token: 'admin-token' });
   assert.equal(first.status, 200);
