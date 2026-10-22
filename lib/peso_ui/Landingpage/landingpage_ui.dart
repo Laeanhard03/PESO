@@ -1612,6 +1612,7 @@ class _LandingPageState extends State<LandingPage> {
                 name: 'Lovely Anne C. Ilaya',
                 role: 'Full Stack & Lead UI/UX Designer',
                 description: 'Creates intuitive design systems and accessible web interfaces while contributing to full-stack frontend development.',
+                imageAsset: 'lib/assets/ilaya.jpg',
               ),
               _buildDeveloperCard(
                 name: 'Edward Marcelino',
