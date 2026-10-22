@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../Login_register_pages/auth_ui.dart';
+import '../Reusable_Designs/responsive_layout.dart';
 import '../Reusable_Designs/reusable_ui.dart';
 import '../Reusable_Designs/peso_images.dart';
 import '../../peso_services/peso_api_client.dart';
@@ -318,6 +319,11 @@ class _LandingPageState extends State<LandingPage> {
         _ScrollReveal(
           scrollController: _scrollController,
           child: _buildRecommendedJobs(),
+        ),
+        _ScrollReveal(
+          key: const ValueKey<String>('home-partners-scroll-reveal'),
+          scrollController: _scrollController,
+          child: _buildPartnersStrip(),
         ),
         _homeSectionBridge(PesoTokens.surfaceNeutral, PesoTokens.brandGreen),
         _ScrollReveal(
@@ -808,38 +814,70 @@ class _LandingPageState extends State<LandingPage> {
             ),
           ),
           const SizedBox(height: PesoTokens.spacing2XL),
-          Wrap(
-            alignment: WrapAlignment.center,
-            spacing: PesoTokens.spacingLG,
-            runSpacing: PesoTokens.spacingLG,
-            children: List.generate(images.length, (index) {
-              return AnimatedEntrance(
-                delay: 200 + (index * 100),
-                child: _buildGalleryImageCard(images[index], index),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final columns = constraints.maxWidth >= 1180
+                  ? 3
+                  : constraints.maxWidth >= 620
+                  ? 2
+                  : 1;
+              final cardWidth =
+                  (constraints.maxWidth -
+                      (PesoTokens.spacingLG * (columns - 1))) /
+                  columns;
+              return Wrap(
+                alignment: WrapAlignment.center,
+                spacing: PesoTokens.spacingLG,
+                runSpacing: PesoTokens.spacingLG,
+                children: List.generate(images.length, (index) {
+                  return AnimatedEntrance(
+                    delay: 200 + (index * 100),
+                    child: _buildGalleryImageCard(
+                      images[index],
+                      index,
+                      cardWidth,
+                    ),
+                  );
+                }),
               );
-            }),
+            },
           ),
         ],
       ),
     );
   }
 
-  Widget _buildGalleryImageCard(String imagePath, int index) {
-    const captions = <String>[
-      'Local recruitment activity — PESO Montalban',
+  Widget _buildGalleryImageCard(String imagePath, int index, double width) {
+    final captions = <String>[
+      for (var i = 0; i < 6; i++)
+        'Local recruitment activity — PESO Montalban (${i + 1})',
+      'PESO Montalban Mega Job Fair',
+      'Mega Job Fair — participating employers',
+      'Mega Job Fair — jobseekers queueing',
+      'Mega Job Fair — PESO assistance desk',
+      'Mega Job Fair — applicant registration',
+      'Mega Job Fair — employer booth',
+      'Mega Job Fair — interview area',
+      'Mega Job Fair — job matching',
+      'Mega Job Fair — local applicants',
+      'Mega Job Fair — partner agencies',
+      'Mega Job Fair — program briefing',
+      'Mega Job Fair — PESO staff',
+      'Mega Job Fair — venue crowd',
+      'Mega Job Fair — placement assistance',
+      'Mega Job Fair — closing activity',
       'Local recruitment activity — applicant orientation',
       'Local recruitment activity — briefing',
-      'PESO Montalban mega job fair',
+      'PESO Montalban partners',
       'Local recruitment activity — waiting area',
-      'Local recruitment activity — PESO partners',
+      'Local recruitment activity — PESO staff',
     ];
-    final width = MediaQuery.sizeOf(context).width;
-    final isMobile = width < PesoTokens.breakpointCompact;
+    final caption = captions[index % captions.length];
     return Semantics(
-      label: captions[index],
+      label: caption,
       image: true,
       child: SizedBox(
-        width: isMobile ? width - 32 : 360,
+        width: width,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -849,8 +887,8 @@ class _LandingPageState extends State<LandingPage> {
                 aspectRatio: 4 / 3,
                 child: Image.asset(
                   imagePath,
-                  fit: BoxFit.contain,
-                  cacheWidth: isMobile ? 760 : 850,
+                  fit: BoxFit.cover,
+                  cacheWidth: width > 700 ? 850 : 760,
                   errorBuilder: (_, _, _) =>
                       const Center(child: Icon(Icons.broken_image_outlined)),
                 ),
@@ -858,7 +896,7 @@ class _LandingPageState extends State<LandingPage> {
             ),
             const SizedBox(height: 8),
             Text(
-              captions[index],
+              caption,
               style: PesoTokens.bodySmall.copyWith(color: PesoTokens.textMuted),
             ),
             const Text(
@@ -867,6 +905,75 @@ class _LandingPageState extends State<LandingPage> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  // ==========================================
+  // EMPLOYER PARTNERS
+  // ==========================================
+  Widget _buildPartnersStrip() {
+    final isMobile =
+        MediaQuery.sizeOf(context).width < PesoTokens.breakpointCompact;
+    return Container(
+      width: double.infinity,
+      color: Colors.white,
+      padding: EdgeInsets.symmetric(
+        vertical: isMobile ? PesoTokens.spacing2XL : PesoTokens.spacing3XL,
+        horizontal: isMobile ? PesoTokens.spacingMD : PesoTokens.spacing2XL,
+      ),
+      child: Column(
+        children: [
+          Text(
+            'Our Employer Partners',
+            textAlign: TextAlign.center,
+            style: PesoTokens.headlineLarge.copyWith(
+              fontSize: isMobile ? 28 : 34,
+            ),
+          ),
+          const SizedBox(height: PesoTokens.spacingSM),
+          Text(
+            'Employers and partner establishments from the PESO Montalban reference archive.',
+            textAlign: TextAlign.center,
+            style: PesoTokens.bodyMedium.copyWith(color: PesoTokens.textMuted),
+          ),
+          const SizedBox(height: PesoTokens.spacing2XL),
+          Wrap(
+            spacing: PesoTokens.spacingMD,
+            runSpacing: PesoTokens.spacingMD,
+            alignment: WrapAlignment.center,
+            children: [
+              for (final partner in PesoImageAssets.partnerLogos)
+                Container(
+                  width: isMobile ? 140 : 168,
+                  height: 104,
+                  padding: const EdgeInsets.all(PesoTokens.spacingMD),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(PesoTokens.radiusCard),
+                    border: Border.all(color: PesoTokens.brandGreenLight),
+                    boxShadow: PesoTokens.shadowSM,
+                  ),
+                  child: Tooltip(
+                    message: partner.name,
+                    child: Image.asset(
+                      partner.asset,
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, _, _) => Center(
+                        child: Text(
+                          partner.name,
+                          textAlign: TextAlign.center,
+                          style: PesoTokens.bodySmall.copyWith(
+                            color: PesoTokens.textMuted,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -1270,51 +1377,68 @@ class _LandingPageState extends State<LandingPage> {
   }
 
   Widget _buildRecommendedJobs() {
-    final width = MediaQuery.sizeOf(context).width;
-    final isMobile = width < PesoTokens.breakpointCompact;
-    return Container(
-      color: PesoTokens.surfaceNeutral,
-      padding: EdgeInsets.only(
-        bottom: PesoTokens.spacing3XL,
-        left: isMobile ? PesoTokens.spacingMD : PesoTokens.spacing2XL,
-        right: isMobile ? PesoTokens.spacingMD : PesoTokens.spacing2XL,
-      ),
-      width: double.infinity,
-      child: Wrap(
-        spacing: PesoTokens.spacingLG,
-        runSpacing: PesoTokens.spacingLG,
-        children: [
-          if (_publicJobsLoading)
-            const CircularProgressIndicator()
-          else if (_publicJobsError != null)
-            TextButton.icon(
-              onPressed: _loadPublicJobs,
-              icon: const Icon(Icons.refresh_rounded),
-              label: Text(_publicJobsError!),
-            )
-          else if (_featuredJobs.isEmpty)
-            const Text(
-              'No confirmed active PESO vacancies are currently published.',
-            )
-          else
-            ..._featuredJobs
-                .take(6)
-                .map(
-                  (job) => SizedBox(
-                    width: isMobile ? width - PesoTokens.spacingMD * 2 : 330,
-                    child: _LandingJobCard(
-                      job: job,
-                      onApply: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const AuthPage(initialIsLogin: true),
+    final isMobile =
+        MediaQuery.sizeOf(context).width < PesoTokens.breakpointCompact;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final horizontalPadding = isMobile
+            ? PesoTokens.spacingMD
+            : PesoTokens.spacing2XL;
+        final contentWidth = constraints.maxWidth - (horizontalPadding * 2);
+        // Desktop shows a true three-card row, tablets two, phones one. The
+        // cards share the available width instead of using a fixed 330px box.
+        final grid = pesoListingGrid(
+          availableWidth: contentWidth,
+          spacing: PesoTokens.spacingLG,
+        );
+        final cardWidth = grid.cardWidth;
+
+        return Container(
+          color: PesoTokens.surfaceNeutral,
+          padding: EdgeInsets.only(
+            bottom: PesoTokens.spacing3XL,
+            left: horizontalPadding,
+            right: horizontalPadding,
+          ),
+          width: double.infinity,
+          child: Wrap(
+            spacing: PesoTokens.spacingLG,
+            runSpacing: PesoTokens.spacingLG,
+            children: [
+              if (_publicJobsLoading)
+                const CircularProgressIndicator()
+              else if (_publicJobsError != null)
+                TextButton.icon(
+                  onPressed: _loadPublicJobs,
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: Text(_publicJobsError!),
+                )
+              else if (_featuredJobs.isEmpty)
+                const Text(
+                  'No confirmed active PESO vacancies are currently published.',
+                )
+              else
+                ..._featuredJobs
+                    .take(6)
+                    .map(
+                      (job) => SizedBox(
+                        width: cardWidth,
+                        child: _LandingJobCard(
+                          job: job,
+                          onApply: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  const AuthPage(initialIsLogin: true),
+                            ),
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                ),
-        ],
-      ),
+            ],
+          ),
+        );
+      },
     );
   }
 

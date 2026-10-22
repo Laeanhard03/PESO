@@ -6,6 +6,27 @@ enum PesoLayoutClass { compact, medium, expanded }
 const double pesoCompactBreakpoint = 600;
 const double pesoExpandedBreakpoint = 1024;
 
+/// Column count and card width for the PESO listing grids.
+///
+/// Desktop (>= 1080 logical px of content) shows three cards per row, tablets
+/// two, phones one. Cards share the available width, so no row can overflow the
+/// container the way a fixed 330px card did.
+({int columns, double cardWidth}) pesoListingGrid({
+  required double availableWidth,
+  required double spacing,
+  double threeColumnMinWidth = 1080,
+  double twoColumnMinWidth = 620,
+}) {
+  final safeWidth = availableWidth < 0 ? 0.0 : availableWidth;
+  final columns = safeWidth >= threeColumnMinWidth
+      ? 3
+      : safeWidth >= twoColumnMinWidth
+      ? 2
+      : 1;
+  final cardWidth = (safeWidth - (spacing * (columns - 1))) / columns;
+  return (columns: columns, cardWidth: cardWidth < 0 ? 0.0 : cardWidth);
+}
+
 /// Classifies available logical width into the shared PESO layout tiers.
 PesoLayoutClass classifyPesoWidth(double width) {
   if (width < pesoCompactBreakpoint) return PesoLayoutClass.compact;
@@ -46,10 +67,7 @@ class ResponsiveContent extends StatelessWidget {
           alignment: alignment,
           child: SizedBox(
             width: contentWidth,
-            child: Padding(
-              padding: padding,
-              child: child,
-            ),
+            child: Padding(padding: padding, child: child),
           ),
         );
       },

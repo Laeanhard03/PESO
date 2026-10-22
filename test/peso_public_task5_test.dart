@@ -113,7 +113,12 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(servicesApp());
-    expect(PesoImageAssets.gallery.length, 6);
+    expect(PesoImageAssets.gallery.length, greaterThanOrEqualTo(20));
+    expect(
+      PesoImageAssets.gallery.toSet().length,
+      PesoImageAssets.gallery.length,
+    );
+    expect(PesoImageAssets.partnerLogos.length, 15);
     for (final path in [
       ...PesoImageAssets.gallery,
       PesoImageAssets.aboutBanner,
@@ -122,6 +127,10 @@ void main() {
       expect(bytes.lengthInBytes, greaterThan(20000));
       expect(bytes.getUint8(0), 0xff);
       expect(bytes.getUint8(1), 0xd8);
+    }
+    for (final partner in PesoImageAssets.partnerLogos) {
+      final bytes = await rootBundle.load(partner.asset);
+      expect(bytes.lengthInBytes, greaterThan(1024), reason: partner.asset);
     }
   });
 
