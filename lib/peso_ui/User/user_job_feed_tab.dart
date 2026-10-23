@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../Reusable_Designs/peso_images.dart';
+import '../Reusable_Designs/peso_employer_branding.dart';
 import '../../peso_models/job_posting.dart';
 import '../../peso_logic/job_listing_localization.dart';
 import 'notice_role_selector.dart';
@@ -481,6 +482,10 @@ class UserJobFeedTab extends StatelessWidget {
                           itemCount: availableJobs.length,
                           itemBuilder: (context, index) {
                             final job = availableJobs[index];
+                            final logoUrl = (job['logoUrl']?.toString() ?? '')
+                                .trim();
+                            final logoAsset =
+                                PesoEmployerBranding.logoAssetForJob(job);
                             final isSelected = selectedJob == job;
                             final rawMatch = job['match'];
                             final matchScore = rawMatch is num
@@ -557,14 +562,18 @@ class UserJobFeedTab extends StatelessWidget {
                                                   ),
                                                 ),
                                               ),
-                                              if ((job['logoUrl']?.toString() ??
-                                                      '')
-                                                  .isNotEmpty)
+                                              if (logoUrl.isNotEmpty ||
+                                                  logoAsset != null)
                                                 Positioned(
                                                   bottom: 12,
                                                   right: 12,
                                                   child: Container(
-                                                    width: 50,
+                                                    width:
+                                                        logoAsset ==
+                                                            PesoEmployerBranding
+                                                                .puregoldLogoAsset
+                                                        ? 88
+                                                        : 50,
                                                     height: 50,
                                                     padding:
                                                         const EdgeInsets.all(5),
@@ -575,18 +584,14 @@ class UserJobFeedTab extends StatelessWidget {
                                                             12,
                                                           ),
                                                     ),
-                                                    child: Image.network(
-                                                      job['logoUrl'].toString(),
-                                                      fit: BoxFit.contain,
-                                                      errorBuilder:
-                                                          (
-                                                            context,
-                                                            error,
-                                                            stackTrace,
-                                                          ) => const Icon(
-                                                            Icons
-                                                                .business_rounded,
-                                                          ),
+                                                    child: PesoEmployerLogo(
+                                                      company:
+                                                          job['company']
+                                                              ?.toString() ??
+                                                          job['title']
+                                                              ?.toString(),
+                                                      logoUrl: logoUrl,
+                                                      size: 24,
                                                     ),
                                                   ),
                                                 ),
@@ -890,9 +895,14 @@ class UserJobFeedTab extends StatelessWidget {
                                               borderRadius:
                                                   BorderRadius.circular(12),
                                             ),
-                                            child: const Icon(
-                                              Icons.business,
-                                              color: Colors.white,
+                                            child: PesoEmployerLogo(
+                                              company:
+                                                  selectedJob!['company']
+                                                      ?.toString() ??
+                                                  selectedJob!['title']
+                                                      ?.toString(),
+                                              logoUrl: selectedJob!['logoUrl']
+                                                  ?.toString(),
                                               size: 24,
                                             ),
                                           ),

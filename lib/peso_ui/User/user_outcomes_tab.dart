@@ -557,11 +557,14 @@ class UserOutcomesTab extends StatelessWidget {
 
   String _officialApplicationStatus(String value) => switch (value) {
     'under_review' => 'Under review',
+    'ongoing' => 'Ongoing',
+    'in_progress' => 'Ongoing',
+    'processing' => 'Ongoing',
     'matched' => 'Qualified for PESO referral',
     'accepted' => 'Accepted',
     'rejected' => 'Declined',
     'action_required' => 'Action needed',
-    _ => 'Submitted',
+    _ => 'Submitted - awaiting review',
   };
 
   String _applicationTimestamp(dynamic raw) {
@@ -608,7 +611,7 @@ class UserOutcomesTab extends StatelessWidget {
             ],
           ),
           const Text(
-            'These are official PESO application records, separate from AI recommendations.',
+            'These are official PESO application records, separate from AI recommendations. Compatibility scores are decision-support only and do not guarantee employment or hiring.',
             style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
           ),
           if (applicationsLoading) ...[

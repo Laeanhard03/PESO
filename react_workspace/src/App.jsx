@@ -476,6 +476,15 @@ export default function App() {
       skills: careerSkills.trim(),
     };
     const missing = validateApplicantEssentials(applicantEssentials);
+    const missingOfficialFields = [];
+    if (!dateOfBirth) missingOfficialFields.push('Date of birth');
+    if (!sex) missingOfficialFields.push('Sex');
+    if (missingOfficialFields.length) {
+      setValidationOpen(true);
+      window.alert('Please complete the required NSRP fields: ' + missingOfficialFields.join(', ') + '.');
+      document.getElementById('zoom-wrapper')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
     if (missing.length) {
       setMissingEssentials(missing);
       setValidationOpen(true);
@@ -542,7 +551,7 @@ export default function App() {
           const type = (source.type || '').toLowerCase();
           let visibleValue;
           if (type === 'checkbox' || type === 'radio') {
-            visibleValue = source.checked ? '?' : '?';
+            visibleValue = source.checked ? 'X' : '';
           } else if (source.tagName === 'SELECT') {
             visibleValue = source.selectedOptions[0]?.textContent || '';
           } else if (type === 'date' && source.value) {
@@ -905,8 +914,8 @@ export default function App() {
 
           <div className="border border-black flex flex-col">
             <div className="flex border-b border-black divide-x divide-black">
-              <div className="w-1/4 p-1"><GreenLabel>SURNAME</GreenLabel><input type="text" data-prefill="lastName" data-applicant-field="lastName" data-field="Surname" aria-label="Surname" className="w-full outline-none uppercase mt-1" /></div>
-              <div className="w-1/4 p-1"><GreenLabel>FIRST NAME</GreenLabel><input type="text" data-prefill="firstName" data-applicant-field="firstName" data-field="First name" aria-label="First name" className="w-full outline-none uppercase mt-1" /></div>
+              <div className="w-1/4 p-1"><GreenLabel>SURNAME</GreenLabel><input type="text" required data-prefill="lastName" data-applicant-field="lastName" data-field="Surname" aria-label="Surname" className="block w-full min-w-0 box-border outline-none uppercase mt-1 text-[12px]" /></div>
+              <div className="w-1/4 p-1"><GreenLabel>FIRST NAME</GreenLabel><input type="text" required data-prefill="firstName" data-applicant-field="firstName" data-field="First name" aria-label="First name" className="block w-full min-w-0 box-border outline-none uppercase mt-1 text-[12px]" /></div>
               <div className="w-1/4 p-1"><GreenLabel>MIDDLE NAME</GreenLabel><input type="text" data-prefill="middleName" className="w-full outline-none uppercase mt-1" /></div>
               <div className="w-1/4 p-1"><GreenLabel>SUFFIX</GreenLabel> (Ex: Sr., Jr., III, etc.)<input type="text" className="w-full outline-none uppercase mt-1" /></div>
             </div>

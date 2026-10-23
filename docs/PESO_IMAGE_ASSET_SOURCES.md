@@ -28,3 +28,15 @@ do not imply the people in stock photos endorse PESO or the municipality.
 The files are illustrative stock photography, not evidence that a named employer or
 PESO program is participating. Actual employer-supplied job image URLs continue to
 be shown when valid; bundled images are local fallbacks only.
+
+## Official employer logo assets (added 2026-10-23)
+
+These are downloaded, locally bundled marks from the employers' own websites, not AI-generated or third-party approximations:
+
+| Local file | Official source | Verification |
+|---|---|---|
+| `lib/assets/peso_employer_jcrcc.png` | https://jcrcc.com.ph/sites/default/files/logo-footer.png | HTTP 200, PNG 105x105, 5,803 bytes; official JCRCC website footer logo mark |
+| `lib/assets/peso_employer_jcrcc_banner.png` | https://jcrcc.com.ph/sites/default/files/jcrcc_website_company_name_banner_0.png | HTTP 200, PNG 422x90, 12,006 bytes; official JCRCC company-name wordmark retained as a reference asset |
+| `lib/assets/peso_employer_puregold.png` | https://puregold.com.ph/images/headers/pg_logo.png | HTTP 200, PNG 336x60, 8,001 bytes; official Puregold Price Club Inc. website wordmark |
+
+`lib/peso_ui/Reusable_Designs/peso_employer_branding.dart` maps recognized saved company names to these local assets when rendering job cards. A stored `logoUrl` always takes precedence; an unknown employer receives only the neutral business icon. This is presentation-only and does not write employer metadata to the live job database. On the 2026-10-23 public read-only API check, JCRCC had 15 active role cards with no `logoUrl`; the active public search returned no Puregold roles, so its fallback will appear only if a saved active Puregold record is published later.

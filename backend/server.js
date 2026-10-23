@@ -1285,6 +1285,43 @@ app.post('/api/profile/ensure', requireAuth, requireMongo, async (req, res, next
   } catch (error) { return next(error); }
 });
 
+app.put('/api/account/privacy-consent', requireAuth, requireMongo, async (req, res, next) => {
+  try {
+    const policyVersion = 'prototype-2026-10-23';
+    if (req.body?.policyVersion !== policyVersion) {
+      return res.status(409).json({ ok: false, error: 'privacy_policy_version_mismatch', requiredPolicyVersion: policyVersion });
+    }
+    if (req.body?.termsAccepted !== true || req.body?.privacyPolicyRead !== true ||
+        req.body?.personalDataConsent !== true) {
+      return res.status(400).json({ ok: false, error: 'consent_required' });
+    }
+    const termsAcceptedAt = req.body?.termsAcceptedAt;
+    const personalDataConsentAt = req.body?.personalDataConsentAt;
+    if (typeof termsAcceptedAt !== 'string' || !Number.isFinite(Date.parse(termsAcceptedAt)) ||
+        typeof personalDataConsentAt !== 'string' || !Number.isFinite(Date.parse(personalDataConsentAt))) {
+      return res.status(400).json({ ok: false, error: 'invalid_consent_timestamp' });
+    }
+    await ensureProfile(req.user);
+    const consent = {
+      termsAccepted: true,
+      privacyPolicyRead: true,
+      personalDataConsent: true,
+      policyVersion,
+      termsAcceptedAt: new Date(termsAcceptedAt),
+      personalDataConsentAt: new Date(personalDataConsentAt),
+      acceptedAt: new Date(),
+    };
+    await usersCollection().updateOne({ uid: req.user.uid }, {
+      $set: { privacyConsent: consent, updatedAt: new Date() },
+    });
+    return res.json({ ok: true, privacyConsent: {
+      ...consent,
+      termsAcceptedAt: consent.termsAcceptedAt.toISOString(),
+      personalDataConsentAt: consent.personalDataConsentAt.toISOString(),
+      acceptedAt: consent.acceptedAt.toISOString(),
+    } });
+  } catch (error) { return next(error); }
+});
 app.get('/api/profile', requireAuth, requireMongo, async (req, res, next) => {
   try {
     const profile = await ensureProfile(req.user);
@@ -1614,6 +1651,38 @@ app.post('/api/applications', requireAuth, requireMongo, requireVerifiedResidenc
     if (!ObjectId.isValid(jobId) || Object.keys(answers).length === 0) {
       return res.status(400).json({ ok: false, error: 'application_incomplete',
         message: 'Select a saved PESO job and complete its screening questions.' });
+    }
+    // Enforce document completion at the trust boundary; frontend warnings are not security controls.
+    const applicantProfile = await usersCollection().findOne({ uid: req.user.uid });
+    const hasFinalDocumentData = (value, kind) => {
+      if (!value || typeof value !== 'object' || Array.isArray(value) ||
+          Object.keys(value).every((key) => ['pendingDraft', 'draftOnly', 'draftUpdatedAt'].includes(key))) return false;
+      const entries = kind === 'resume' ? value.fields : value.entries;
+      const populatedEntries = Array.isArray(entries)
+        ? entries.filter((entry) => entry && typeof entry === 'object' &&
+            String(entry.value ?? '').trim().length > 0).length
+        : 0;
+      const extractedText = String(value.plainText || value.aiText || '').trim();
+      return populatedEntries >= 3 || extractedText.length >= 40;
+    };
+    const savedDocumentFiles = state.bucket && typeof state.bucket.find === 'function'
+      ? await state.bucket.find({
+        'metadata.ownerUid': req.user.uid,
+        'metadata.category': { $in: ['resume_upload', 'resume_builder', 'resume_pdf', 'resume', 'legacy_resume', 'nsrp_form', 'nsrp_pdf', 'nsrp', 'peso_form', 'employment_form', 'legacy_nsrp_form'] },
+      }).limit(50).toArray()
+      : [];
+    const savedCategories = savedDocumentFiles.map((file) => String(file.metadata?.category || '').toLowerCase());
+    const hasResume = hasFinalDocumentData(applicantProfile?.resumeData, 'resume') || Boolean(String(applicantProfile?.resumeFileName || '').trim()) ||
+      savedCategories.some((category) => ['resume_upload', 'resume_builder', 'resume_pdf', 'resume', 'legacy_resume'].includes(category));
+    const savedNsrpData = hasFinalDocumentData(applicantProfile?.pesoFormData, 'nsrp') &&
+      Boolean(normalizeDateOfBirth(applicantProfile?.dateOfBirth || applicantProfile?.pesoFormData?.dateOfBirth)) &&
+      Boolean(normalizeSex(applicantProfile?.sex || applicantProfile?.pesoFormData?.sex));
+    const hasNsrp = savedNsrpData ||
+      savedCategories.some((category) => ['nsrp_form', 'nsrp_pdf', 'nsrp', 'peso_form', 'employment_form', 'legacy_nsrp_form'].includes(category));
+    if (!hasResume || !hasNsrp) {
+      return res.status(409).json({ ok: false, error: 'documents_required',
+        missing: [!hasResume ? 'resume' : null, !hasNsrp ? 'nsrp' : null].filter(Boolean),
+        message: 'Complete and save both your resume and NSRP Form 1 before applying.' });
     }
     const now = new Date();
     const job = await state.db.collection('jobPostings').findOne({

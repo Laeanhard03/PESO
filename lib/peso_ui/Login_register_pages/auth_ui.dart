@@ -30,6 +30,7 @@ import '../Reusable_Designs/ai_processing_ui.dart';
 // Sibling UI Imports
 import 'login_ui.dart';
 import 'register_ui.dart';
+import 'privacy_notice.dart';
 import '../Admin/admin_ui.dart';
 import '../User/user_ui.dart';
 
@@ -38,8 +39,11 @@ enum AuthView { login, register, emailVerification, onboarding }
 class AuthPage extends StatefulWidget {
   final bool initialIsLogin;
   final bool resumePendingVerification;
-  const AuthPage({super.key, this.initialIsLogin = true,
-    this.resumePendingVerification = false});
+  const AuthPage({
+    super.key,
+    this.initialIsLogin = true,
+    this.resumePendingVerification = false,
+  });
 
   @override
   State<AuthPage> createState() => _AuthPageState();
@@ -138,8 +142,10 @@ class _AuthPageState extends State<AuthPage> {
       if (stored.warnings.isNotEmpty ||
           stored.records.length != artifacts.length) {
         if (mounted) {
-          AppToast.warning(context,
-              'Your resume could not be uploaded yet. Continue with NSRP and retry the resume when online.');
+          AppToast.warning(
+            context,
+            'Your resume could not be uploaded yet. Continue with NSRP and retry the resume when online.',
+          );
         }
         return <String, dynamic>{};
       }
@@ -376,7 +382,24 @@ class _AuthPageState extends State<AuthPage> {
         barangay: _registrationIdentity['barangay'],
         address: _registrationIdentity['address'],
       );
-
+      if (_verificationForRegistration) {
+        final acceptedAt = _verificationRequest?.termsAcceptedAt;
+        final personalDataConsentAt =
+            _verificationRequest?.personalDataConsentAt;
+        if (acceptedAt == null ||
+            acceptedAt.isEmpty ||
+            personalDataConsentAt == null ||
+            personalDataConsentAt.isEmpty) {
+          throw StateError(
+            'Please accept the Terms and Conditions, Privacy Notice and data-processing consent before continuing.',
+          );
+        }
+        await PesoApiClient.savePrivacyConsent(
+          termsAcceptedAt: acceptedAt,
+          personalDataConsentAt: personalDataConsentAt,
+          policyVersion: pesoPrivacyNoticeVersion,
+        );
+      }
       if (_verificationForRegistration) {
         if ((_registrationIdentity['barangay'] ?? '').isNotEmpty) {
           await PesoApiClient.updateProfile({
@@ -385,7 +408,10 @@ class _AuthPageState extends State<AuthPage> {
             'address': _registrationIdentity['address'] ?? '',
           });
         }
-        await ApplicantDraftService.clear(registrationDraftScope(), 'registration');
+        await ApplicantDraftService.clear(
+          registrationDraftScope(),
+          'registration',
+        );
         await _saveRegistrationAvatar(_verificationRequest);
         if (!mounted) return;
         setState(() {
@@ -444,7 +470,9 @@ class _AuthPageState extends State<AuthPage> {
         barrierDismissible: false,
         builder: (dialogContext) => AlertDialog(
           title: const Text('Admin debug'),
-          content: const Text('Choose your PESO workspace. Admin features still require server authorization.'),
+          content: const Text(
+            'Choose your PESO workspace. Admin features still require server authorization.',
+          ),
           actions: [
             OutlinedButton(
               onPressed: () => Navigator.pop(dialogContext, 'user'),
@@ -462,8 +490,10 @@ class _AuthPageState extends State<AuthPage> {
     }
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(builder: (_) =>
-          openAdmin ? const AdminDashboard() : const UserProfile()),
+      MaterialPageRoute(
+        builder: (_) =>
+            openAdmin ? const AdminDashboard() : const UserProfile(),
+      ),
     );
   }
 

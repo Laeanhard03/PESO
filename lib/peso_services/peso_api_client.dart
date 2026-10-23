@@ -66,7 +66,9 @@ class PesoApiClient {
     String? search,
     String? category,
     String? employmentType,
-  }) => _request('GET', '/api/public/jobs',
+  }) => _request(
+    'GET',
+    '/api/public/jobs',
     authenticated: false,
     query: <String, String>{
       'limit': limit.clamp(1, 100).toString(),
@@ -194,12 +196,16 @@ class PesoApiClient {
     required String barangay,
     required String address,
     int? expectedRevision,
-  }) => _request('PUT', '/api/account/residency', body: {
-    'municipality': 'Montalban',
-    'barangay': barangay,
-    'address': address,
-    if (expectedRevision != null) 'expectedRevision': expectedRevision,
-  });
+  }) => _request(
+    'PUT',
+    '/api/account/residency',
+    body: {
+      'municipality': 'Montalban',
+      'barangay': barangay,
+      'address': address,
+      if (expectedRevision != null) 'expectedRevision': expectedRevision,
+    },
+  );
 
   static Future<Map<String, dynamic>> reviewResidency({
     required String uid,
@@ -207,18 +213,21 @@ class PesoApiClient {
     required int expectedRevision,
     String? note,
     String? evidenceType,
-  }) => _request('PATCH',
+  }) => _request(
+    'PATCH',
     '/api/admin/users/' + Uri.encodeComponent(uid) + '/residency',
     body: {
       'status': status,
       'expectedRevision': expectedRevision,
       if (note != null) 'note': note,
       if (evidenceType != null) 'evidenceType': evidenceType,
-    });
+    },
+  );
 
-  static Future<Map<String, dynamic>> getResidencyAudit(String uid) =>
-      _request('GET', '/api/admin/users/' + Uri.encodeComponent(uid) +
-        '/residency/audit');
+  static Future<Map<String, dynamic>> getResidencyAudit(String uid) => _request(
+    'GET',
+    '/api/admin/users/' + Uri.encodeComponent(uid) + '/residency/audit',
+  );
 
   static Future<Map<String, dynamic>> getMyDocumentStatus() =>
       _request('GET', '/api/account/documents');
@@ -235,10 +244,32 @@ class PesoApiClient {
   static Future<Map<String, dynamic>> updateAccountResidency({
     required String barangay,
     required String address,
-  }) => _request('PUT', '/api/account/residency', body: <String, dynamic>{
-        'municipality': 'Montalban', 'barangay': barangay, 'address': address,
-      });
+  }) => _request(
+    'PUT',
+    '/api/account/residency',
+    body: <String, dynamic>{
+      'municipality': 'Montalban',
+      'barangay': barangay,
+      'address': address,
+    },
+  );
 
+  static Future<Map<String, dynamic>> savePrivacyConsent({
+    required String termsAcceptedAt,
+    required String personalDataConsentAt,
+    required String policyVersion,
+  }) => _request(
+    'PUT',
+    '/api/account/privacy-consent',
+    body: {
+      'termsAccepted': true,
+      'privacyPolicyRead': true,
+      'personalDataConsent': true,
+      'termsAcceptedAt': termsAcceptedAt,
+      'personalDataConsentAt': personalDataConsentAt,
+      'policyVersion': policyVersion,
+    },
+  );
   static Future<Map<String, dynamic>> updateProfile(
     Map<String, dynamic> changes,
   ) => _request('PUT', '/api/profile', body: changes);
@@ -318,8 +349,11 @@ class PesoApiClient {
   /// Recompute actual Mini-AI recommendations from the owner's saved NSRP
   /// and resume. Unlike the optional Gemini explanation, this never needs MRQ.
   static Future<Map<String, dynamic>> evaluateCareerRecommendations() =>
-      _request('GET', '/api/ai/job-recommendations',
-          timeout: const Duration(seconds: 30));
+      _request(
+        'GET',
+        '/api/ai/job-recommendations',
+        timeout: const Duration(seconds: 30),
+      );
 
   static Future<Map<String, dynamic>> evaluateJobMatch({
     required String jobId,
@@ -483,7 +517,9 @@ class PesoApiClient {
     String? pageToken,
     String? search,
     String? category,
-  }) => _request('GET', '/api/jobs',
+  }) => _request(
+    'GET',
+    '/api/jobs',
     query: <String, String>{
       'limit': limit.clamp(1, 100).toString(),
       if (pageToken != null && pageToken.isNotEmpty) 'pageToken': pageToken,
@@ -502,21 +538,31 @@ class PesoApiClient {
       final response = await listJobsPage(limit: 100, pageToken: pageToken);
       final page = response['jobs'];
       if (page is! List) throw const FormatException('Invalid jobs response');
-      all.addAll(page.whereType<Map>().map((job) => Map<String, dynamic>.from(job)));
+      all.addAll(
+        page.whereType<Map>().map((job) => Map<String, dynamic>.from(job)),
+      );
       pageToken = response['nextPageToken']?.toString();
     } while (pageToken != null && pageToken.isNotEmpty);
     return all;
   }
 
   /// Recent authoritative application status notifications; owner scoped.
-  static Future<List<Map<String, dynamic>>> listNotifications({int limit = 30}) async {
-    final result = await _request('GET', '/api/notifications',
+  static Future<List<Map<String, dynamic>>> listNotifications({
+    int limit = 30,
+  }) async {
+    final result = await _request(
+      'GET',
+      '/api/notifications',
       query: <String, String>{'limit': limit.clamp(1, 50).toString()},
-      timeout: const Duration(seconds: 20));
+      timeout: const Duration(seconds: 20),
+    );
     final rows = result['notifications'];
-    if (rows is! List) throw const FormatException('Invalid notifications response');
-    return rows.whereType<Map>()
-      .map((item) => Map<String, dynamic>.from(item)).toList();
+    if (rows is! List)
+      throw const FormatException('Invalid notifications response');
+    return rows
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
   }
 
   /// Lists only applications attached to the currently authenticated Firebase UID.
@@ -537,7 +583,9 @@ class PesoApiClient {
     int limit = 100,
     String? pageToken,
     bool includeDeleted = false,
-  }) => _request('GET', '/api/admin/jobs',
+  }) => _request(
+    'GET',
+    '/api/admin/jobs',
     query: <String, String>{
       'limit': limit.clamp(1, 500).toString(),
       if (pageToken != null && pageToken.isNotEmpty) 'pageToken': pageToken,
@@ -581,41 +629,77 @@ class PesoApiClient {
   static Future<Map<String, dynamic>> adminApplicantDocuments(String uid) =>
       _request('GET', '/api/admin/users/${Uri.encodeComponent(uid)}/documents');
 
-  static Future<Map<String, dynamic>> adminApplicantDocumentStatuses(List<String> uids) =>
-      _request('POST', '/api/admin/users/document-status',
-          body: <String, dynamic>{'uids': uids});
+  static Future<Map<String, dynamic>> adminApplicantDocumentStatuses(
+    List<String> uids,
+  ) => _request(
+    'POST',
+    '/api/admin/users/document-status',
+    body: <String, dynamic>{'uids': uids},
+  );
 
-  static Future<Uint8List> adminReadApplicantDocument(String uid, String kind, {String? artifactId}) async {
+  static Future<Uint8List> adminReadApplicantDocument(
+    String uid,
+    String kind, {
+    String? artifactId,
+  }) async {
     if (kind != 'resume' && kind != 'nsrp') {
-      throw const PesoApiException(statusCode: 400, code: 'invalid_document_type',
-          message: 'Unsupported document type.');
+      throw const PesoApiException(
+        statusCode: 400,
+        code: 'invalid_document_type',
+        message: 'Unsupported document type.',
+      );
     }
     final token = await PesoAuthSession.getBearerToken();
     if (token == null || token.isEmpty) {
-      throw const PesoApiException(statusCode: 401, code: 'unauthenticated',
-          message: 'Sign in as an administrator to view this file.');
+      throw const PesoApiException(
+        statusCode: 401,
+        code: 'unauthenticated',
+        message: 'Sign in as an administrator to view this file.',
+      );
     }
     final base = Uri.parse(baseUrl);
-    final uri = base.replace(path: base.path.replaceFirst(RegExp(r'/$'), '') +
-        '/api/admin/users/${Uri.encodeComponent(uid)}/documents/$kind/content',
-        queryParameters: artifactId == null || artifactId.isEmpty ? null :
-            <String, String>{'artifactId': artifactId});
+    final uri = base.replace(
+      path:
+          base.path.replaceFirst(RegExp(r'/$'), '') +
+          '/api/admin/users/${Uri.encodeComponent(uid)}/documents/$kind/content',
+      queryParameters: artifactId == null || artifactId.isEmpty
+          ? null
+          : <String, String>{'artifactId': artifactId},
+    );
     try {
-      final response = await _http.get(uri, headers: <String, String>{
-        'Authorization': 'Bearer $token', 'Accept': 'application/pdf, image/png, image/jpeg',
-      }).timeout(const Duration(seconds: 45));
+      final response = await _http
+          .get(
+            uri,
+            headers: <String, String>{
+              'Authorization': 'Bearer $token',
+              'Accept': 'application/pdf, image/png, image/jpeg',
+            },
+          )
+          .timeout(const Duration(seconds: 45));
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw PesoApiException(statusCode: response.statusCode,
-            code: 'admin_document_unavailable', message: _statusMessage(response.statusCode));
+        throw PesoApiException(
+          statusCode: response.statusCode,
+          code: 'admin_document_unavailable',
+          message: _statusMessage(response.statusCode),
+        );
       }
-      if (response.bodyBytes.isEmpty || response.bodyBytes.length > 20 * 1024 * 1024) {
-        throw const PesoApiException(statusCode: 502, code: 'invalid_document',
-            message: 'Stored file is empty or too large to preview.');
+      if (response.bodyBytes.isEmpty ||
+          response.bodyBytes.length > 20 * 1024 * 1024) {
+        throw const PesoApiException(
+          statusCode: 502,
+          code: 'invalid_document',
+          message: 'Stored file is empty or too large to preview.',
+        );
       }
       return response.bodyBytes;
-    } on PesoApiException { rethrow; } catch (_) {
-      throw const PesoApiException(statusCode: 0, code: 'document_network_unavailable',
-          message: 'Could not retrieve the private applicant document.');
+    } on PesoApiException {
+      rethrow;
+    } catch (_) {
+      throw const PesoApiException(
+        statusCode: 0,
+        code: 'document_network_unavailable',
+        message: 'Could not retrieve the private applicant document.',
+      );
     }
   }
 
@@ -669,13 +753,17 @@ class PesoApiClient {
   );
 
   /// Canonical deletion routes are implemented by the jobs/backend session.
-  static Future<Map<String, dynamic>> adminDeleteJob(String jobId) => _request(
-    'DELETE', '/api/admin/jobs/${Uri.encodeComponent(jobId)}');
+  static Future<Map<String, dynamic>> adminDeleteJob(String jobId) =>
+      _request('DELETE', '/api/admin/jobs/${Uri.encodeComponent(jobId)}');
 
-  static Future<Map<String, dynamic>> adminDeleteAllJobs({required String confirmation}) =>
-      _request('DELETE', '/api/admin/jobs',
-        body: <String, dynamic>{'confirmation': confirmation},
-        timeout: const Duration(seconds: 60));
+  static Future<Map<String, dynamic>> adminDeleteAllJobs({
+    required String confirmation,
+  }) => _request(
+    'DELETE',
+    '/api/admin/jobs',
+    body: <String, dynamic>{'confirmation': confirmation},
+    timeout: const Duration(seconds: 60),
+  );
 
   static Future<Map<String, dynamic>> adminListUsers({
     int limit = 100,

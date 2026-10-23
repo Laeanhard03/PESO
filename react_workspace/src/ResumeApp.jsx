@@ -69,6 +69,22 @@ const Editable = ({ defaultText, className = "", prefillKey, ...props }) => {
   );
 };
 
+// Never present a stock model as the applicant. Use the applicant's own photo,
+// or a clear placeholder that tells them to upload one before exporting.
+function ResumePhoto({ photo }) {
+  if (photo) {
+    return <img src={photo} alt="Applicant portrait" className="w-full h-full object-cover" crossOrigin="anonymous" />;
+  }
+  return (
+    <div role="img" aria-label="Applicant photo not added" className="w-full h-full flex flex-col items-center justify-center gap-1 bg-neutral-100 text-neutral-500">
+      <svg viewBox="0 0 64 64" className="w-14 h-14" aria-hidden="true">
+        <circle cx="32" cy="21" r="12" fill="currentColor" opacity="0.45" />
+        <path d="M10 60c1-14 9-22 22-22s21 8 22 22" fill="currentColor" opacity="0.45" />
+      </svg>
+      <span className="text-[9px] font-bold uppercase tracking-wider">Add your photo</span>
+    </div>
+  );
+}
 export default function ResumeApp() {
   const [activeTemplate, setActiveTemplate] = useState("sally");
   const [zoom, setZoom] = useState(1);
@@ -274,6 +290,7 @@ export default function ResumeApp() {
     const zoomWrapper = document.getElementById('zoom-wrapper');
     const originalTransform = zoomWrapper?.style.transform ?? '';
     if (zoomWrapper) zoomWrapper.style.transform = 'scale(1)';
+    const hiddenTemplateSamples = [];
 
     try {
       const element = document.getElementById('resume-node');
@@ -281,6 +298,15 @@ export default function ResumeApp() {
 
       let resumePdfBase64 = '';
       let pdfWarning = '';
+      const normalizeSample = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
+      for (const node of element.querySelectorAll('[contenteditable="true"][data-template-default]')) {
+        const current = normalizeSample(node.innerText);
+        const sample = normalizeSample(node.getAttribute('data-template-default'));
+        if (sample && current === sample) {
+          hiddenTemplateSamples.push({ node, originalText: node.textContent });
+          node.textContent = '';
+        }
+      }
       const exportOptions = {
         quality: 0.96,
         backgroundColor: '#ffffff',
@@ -470,19 +496,13 @@ export default function ResumeApp() {
       console.error('Resume PDF or data extraction failed:', error);
       alert('Could not generate your resume. Please check the browser console and try again.');
     } finally {
+      for (const sample of hiddenTemplateSamples) sample.node.textContent = sample.originalText;
       if (zoomWrapper) zoomWrapper.style.transform = originalTransform;
       setIsProcessing(false);
     }
   };
 
-  const defaultPhotos = {
-    sally: "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=400&q=80",
-    emily: "https://images.unsplash.com/photo-1580489944761-15a19d654956?w=400&q=80",
-    richard: "https://images.unsplash.com/photo-1560250097-0b93528c311a?w=400&q=80",
-    dian: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&q=80",
-  };
-
-  const currentPhoto = photo || defaultPhotos[activeTemplate];
+  const currentPhoto = photo;
 
   return (
     <div className="min-h-screen bg-neutral-100 text-neutral-800 flex flex-col font-sans">
@@ -679,7 +699,7 @@ function TemplateSally({ photo }) {
 
         {/* Photo Container */}
         <div className="absolute top-5 left-10 w-36 h-36 rounded-full border-4 border-white overflow-hidden shadow-md z-10">
-          <img src={photo} alt="Avatar" className="w-full h-full object-cover" crossOrigin="anonymous" />
+          <ResumePhoto photo={photo} />
         </div>
 
         {/* Name and Title */}
@@ -824,7 +844,7 @@ function TemplateEmily({ photo }) {
       {/* Left Column (Warm Sand/Blush) */}
       <div className="w-[36%] bg-[#ddc8bc] p-8 flex flex-col items-center text-left">
         <div className="w-36 h-36 rounded-full overflow-hidden mb-8 border-2 border-white shadow-sm">
-          <img src={photo} alt="Avatar" className="w-full h-full object-cover" crossOrigin="anonymous" />
+          <ResumePhoto photo={photo} />
         </div>
 
         <div className="w-full space-y-6">
@@ -1009,7 +1029,7 @@ function TemplateRichard({ photo }) {
       {/* Dark Slate Top Bar */}
       <div className="h-44 bg-[#323b49] text-white flex items-center justify-end px-12 relative">
         <div className="absolute -bottom-12 left-10 w-36 h-36 rounded-full border-4 border-white overflow-hidden shadow-lg z-10 bg-white">
-          <img src={photo} alt="Avatar" className="w-full h-full object-cover" crossOrigin="anonymous" />
+          <ResumePhoto photo={photo} />
         </div>
         <div className="text-left w-3/5">
           <h1 className="text-3xl font-extrabold tracking-wider uppercase mb-1">
@@ -1179,7 +1199,7 @@ function TemplateDian({ photo }) {
         {/* Soft Lavender Top block holding the photo */}
         <div className="bg-[#ddd5e8] p-8 flex justify-center items-center">
           <div className="w-36 h-36 rounded-full overflow-hidden border-4 border-white shadow">
-            <img src={photo} alt="Avatar" className="w-full h-full object-cover" crossOrigin="anonymous" />
+            <ResumePhoto photo={photo} />
           </div>
         </div>
 

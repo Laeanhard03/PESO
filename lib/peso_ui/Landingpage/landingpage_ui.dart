@@ -6,6 +6,7 @@ import '../Login_register_pages/auth_ui.dart';
 import '../Reusable_Designs/responsive_layout.dart';
 import '../Reusable_Designs/reusable_ui.dart';
 import '../Reusable_Designs/peso_images.dart';
+import '../Reusable_Designs/peso_employer_branding.dart';
 import '../../peso_services/peso_api_client.dart';
 import 'peso_public_services.dart';
 
@@ -1754,6 +1755,9 @@ class _LandingJob {
     required this.categoryLabel,
     required this.logoUrl,
     required this.imageUrl,
+    required this.description,
+    required this.requirements,
+    required this.vacancies,
   });
 
   factory _LandingJob.fromApi(Map<String, dynamic> job) {
@@ -1761,6 +1765,32 @@ class _LandingJob {
     final label = category == 'local_recruitment_activity'
         ? 'Local Recruitment Activity'
         : 'Walk-in Application';
+    final rawRequirements = job['requirements'];
+    final requirements = rawRequirements is List
+        ? rawRequirements
+              .map((item) {
+                if (item is Map) {
+                  return (item['text'] ??
+                          item['requirement'] ??
+                          item['name'] ??
+                          '')
+                      .toString()
+                      .trim();
+                }
+                return item.toString().trim();
+              })
+              .where((item) => item.isNotEmpty)
+              .toList()
+        : rawRequirements == null
+        ? <String>[]
+        : rawRequirements.toString().trim().isEmpty
+        ? <String>[]
+        : rawRequirements
+              .toString()
+              .split(RegExp(r'[\n;]'))
+              .map((item) => item.trim())
+              .where((item) => item.isNotEmpty)
+              .toList();
     return _LandingJob(
       id: job['id']?.toString() ?? '',
       title: job['title']?.toString() ?? '',
@@ -1772,6 +1802,11 @@ class _LandingJob {
       categoryLabel: label,
       logoUrl: job['logoUrl']?.toString() ?? '',
       imageUrl: job['imageUrl']?.toString() ?? '',
+      description: job['description']?.toString() ?? '',
+      requirements: requirements,
+      vacancies: int.tryParse(
+        (job['vacancies'] ?? job['vacancyCount'] ?? '').toString(),
+      ),
     );
   }
 
@@ -1785,6 +1820,9 @@ class _LandingJob {
   final String categoryLabel;
   final String logoUrl;
   final String imageUrl;
+  final String description;
+  final List<String> requirements;
+  final int? vacancies;
 }
 
 class _LandingJobCard extends StatelessWidget {
@@ -1795,6 +1833,10 @@ class _LandingJobCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final logoAsset = PesoEmployerBranding.logoAssetForCompany(job.company);
+    final logoWidth = logoAsset == PesoEmployerBranding.puregoldLogoAsset
+        ? 82.0
+        : 46.0;
     return Container(
       padding: const EdgeInsets.all(PesoTokens.spacingLG),
       decoration: BoxDecoration(
@@ -1827,31 +1869,22 @@ class _LandingJobCard extends StatelessWidget {
           Row(
             children: [
               Container(
-                width: 46,
+                width: logoWidth,
                 height: 46,
+                padding: const EdgeInsets.all(4),
                 decoration: BoxDecoration(
-                  color: PesoTokens.brandGreenPale,
+                  color: Colors.white,
                   borderRadius: BorderRadius.circular(PesoTokens.radiusMD),
+                  border: Border.all(color: const Color(0xFFE6ECE8)),
                 ),
-                child: job.logoUrl.isEmpty
-                    ? const Icon(
-                        Icons.business_rounded,
-                        color: PesoTokens.brandGreen,
-                      )
-                    : ClipRRect(
-                        borderRadius: BorderRadius.circular(
-                          PesoTokens.radiusMD,
-                        ),
-                        child: Image.network(
-                          job.logoUrl,
-                          fit: BoxFit.contain,
-                          errorBuilder: (context, error, stackTrace) =>
-                              const Icon(
-                                Icons.business_rounded,
-                                color: PesoTokens.brandGreen,
-                              ),
-                        ),
-                      ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(PesoTokens.radiusSM),
+                  child: PesoEmployerLogo(
+                    company: job.company,
+                    logoUrl: job.logoUrl,
+                    size: 24,
+                  ),
+                ),
               ),
               const SizedBox(width: PesoTokens.spacingMD),
               Expanded(
@@ -1910,6 +1943,76 @@ class _LandingJobCard extends StatelessWidget {
               ),
             ],
           ),
+          const SizedBox(height: PesoTokens.spacingLG),
+          Row(
+            children: [
+              const Icon(
+                Icons.groups_outlined,
+                size: 17,
+                color: PesoTokens.textMuted,
+              ),
+              const SizedBox(width: PesoTokens.spacingXS),
+              Text(
+                job.vacancies == null || job.vacancies! < 1
+                    ? 'Vacancy count not specified'
+                    : '${job.vacancies} ${job.vacancies == 1 ? 'vacancy' : 'vacancies'}',
+                style: PesoTokens.bodySmall.copyWith(
+                  color: PesoTokens.textMuted,
+                ),
+              ),
+            ],
+          ),
+          if (job.description.trim().isNotEmpty) ...[
+            const SizedBox(height: PesoTokens.spacingMD),
+            Text(
+              'ROLE DESCRIPTION',
+              style: PesoTokens.labelSmall.copyWith(
+                letterSpacing: 0.7,
+                color: PesoTokens.textMuted,
+              ),
+            ),
+            const SizedBox(height: PesoTokens.space1),
+            Text(
+              job.description.trim(),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: PesoTokens.bodySmall.copyWith(
+                color: PesoTokens.textSecondary,
+                height: 1.4,
+              ),
+            ),
+          ],
+          if (job.requirements.isNotEmpty) ...[
+            const SizedBox(height: PesoTokens.spacingMD),
+            Text(
+              'KEY REQUIREMENTS',
+              style: PesoTokens.labelSmall.copyWith(
+                letterSpacing: 0.7,
+                color: PesoTokens.textMuted,
+              ),
+            ),
+            const SizedBox(height: PesoTokens.space1),
+            for (final requirement in job.requirements.take(3))
+              Padding(
+                padding: const EdgeInsets.only(bottom: 3),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('• '),
+                    Expanded(
+                      child: Text(
+                        requirement,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: PesoTokens.bodySmall.copyWith(
+                          color: PesoTokens.textSecondary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
           const SizedBox(height: PesoTokens.spacingLG),
           Container(
             width: double.infinity,

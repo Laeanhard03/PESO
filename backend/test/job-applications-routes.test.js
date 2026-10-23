@@ -130,7 +130,7 @@ before(async () => {
   userProfiles.set('test-admin', { uid: 'test-admin', role: 'admin', email: 'admin@example.test', displayName: 'PESO Admin', disabled: false, deleted: false });
   userProfiles.set('test-user', { uid: 'test-user', role: 'job_seeker', email: 'user@example.test', displayName: 'Test User', disabled: false, deleted: false,
     municipality: 'Rodriguez', barangay: 'San Jose', address: 'San Jose, Rodriguez, Rizal',
-    residency: { status: 'verified' } });
+    residency: { status: 'verified' }, resumeData: { fields: [{ label: 'Name', value: 'Test User' }, { label: 'Email', value: 'user@example.test' }, { label: 'Phone', value: '09123456789' }] }, pesoFormData: { dateOfBirth: '2000-01-01', sex: 'Male', entries: [{ label: 'Name', value: 'Test User' }, { label: 'Birth date', value: '2000-01-01' }, { label: 'Sex', value: 'Male' }] } });
   state.tokenVerifierOverride = async (token) => {
     if (token === 'admin-token') return { uid: 'test-admin', email: 'admin@example.test', name: 'PESO Admin', email_verified: true, firebase: { sign_in_provider: 'google.com' } };
     if (token === 'regular-token') return { uid: 'test-user', email: 'user@example.test', name: 'Test User', email_verified: true, firebase: { sign_in_provider: 'google.com' } };
@@ -151,7 +151,12 @@ before(async () => {
       throw new Error('Unexpected collection: ' + name);
     },
   };
-  state.bucket = {};
+  state.bucket = {
+    find() {
+      const cursor = { limit() { return cursor; }, async toArray() { return []; } };
+      return cursor;
+    },
+  };
   server = app.listen(0, '127.0.0.1');
   await new Promise((resolve) => server.once('listening', resolve));
   baseUrl = 'http://127.0.0.1:' + server.address().port;
@@ -161,6 +166,46 @@ after(async () => {
   await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
 });
 
+test('privacy consent is authenticated, explicit and pinned to the current notice version', async () => {
+  const payload = {
+    termsAccepted: true,
+    privacyPolicyRead: true,
+    personalDataConsent: true,
+    termsAcceptedAt: '2026-10-23T00:00:00.000Z',
+    personalDataConsentAt: '2026-10-23T00:00:00.000Z',
+    policyVersion: 'prototype-2026-10-23',
+  };
+  const anonymous = await request('/api/account/privacy-consent', {
+    method: 'PUT', body: payload,
+  });
+  assert.equal(anonymous.status, 401);
+
+  const missingConsent = await request('/api/account/privacy-consent', {
+    method: 'PUT', token: 'regular-token',
+    body: { ...payload, personalDataConsent: false },
+  });
+  assert.equal(missingConsent.status, 400);
+  assert.equal(missingConsent.body.error, 'consent_required');
+
+  const staleVersion = await request('/api/account/privacy-consent', {
+    method: 'PUT', token: 'regular-token',
+    body: { ...payload, policyVersion: 'prototype-older' },
+  });
+  assert.equal(staleVersion.status, 409);
+  assert.equal(staleVersion.body.error, 'privacy_policy_version_mismatch');
+
+  const accepted = await request('/api/account/privacy-consent', {
+    method: 'PUT', token: 'regular-token', body: payload,
+  });
+  assert.equal(accepted.status, 200);
+  assert.equal(accepted.body.privacyConsent.termsAccepted, true);
+  assert.equal(accepted.body.privacyConsent.privacyPolicyRead, true);
+  assert.equal(accepted.body.privacyConsent.personalDataConsent, true);
+  assert.equal(accepted.body.privacyConsent.policyVersion, 'prototype-2026-10-23');
+  assert.equal(accepted.body.privacyConsent.termsAcceptedAt, payload.termsAcceptedAt);
+  assert.equal(accepted.body.privacyConsent.personalDataConsentAt, payload.personalDataConsentAt);
+  assert.ok(accepted.body.privacyConsent.acceptedAt);
+});
 test('application submission requires authentication', async () => {
   const result = await request('/api/applications', {
     method: 'POST',
@@ -179,6 +224,35 @@ test('application submission requires a job title and answers', async () => {
   assert.equal(result.body.error, 'application_incomplete');
 });
 
+test('application submission requires a saved resume and NSRP Form 1', async () => {
+  const profile = userProfiles.get('test-user');
+  const resumeData = profile.resumeData;
+  const pesoFormData = profile.pesoFormData;
+  try {
+    delete profile.resumeData;
+    delete profile.pesoFormData;
+    const result = await request('/api/applications', {
+      method: 'POST', token: 'regular-token',
+      body: { jobId: String(welderId), answers: { experience: '1-2' } },
+    });
+    assert.equal(result.status, 409);
+    assert.equal(result.body.error, 'documents_required');
+    assert.deepEqual(result.body.missing.sort(), ['nsrp', 'resume']);
+    assert.equal(applications.size, 0);
+    profile.resumeData = { fields: [] };
+    profile.pesoFormData = { entries: [], dateOfBirth: '', sex: '' };
+    const empty = await request('/api/applications', {
+      method: 'POST', token: 'regular-token',
+      body: { jobId: String(welderId), answers: { experience: '1-2' } },
+    });
+    assert.equal(empty.status, 409);
+    assert.equal(empty.body.error, 'documents_required');
+    assert.equal(applications.size, 0);
+  } finally {
+    profile.resumeData = resumeData;
+    profile.pesoFormData = pesoFormData;
+  }
+});
 test('a signed-in user submits once and retry does not overwrite screening answers', async () => {
   const first = await request('/api/applications', {
     method: 'POST',

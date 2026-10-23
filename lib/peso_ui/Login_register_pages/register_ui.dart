@@ -14,6 +14,7 @@ import '../User/user_profile_avatar.dart';
 import '../../peso_services/app_toast.dart';
 
 import '../../peso_services/auth_service.dart';
+import 'privacy_notice.dart';
 
 class RegisterForm extends StatefulWidget {
   final Color pesoGreen;
@@ -52,6 +53,8 @@ class RegistrationVerificationRequest {
     this.photoName,
     this.verificationEmailSent = false,
     this.verificationEmailError,
+    this.termsAcceptedAt,
+    this.personalDataConsentAt,
   });
 
   final Map<String, String> identity;
@@ -60,6 +63,8 @@ class RegistrationVerificationRequest {
   final String? photoName;
   final bool verificationEmailSent;
   final String? verificationEmailError;
+  final String? termsAcceptedAt;
+  final String? personalDataConsentAt;
 }
 
 class _RegisterFormState extends State<RegisterForm> {
@@ -73,13 +78,18 @@ class _RegisterFormState extends State<RegisterForm> {
   bool _restoring = false;
   String _lastRestoreEmail = '';
   String _draftStatus = 'Offline Draft';
+  bool _termsAccepted = false;
+  bool _personalDataConsent = false;
 
   @override
   void initState() {
     super.initState();
     for (final controller in [
-      _emailController, _firstNameController, _lastNameController,
-      _phoneController, _addressController,
+      _emailController,
+      _firstNameController,
+      _lastNameController,
+      _phoneController,
+      _addressController,
     ]) {
       controller.addListener(_onRegistrationEdited);
     }
@@ -99,13 +109,22 @@ class _RegisterFormState extends State<RegisterForm> {
     if (!email.contains('@') || !email.contains('.')) return;
     if (_lastRestoreEmail != email) {
       _lastRestoreEmail = email;
-      final stored = await ApplicantDraftService.read(registrationDraftScope(), 'registration');
-      if (stored != null && stored['email']?.toString().toLowerCase() != email) {
+      final stored = await ApplicantDraftService.read(
+        registrationDraftScope(),
+        'registration',
+      );
+      if (stored != null &&
+          stored['email']?.toString().toLowerCase() != email) {
         // A different applicant used this tab; do not expose their fields.
-        await ApplicantDraftService.clear(registrationDraftScope(), 'registration');
+        await ApplicantDraftService.clear(
+          registrationDraftScope(),
+          'registration',
+        );
       }
-      if (stored != null && stored['email']?.toString().toLowerCase() == email &&
-          mounted && _emailController.text.trim().toLowerCase() == email) {
+      if (stored != null &&
+          stored['email']?.toString().toLowerCase() == email &&
+          mounted &&
+          _emailController.text.trim().toLowerCase() == email) {
         _restoring = true;
         if (_firstNameController.text.isEmpty) {
           _firstNameController.text = stored['firstName']?.toString() ?? '';
@@ -127,23 +146,38 @@ class _RegisterFormState extends State<RegisterForm> {
       }
     }
     try {
-      await ApplicantDraftService.write(registrationDraftScope(), 'registration', <String, dynamic>{
-        'email': email,
-        'firstName': _firstNameController.text.trim(),
-        'lastName': _lastNameController.text.trim(),
-        'phone': _phoneController.text.trim(),
-        'barangay': _barangay ?? '',
-        'address': _addressController.text.trim(),
-        'draftUpdatedAt': DateTime.now().toUtc().toIso8601String(),
-      });
+      await ApplicantDraftService.write(
+        registrationDraftScope(),
+        'registration',
+        <String, dynamic>{
+          'email': email,
+          'firstName': _firstNameController.text.trim(),
+          'lastName': _lastNameController.text.trim(),
+          'phone': _phoneController.text.trim(),
+          'barangay': _barangay ?? '',
+          'address': _addressController.text.trim(),
+          'draftUpdatedAt': DateTime.now().toUtc().toIso8601String(),
+        },
+      );
       if (mounted) setState(() => _draftStatus = 'Offline Draft');
     } catch (_) {
       if (mounted) setState(() => _draftStatus = 'Sync Failed');
     }
   }
 
-
-  static const barangays = <String>['Balite', 'Burgos', 'Geronimo', 'Macabud', 'Manggahan', 'Mascap', 'Puray', 'Rosario', 'San Isidro', 'San Jose', 'San Rafael'];
+  static const barangays = <String>[
+    'Balite',
+    'Burgos',
+    'Geronimo',
+    'Macabud',
+    'Manggahan',
+    'Mascap',
+    'Puray',
+    'Rosario',
+    'San Isidro',
+    'San Jose',
+    'San Rafael',
+  ];
   String? _barangay;
   bool _isLoading = false;
   bool _googlePending = false;
@@ -249,7 +283,35 @@ class _RegisterFormState extends State<RegisterForm> {
     }
   }
 
+  Future<void> _showPolicyDialog(String title, String body) async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: SingleChildScrollView(
+          child: SelectableText(
+            body,
+            style: Theme.of(dialogContext).textTheme.bodyMedium
+                ?.copyWith(height: 1.45),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _continueToAvatar() {
+    if (!_termsAccepted || !_personalDataConsent) {
+      _showMessage(
+        'Please agree to the Terms and Conditions, acknowledge the Privacy Notice, and consent to the processing of your submitted information.',
+      );
+      return;
+    }
     if (_firstNameController.text.trim().isEmpty ||
         _lastNameController.text.trim().isEmpty ||
         _emailController.text.trim().isEmpty ||
@@ -257,9 +319,12 @@ class _RegisterFormState extends State<RegisterForm> {
       _showMessage('Complete your name, email, and password first.');
       return;
     }
-    if (_barangay == null || !barangays.contains(_barangay) ||
+    if (_barangay == null ||
+        !barangays.contains(_barangay) ||
         _addressController.text.trim().length < 5) {
-      _showMessage('Select your Montalban barangay and enter your complete address. PESO will verify residency.');
+      _showMessage(
+        'Select your Montalban barangay and enter your complete address. PESO will verify residency.',
+      );
       return;
     }
     if (_passwordController.text.length < 6) {
@@ -270,6 +335,12 @@ class _RegisterFormState extends State<RegisterForm> {
   }
 
   Future<void> _registerUser() async {
+    if (!_termsAccepted || !_personalDataConsent) {
+      _showMessage(
+        'Please agree to the Terms and Conditions, acknowledge the Privacy Notice, and consent to the processing of your submitted information.',
+      );
+      return;
+    }
     final firstName = _firstNameController.text.trim();
     final lastName = _lastNameController.text.trim();
     final email = _emailController.text.trim();
@@ -287,9 +358,12 @@ class _RegisterFormState extends State<RegisterForm> {
       return;
     }
 
-    if (_barangay == null || !barangays.contains(_barangay) ||
+    if (_barangay == null ||
+        !barangays.contains(_barangay) ||
         _addressController.text.trim().length < 5) {
-      _showMessage('Choose your barangay and provide your full Montalban address.');
+      _showMessage(
+        'Choose your barangay and provide your full Montalban address.',
+      );
       return;
     }
     setState(() => _isLoading = true);
@@ -320,6 +394,7 @@ class _RegisterFormState extends State<RegisterForm> {
           isError: false,
         );
       }
+      final consentAcceptedAt = DateTime.now().toUtc().toIso8601String();
       widget.onEmailVerificationRequired(
         RegistrationVerificationRequest(
           identity: <String, String>{
@@ -336,6 +411,8 @@ class _RegisterFormState extends State<RegisterForm> {
           photoName: _pendingPhotoName,
           verificationEmailSent: verificationSent,
           verificationEmailError: verificationError,
+          termsAcceptedAt: consentAcceptedAt,
+          personalDataConsentAt: consentAcceptedAt,
         ),
       );
     } catch (error) {
@@ -356,10 +433,19 @@ class _RegisterFormState extends State<RegisterForm> {
   }
 
   Future<void> _registerWithGoogle() async {
+    if (!_termsAccepted || !_personalDataConsent) {
+      _showMessage(
+        'Please agree to the Terms and Conditions, acknowledge the Privacy Notice, and consent to the processing of your submitted information.',
+      );
+      return;
+    }
     if (_isLoading) return;
-    if (_barangay == null || !barangays.contains(_barangay) ||
+    if (_barangay == null ||
+        !barangays.contains(_barangay) ||
         _addressController.text.trim().length < 5) {
-      _showMessage('Select your barangay and enter your full address before Google sign-in.');
+      _showMessage(
+        'Select your barangay and enter your full address before Google sign-in.',
+      );
       return;
     }
     final requestId = ++_googleRequestId;
@@ -379,6 +465,7 @@ class _RegisterFormState extends State<RegisterForm> {
         } catch (error) {
           verificationError = _friendlyError(error);
         }
+        final consentAcceptedAt = DateTime.now().toUtc().toIso8601String();
         widget.onEmailVerificationRequired(
           RegistrationVerificationRequest(
             identity: _identityFromFirebaseUser(),
@@ -386,22 +473,41 @@ class _RegisterFormState extends State<RegisterForm> {
             photoBytes: _pendingPhoto,
             photoName: _pendingPhotoName,
             verificationEmailSent: verificationError == null,
+            termsAcceptedAt: consentAcceptedAt,
+            personalDataConsentAt: consentAcceptedAt,
             verificationEmailError: verificationError,
           ),
         );
       } else if (mounted && requestId == _googleRequestId) {
         if (user != null) {
-          await AuthService.ensureUserProfile(user,
-            municipality: 'Montalban', barangay: _barangay);
+          await AuthService.ensureUserProfile(
+            user,
+            municipality: 'Montalban',
+            barangay: _barangay,
+          );
           try {
             await PesoApiClient.updateAccountResidency(
-              barangay: _barangay!, address: _addressController.text.trim());
+              barangay: _barangay!,
+              address: _addressController.text.trim(),
+            );
           } catch (_) {
-            if (mounted) _showMessage('Signed in, but your residency details need synchronization.');
+            if (mounted)
+              _showMessage(
+                'Signed in, but your residency details need synchronization.',
+              );
           }
         }
+        final consentAcceptedAt = DateTime.now().toUtc().toIso8601String();
+        await PesoApiClient.savePrivacyConsent(
+          termsAcceptedAt: consentAcceptedAt,
+          personalDataConsentAt: consentAcceptedAt,
+          policyVersion: pesoPrivacyNoticeVersion,
+        );
         await _persistRegistrationAvatar();
-        await ApplicantDraftService.clear(registrationDraftScope(), 'registration');
+        await ApplicantDraftService.clear(
+          registrationDraftScope(),
+          'registration',
+        );
         widget.onProceedToOnboarding(_identityFromFirebaseUser());
       }
     } catch (error) {
@@ -548,20 +654,89 @@ class _RegisterFormState extends State<RegisterForm> {
               helperMaxLines: 3,
               filled: true,
               fillColor: fieldBg,
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(15)),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(15),
+              ),
             ),
-            items: barangays.map((name) => DropdownMenuItem(value: name, child: Text(name))).toList(),
+            items: barangays
+                .map((name) => DropdownMenuItem(value: name, child: Text(name)))
+                .toList(),
             onChanged: (value) => setState(() => _barangay = value),
           ),
           const SizedBox(height: 15),
           _buildTextField(
             'Full residential address in Montalban, Rizal',
             Icons.home_outlined,
-            _addressController, fieldBg, borderColor, textColor, hintColor,
+            _addressController,
+            fieldBg,
+            borderColor,
+            textColor,
+            hintColor,
           ),
           const SizedBox(height: 10),
-          Text('Draft: $_draftStatus (encrypted on this device; passwords are never saved)',
-            style: TextStyle(fontSize: 12, color: subtitleColor, height: 1.4)),
+          Text(
+            'Draft: $_draftStatus (encrypted on this device; passwords are never saved)',
+            style: TextStyle(fontSize: 12, color: subtitleColor, height: 1.4),
+          ),
+          const SizedBox(height: 10),
+          Material(
+            color: Colors.transparent,
+            child: CheckboxListTile(
+              value: _termsAccepted,
+              onChanged: _isLoading
+                  ? null
+                  : (value) => setState(() => _termsAccepted = value == true),
+              controlAffinity: ListTileControlAffinity.leading,
+              contentPadding: EdgeInsets.zero,
+              title: Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  const Text('I agree to the '),
+                  TextButton(
+                    onPressed: _isLoading
+                        ? null
+                        : () => _showPolicyDialog(
+                            'Terms and Conditions',
+                            pesoTermsAndConditionsText,
+                          ),
+                    child: const Text('Terms and Conditions'),
+                  ),
+                  const Text(' and acknowledge the '),
+                  TextButton(
+                    onPressed: _isLoading
+                        ? null
+                        : () => _showPolicyDialog(
+                            'Privacy Notice',
+                            pesoPrivacyNoticeText,
+                          ),
+                    child: const Text('Privacy Notice'),
+                  ),
+                  const Text('.'),
+                ],
+              ),
+              subtitle: const Text(
+                'Required before creating an account or continuing with Google.',
+              ),
+            ),
+          ),
+          Material(
+            color: Colors.transparent,
+            child: CheckboxListTile(
+              value: _personalDataConsent,
+              onChanged: _isLoading
+                  ? null
+                  : (value) =>
+                        setState(() => _personalDataConsent = value == true),
+              controlAffinity: ListTileControlAffinity.leading,
+              contentPadding: EdgeInsets.zero,
+              title: const Text(
+                'I consent to processing the personal information I submit, including sensitive information in NSRP Form 1 such as date of birth, sex, religion, education and documents, for the purposes described in the Privacy Notice.',
+              ),
+              subtitle: const Text(
+                'AI-assisted compatibility is advisory only. Do not submit real applicant data to this unapproved prototype.',
+              ),
+            ),
+          ),
           const SizedBox(height: 15),
           _buildTextField(
             'Password (at least 6 characters)',

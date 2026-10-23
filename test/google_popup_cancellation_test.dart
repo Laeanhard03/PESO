@@ -6,6 +6,23 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:peso_prototype/peso_ui/Login_register_pages/login_ui.dart';
 import 'package:peso_prototype/peso_ui/Login_register_pages/register_ui.dart';
 
+Future<void> acceptRegistrationConsent(WidgetTester tester) async {
+  final consentCheckboxes = find.byType(CheckboxListTile);
+  expect(consentCheckboxes, findsNWidgets(2));
+  for (var i = 0; i < 2; i++) {
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pumpAndSettle();
+    final tile = consentCheckboxes.at(i);
+    final checkbox = find.descendant(of: tile, matching: find.byType(Checkbox));
+    expect(checkbox, findsOneWidget);
+    await tester.ensureVisible(checkbox);
+    await tester.pumpAndSettle();
+    await tester.tap(checkbox);
+    await tester.pumpAndSettle();
+    expect(tester.widget<CheckboxListTile>(tile).value, isTrue);
+  }
+}
+
 void main() {
   const green = Color(0xFF236349);
 
@@ -72,16 +89,22 @@ void main() {
       ),
     );
     // Residency is mandatory before OAuth; fill real required fields first.
-    await tester.enterText(find.byType(TextField).at(4), 'Block 3 Lot 5, Montalban');
+    await tester.enterText(
+      find.byType(TextField).at(4),
+      'Block 3 Lot 5, Montalban',
+    );
     await tester.ensureVisible(find.byKey(const Key('registration-barangay')));
     await tester.tap(find.byKey(const Key('registration-barangay')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Balite').last);
     await tester.pumpAndSettle();
+    await acceptRegistrationConsent(tester);
     await tester.ensureVisible(find.text('Continue with Google'));
     await tester.tap(find.text('Continue with Google'));
     await tester.pump();
-    await tester.ensureVisible(find.text('Cancel Google sign-in / unlock form'));
+    await tester.ensureVisible(
+      find.text('Cancel Google sign-in / unlock form'),
+    );
     await tester.tap(find.text('Cancel Google sign-in / unlock form'));
     await tester.pump();
     final registerButton = tester.widget<ElevatedButton>(
@@ -157,13 +180,20 @@ void main() {
     await tester.enterText(find.byType(TextField).at(0), 'Mina');
     await tester.enterText(find.byType(TextField).at(1), 'Santos');
     await tester.enterText(find.byType(TextField).at(2), 'mina@example.test');
-    await tester.enterText(find.byType(TextField).at(4), 'Block 3 Lot 5, Montalban');
-    await tester.enterText(find.byKey(const Key('registration-password-field')), 'PastedPassword1');
+    await tester.enterText(
+      find.byType(TextField).at(4),
+      'Block 3 Lot 5, Montalban',
+    );
+    await tester.enterText(
+      find.byKey(const Key('registration-password-field')),
+      'PastedPassword1',
+    );
     await tester.ensureVisible(find.byKey(const Key('registration-barangay')));
     await tester.tap(find.byKey(const Key('registration-barangay')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Balite').last);
     await tester.pumpAndSettle();
+    await acceptRegistrationConsent(tester);
     await tester.ensureVisible(find.text('Continue to profile photo'));
     await tester.tap(find.text('Continue to profile photo'));
     await tester.pumpAndSettle();
