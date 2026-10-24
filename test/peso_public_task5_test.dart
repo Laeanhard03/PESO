@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:peso_prototype/peso_ui/Landingpage/peso_public_services.dart';
 import 'package:peso_prototype/peso_ui/Landingpage/landingpage_ui.dart';
+import 'package:peso_prototype/peso_ui/Landingpage/jobkonek_tutorial.dart';
 import 'package:peso_prototype/peso_ui/Reusable_Designs/peso_images.dart';
 import 'package:peso_prototype/peso_ui/Reusable_Designs/reusable_ui.dart';
 
@@ -134,7 +135,9 @@ void main() {
     }
   });
 
-  testWidgets('Home explains the real workflow and has practical FAQs', (tester) async {
+  testWidgets('Home explains the real workflow and has practical FAQs', (
+    tester,
+  ) async {
     setSize(tester, 390, 850);
     await tester.pumpWidget(const MaterialApp(home: LandingPage()));
     await tester.pump(const Duration(milliseconds: 900));
@@ -142,20 +145,44 @@ void main() {
     expect(find.text('STEP 1 OF 4'), findsOneWidget);
     expect(find.text('Create your account'), findsOneWidget);
     expect(find.text('Next step'), findsOneWidget);
-    await Scrollable.ensureVisible(tester.element(find.text('Next step')), alignment: 0.5);
+    await Scrollable.ensureVisible(
+      tester.element(find.text('Next step')),
+      alignment: 0.5,
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.text('Next step'));
     await tester.pumpAndSettle();
     expect(find.text('STEP 2 OF 4'), findsOneWidget);
     expect(find.text('Complete your profile and documents'), findsOneWidget);
-    await Scrollable.ensureVisible(tester.element(find.text('3. Find a suitable opportunity')), alignment: 0.5);
+    expect(
+      find.textContaining(
+        'Only green-highlighted labels in NSRP Form 1 are required',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('jobkonek-tutorial-screenshot-1')),
+      findsOneWidget,
+    );
+    await Scrollable.ensureVisible(
+      tester.element(find.text('3. Find a suitable opportunity')),
+      alignment: 0.5,
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.text('3. Find a suitable opportunity'));
     await tester.pumpAndSettle();
     expect(find.text('STEP 3 OF 4'), findsOneWidget);
     expect(find.text('Find a suitable opportunity'), findsOneWidget);
-    expect(find.textContaining('does not guarantee eligibility, referral, interview, or hiring'), findsOneWidget);
-    await Scrollable.ensureVisible(tester.element(find.text('4. Apply and track your progress')), alignment: 0.5);
+    expect(
+      find.textContaining(
+        'does not guarantee eligibility, referral, interview, or hiring',
+      ),
+      findsOneWidget,
+    );
+    await Scrollable.ensureVisible(
+      tester.element(find.text('4. Apply and track your progress')),
+      alignment: 0.5,
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.text('4. Apply and track your progress'));
     await tester.pumpAndSettle();
@@ -166,6 +193,48 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets(
+    'Four real walkthrough screenshots are bundled and can be enlarged on mobile',
+    (tester) async {
+      setSize(tester, 320, 760);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: JobKonekTutorial(onExploreJobs: () {}),
+            ),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 400));
+      const paths = [
+        'lib/assets/jobkonek_guide_account.jpg',
+        'lib/assets/jobkonek_guide_nsrp.jpg',
+        'lib/assets/jobkonek_guide_jobs.jpg',
+        'lib/assets/jobkonek_guide_outcomes.jpg',
+      ];
+      for (final path in paths) {
+        final image = await rootBundle.load(path);
+        expect(image.lengthInBytes, greaterThan(10000), reason: path);
+        expect(image.getUint8(0), 0xff);
+        expect(image.getUint8(1), 0xd8);
+      }
+      expect(
+        find.byKey(const ValueKey<String>('jobkonek-tutorial-screenshot-0')),
+        findsOneWidget,
+      );
+      await tester.ensureVisible(
+        find.byKey(const Key('jobkonek-tutorial-enlarge')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('jobkonek-tutorial-enlarge')));
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('Close screen preview'), findsOneWidget);
+      await tester.tap(find.byTooltip('Close screen preview'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    },
+  );
   testWidgets('Gallery and About navigation render on desktop', (tester) async {
     setSize(tester, 1280, 900);
     await tester.pumpWidget(const MaterialApp(home: LandingPage()));

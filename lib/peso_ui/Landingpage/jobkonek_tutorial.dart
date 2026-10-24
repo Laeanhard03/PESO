@@ -14,62 +14,169 @@ class JobKonekTutorial extends StatefulWidget {
 class _JobKonekTutorialState extends State<JobKonekTutorial> {
   int _stepIndex = 0;
 
-  static const _steps = <({
-    String title,
-    String summary,
-    IconData icon,
-    List<String> actions,
-    String tip,
-  })>[
-    (
-      title: 'Create your account',
-      summary: 'Start with a verified account so your profile and application progress belong to you.',
-      icon: Icons.person_add_alt_1_rounded,
-      actions: <String>[
-        'Choose Create an account and enter your real name and contact details.',
-        'Use an email address you can access and complete email verification.',
-        'Sign in after verification to open your jobseeker dashboard.',
+  static const _steps =
+      <
+        ({
+          String title,
+          String summary,
+          IconData icon,
+          String screenshot,
+          String caption,
+          List<String> actions,
+          String tip,
+        })
+      >[
+        (
+          title: 'Create your account',
+          summary: 'Start with a verified account so your profile and application progress belong to you.',
+          icon: Icons.person_add_alt_1_rounded,
+          screenshot: 'lib/assets/jobkonek_guide_account.jpg',
+          caption: 'PESO JobKonek Create Account screen. Use your own correct details.',
+          actions: <String>[
+            'Choose Create an account and enter your real name and contact details.',
+            'Use an email address you can access and complete email verification.',
+            'Sign in after verification to open your jobseeker dashboard.',
+          ],
+          tip: 'Use your own details. Do not create duplicate accounts to get around an account issue.',
+        ),
+        (
+          title: 'Complete your profile and documents',
+          summary: 'Prepare the information PESO and employers need before applying.',
+          icon: Icons.description_outlined,
+          screenshot: 'lib/assets/jobkonek_guide_nsrp.jpg',
+          caption: 'NSRP Form 1 example showing the green-highlighted required labels.',
+          actions: <String>[
+            'Complete your profile, including your barangay and contact information.',
+            'Create or upload your resume, and check that your education, experience, and skills are accurate.',
+            'Open NSRP Form 1, follow the required-field markers, and save your completed form.',
+          ],
+          tip: 'Only green-highlighted labels in NSRP Form 1 are required. The Resume Editor has separate required-field notices. Enter N/A only where Form 1 permits it.',
+        ),
+        (
+          title: 'Find a suitable opportunity',
+          summary: 'Search the published vacancies and review each listing before you start an application.',
+          icon: Icons.work_outline_rounded,
+          screenshot: 'lib/assets/jobkonek_guide_jobs.jpg',
+          caption: 'Public job listings with search and category filters. Vacancies may change.',
+          actions: <String>[
+            'Search by role or employer, then narrow the list using the available category filters.',
+            'Review the job description, qualifications, location, schedule, and application instructions.',
+            'Check categories such as Walk-in, Local Recruitment Activity, SEAP, and GIP when relevant.',
+          ],
+          tip: 'A matching or compatibility score is only guidance. It does not guarantee eligibility, referral, interview, or hiring.',
+        ),
+        (
+          title: 'Apply and track your progress',
+          summary: 'Submit accurate information and return to your dashboard to follow the application.',
+          icon: Icons.task_alt_rounded,
+          screenshot: 'lib/assets/jobkonek_guide_outcomes.jpg',
+          caption:
+              'Outcomes page from a fictional demo account before assessment.',
+          actions: <String>[
+            'Open a vacancy and answer its screening questions truthfully.',
+            'Review your documents and application details before submitting.',
+            'Check your application dashboard for the current status and any next steps.',
+          ],
+          tip: 'If a listing is walk-in or has a separate employer process, follow the instructions shown on that listing.',
+        ),
+      ];
+
+  Widget _screenshotPreview(String screenshot, String caption) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(PesoTokens.radiusMD),
+          child: AspectRatio(
+            aspectRatio: 16 / 10,
+            child: Image.asset(
+              screenshot,
+              key: ValueKey<String>('jobkonek-tutorial-screenshot-$_stepIndex'),
+              fit: BoxFit.contain,
+              semanticLabel: caption,
+              errorBuilder: (_, _, _) => ColoredBox(
+                color: Colors.white,
+                child: Center(
+                  child: Text(caption, textAlign: TextAlign.center),
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: PesoTokens.spacingSM),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                caption,
+                style: PesoTokens.bodySmall.copyWith(
+                  color: PesoTokens.textSecondary,
+                ),
+              ),
+            ),
+            const SizedBox(width: PesoTokens.spacingXS),
+            TextButton.icon(
+              key: const Key('jobkonek-tutorial-enlarge'),
+              onPressed: () => _showLargeScreenshot(screenshot, caption),
+              icon: const Icon(Icons.zoom_in_rounded),
+              label: const Text('View larger'),
+            ),
+          ],
+        ),
       ],
-      tip: 'Use your own details. Do not create duplicate accounts to get around an account issue.',
-    ),
-    (
-      title: 'Complete your profile and documents',
-      summary: 'Prepare the information PESO and employers need before applying.',
-      icon: Icons.description_outlined,
-      actions: <String>[
-        'Complete your profile, including your barangay and contact information.',
-        'Create or upload your resume, and check that your education, experience, and skills are accurate.',
-        'Open NSRP Form 1, follow the required-field markers, and save your completed form.',
-      ],
-      tip: 'Green labels identify form fields. A red asterisk (*) marks a required answer; use N/A only where the form says it is acceptable.',
-    ),
-    (
-      title: 'Find a suitable opportunity',
-      summary: 'Search the published vacancies and review each listing before you start an application.',
-      icon: Icons.work_outline_rounded,
-      actions: <String>[
-        'Search by role or employer, then narrow the list using the available category filters.',
-        'Review the job description, qualifications, location, schedule, and application instructions.',
-        'Check categories such as Walk-in, Local Recruitment Activity, SEAP, and GIP when relevant.',
-      ],
-      tip: 'A matching or compatibility score is only guidance. It does not guarantee eligibility, referral, interview, or hiring.',
-    ),
-    (
-      title: 'Apply and track your progress',
-      summary: 'Submit accurate information and return to your dashboard to follow the application.',
-      icon: Icons.task_alt_rounded,
-      actions: <String>[
-        'Open a vacancy and answer its screening questions truthfully.',
-        'Review your documents and application details before submitting.',
-        'Check your application dashboard for the current status and any next steps.',
-      ],
-      tip: 'If a listing is walk-in or has a separate employer process, follow the instructions shown on that listing.',
-    ),
-  ];
+    );
+  }
+
+  void _showLargeScreenshot(String screenshot, String caption) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        final size = MediaQuery.sizeOf(dialogContext);
+        return Dialog(
+          insetPadding: const EdgeInsets.all(12),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(caption, style: PesoTokens.bodyMedium),
+                    ),
+                    IconButton(
+                      tooltip: 'Close screen preview',
+                      onPressed: () => Navigator.of(dialogContext).pop(),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: PesoTokens.spacingSM),
+                SizedBox(
+                  width: size.width * 0.78,
+                  height: size.height * 0.67,
+                  child: InteractiveViewer(
+                    minScale: 1,
+                    maxScale: 4,
+                    child: Image.asset(
+                      screenshot,
+                      fit: BoxFit.contain,
+                      semanticLabel: caption,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final compact = MediaQuery.sizeOf(context).width < PesoTokens.breakpointCompact;
+    final compact =
+        MediaQuery.sizeOf(context).width < PesoTokens.breakpointCompact;
     final step = _steps[_stepIndex];
 
     return Container(
@@ -95,7 +202,9 @@ class _JobKonekTutorialState extends State<JobKonekTutorial> {
               Text(
                 'Follow this interactive tutorial one step at a time. Use Next to continue or jump to a step below.',
                 textAlign: TextAlign.center,
-                style: PesoTokens.bodyLarge.copyWith(color: PesoTokens.textMuted),
+                style: PesoTokens.bodyLarge.copyWith(
+                  color: PesoTokens.textMuted,
+                ),
               ),
               const SizedBox(height: PesoTokens.spacingXL),
               ClipRRect(
@@ -105,7 +214,9 @@ class _JobKonekTutorialState extends State<JobKonekTutorial> {
                   value: (_stepIndex + 1) / _steps.length,
                   minHeight: 6,
                   backgroundColor: PesoTokens.brandGreenPale,
-                  valueColor: const AlwaysStoppedAnimation<Color>(PesoTokens.brandGreen),
+                  valueColor: const AlwaysStoppedAnimation<Color>(
+                    PesoTokens.brandGreen,
+                  ),
                 ),
               ),
               const SizedBox(height: PesoTokens.spacingSM),
@@ -137,10 +248,14 @@ class _JobKonekTutorialState extends State<JobKonekTutorial> {
               const SizedBox(height: PesoTokens.spacingLG),
               Container(
                 key: ValueKey<String>('jobkonek-tutorial-content-$_stepIndex'),
-                padding: EdgeInsets.all(compact ? PesoTokens.spacingLG : PesoTokens.spacing2XL),
+                padding: EdgeInsets.all(
+                  compact ? PesoTokens.spacingLG : PesoTokens.spacing2XL,
+                ),
                 decoration: BoxDecoration(
                   color: PesoTokens.surfaceNeutral,
-                  borderRadius: BorderRadius.circular(PesoTokens.radiusContainer),
+                  borderRadius: BorderRadius.circular(
+                    PesoTokens.radiusContainer,
+                  ),
                   border: Border.all(color: PesoTokens.brandGreenLight),
                 ),
                 child: Column(
@@ -154,9 +269,15 @@ class _JobKonekTutorialState extends State<JobKonekTutorial> {
                           height: 48,
                           decoration: BoxDecoration(
                             color: PesoTokens.brandGreenPale,
-                            borderRadius: BorderRadius.circular(PesoTokens.radiusMD),
+                            borderRadius: BorderRadius.circular(
+                              PesoTokens.radiusMD,
+                            ),
                           ),
-                          child: Icon(step.icon, color: PesoTokens.brandGreenDark, size: 26),
+                          child: Icon(
+                            step.icon,
+                            color: PesoTokens.brandGreenDark,
+                            size: 26,
+                          ),
                         ),
                         const SizedBox(width: PesoTokens.spacingMD),
                         Expanded(
@@ -178,9 +299,13 @@ class _JobKonekTutorialState extends State<JobKonekTutorial> {
                       ],
                     ),
                     const SizedBox(height: PesoTokens.spacingXL),
+                    _screenshotPreview(step.screenshot, step.caption),
+                    const SizedBox(height: PesoTokens.spacingLG),
                     for (var index = 0; index < step.actions.length; index++)
                       Padding(
-                        padding: const EdgeInsets.only(bottom: PesoTokens.spacingMD),
+                        padding: const EdgeInsets.only(
+                          bottom: PesoTokens.spacingMD,
+                        ),
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -222,7 +347,9 @@ class _JobKonekTutorialState extends State<JobKonekTutorial> {
                       padding: const EdgeInsets.all(PesoTokens.spacingMD),
                       decoration: BoxDecoration(
                         color: Colors.white,
-                        borderRadius: BorderRadius.circular(PesoTokens.radiusMD),
+                        borderRadius: BorderRadius.circular(
+                          PesoTokens.radiusMD,
+                        ),
                       ),
                       child: Text(
                         'TIP  ${step.tip}',
