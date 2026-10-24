@@ -45,7 +45,12 @@ export function parseJobFeedQuery(query = {}, { defaultLimit = 60, maxLimit = 10
   if (!/^(0|[1-9][0-9]{0,7})$/.test(pageToken)) throw validationError('invalid_page_token');
   const offset = Number(pageToken);
   const category = String(query.category || '').trim();
-  if (category && ![LRA, JOB_POSTING_CATEGORIES.WALK_IN].includes(category)) {
+  if (category && ![
+    LRA,
+    JOB_POSTING_CATEGORIES.WALK_IN,
+    JOB_POSTING_CATEGORIES.SEAP,
+    JOB_POSTING_CATEGORIES.GIP,
+  ].includes(category)) {
     throw validationError('invalid_job_category');
   }
   const search = String(query.q || '').trim();

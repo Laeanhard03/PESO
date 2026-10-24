@@ -31,6 +31,17 @@ test('Walk-in Application never receives a time-based expiry', () => {
   assert.equal(isJobPostingVisible(job, new Date('2036-10-17T06:00:00.000Z')), true);
 });
 
+test('SEAP and GIP are valid job categories without LRA date expiry', () => {
+  const createdAt = new Date('2026-10-17T06:00:00.000Z');
+  for (const category of [JOB_POSTING_CATEGORIES.SEAP, JOB_POSTING_CATEGORIES.GIP]) {
+    const job = createJobPostingRecord({ ...baseInput, category }, 'verified-admin', createdAt);
+    assert.equal(job.category, category);
+    assert.equal(job.expiresAt, null);
+    assert.equal(isJobPostingVisible(job, new Date('2036-10-17T06:00:00.000Z')), true);
+    assert.equal(isJobPostingVisible({ ...job, status: 'inactive' }), false);
+  }
+});
+
 test('Local Recruitment Activity closes at 23:59:59.999 Asia/Manila on its scheduled date', () => {
   const createdAt = new Date('2026-10-17T06:00:00.000Z');
   const job = createJobPostingRecord(

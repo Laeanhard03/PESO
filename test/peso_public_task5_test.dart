@@ -105,7 +105,7 @@ void main() {
     await tester.tap(find.text('GIP'));
     await tester.pump();
     expect(opened, 'GIP');
-    expect(find.text('Montalban Local Government'), findsOneWidget);
+    expect(find.text('Official Montalban LGU Website ?'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -132,6 +132,38 @@ void main() {
       final bytes = await rootBundle.load(partner.asset);
       expect(bytes.lengthInBytes, greaterThan(1024), reason: partner.asset);
     }
+  });
+
+  testWidgets('Home explains the real workflow and has practical FAQs', (tester) async {
+    setSize(tester, 390, 850);
+    await tester.pumpWidget(const MaterialApp(home: LandingPage()));
+    await tester.pump(const Duration(milliseconds: 900));
+    expect(find.byKey(const Key('jobkonek-how-it-works')), findsOneWidget);
+    expect(find.text('STEP 1 OF 4'), findsOneWidget);
+    expect(find.text('Create your account'), findsOneWidget);
+    expect(find.text('Next step'), findsOneWidget);
+    await Scrollable.ensureVisible(tester.element(find.text('Next step')), alignment: 0.5);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Next step'));
+    await tester.pumpAndSettle();
+    expect(find.text('STEP 2 OF 4'), findsOneWidget);
+    expect(find.text('Complete your profile and documents'), findsOneWidget);
+    await Scrollable.ensureVisible(tester.element(find.text('3. Find a suitable opportunity')), alignment: 0.5);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('3. Find a suitable opportunity'));
+    await tester.pumpAndSettle();
+    expect(find.text('STEP 3 OF 4'), findsOneWidget);
+    expect(find.text('Find a suitable opportunity'), findsOneWidget);
+    expect(find.textContaining('does not guarantee eligibility, referral, interview, or hiring'), findsOneWidget);
+    await Scrollable.ensureVisible(tester.element(find.text('4. Apply and track your progress')), alignment: 0.5);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('4. Apply and track your progress'));
+    await tester.pumpAndSettle();
+    expect(find.text('STEP 4 OF 4'), findsOneWidget);
+    expect(find.text('Finish & explore jobs'), findsOneWidget);
+    expect(find.byKey(const Key('jobkonek-faq')), findsOneWidget);
+    expect(find.text('Frequently Asked Questions'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('Gallery and About navigation render on desktop', (tester) async {

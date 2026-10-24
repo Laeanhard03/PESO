@@ -12,7 +12,7 @@ import '../peso_ui/Admin/admin_ui.dart';
 import '../peso_ui/User/user_ui.dart';
 
 /// The root route must wait for Firebase to hydrate persisted auth state.
-/// A refresh, browser Back or temporary API outage must not call signOut.
+/// Back within a workspace preserves Firebase authentication; only explicit logout revokes it.
 class AuthSessionGate extends StatefulWidget {
   const AuthSessionGate({super.key});
 
@@ -84,9 +84,11 @@ class _AuthSessionGateState extends State<AuthSessionGate> {
         _loading = false;
       });
     } catch (_) {
-      if (mounted) setState(() {
-        _problem = 'Could not sign out. Check your connection and retry.';
-      });
+      if (mounted) {
+        setState(() {
+          _problem = 'Could not sign out. Check your connection and retry.';
+        });
+      }
     }
   }
 

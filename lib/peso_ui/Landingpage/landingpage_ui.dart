@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../Login_register_pages/auth_ui.dart';
 import '../Reusable_Designs/responsive_layout.dart';
@@ -9,6 +10,7 @@ import '../Reusable_Designs/peso_images.dart';
 import '../Reusable_Designs/peso_employer_branding.dart';
 import '../../peso_services/peso_api_client.dart';
 import 'peso_public_services.dart';
+import 'jobkonek_tutorial.dart';
 
 class LandingPage extends StatefulWidget {
   const LandingPage({super.key});
@@ -27,6 +29,8 @@ class _LandingPageState extends State<LandingPage> {
   bool _isScrolled = false;
   List<_LandingJob> _landingJobs = const [];
   List<_LandingJob> _featuredJobs = const [];
+  List<Map<String, dynamic>> _managedGallery = const [];
+  List<Map<String, dynamic>> _managedPartners = const [];
   String? _publicNextPageToken;
   bool _publicLoadingMore = false;
   int _publicRequestGeneration = 0;
@@ -40,16 +44,20 @@ class _LandingPageState extends State<LandingPage> {
     super.initState();
     _scrollController.addListener(_handleScroll);
     _loadPublicJobs();
+    unawaited(_loadPublicSiteContent());
     _publicSyncTimer = Timer.periodic(const Duration(minutes: 2), (_) {
       if (!mounted || _publicJobsLoading || _publicLoadingMore) return;
       unawaited(_loadPublicJobs());
       unawaited(_refreshFeaturedJobs());
+      unawaited(_loadPublicSiteContent());
     });
   }
 
   String? get _publicCategory => switch (_selectedJobFilter) {
     'Walk-in Application' => 'walk_in_application',
     'Local Recruitment Activity' => 'local_recruitment_activity',
+    'SEAP Program' => 'seap',
+    'Government Internship Program (GIP)' => 'gip',
     _ => null,
   };
   String? get _publicEmploymentType =>
@@ -81,6 +89,40 @@ class _LandingPageState extends State<LandingPage> {
     }
   }
 
+  Future<void> _loadPublicSiteContent() async {
+    try {
+      final response = await PesoApiClient.publicGetLandingSiteContent();
+      final rawGallery = response['gallery'];
+      final rawPartners = response['partners'];
+      final gallery = rawGallery is List
+          ? rawGallery.whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .where((item) {
+                final url = Uri.tryParse(item['imageUrl']?.toString() ?? '');
+                return (item['title']?.toString().trim().isNotEmpty ?? false) &&
+                    url != null && url.scheme == 'https' && url.host.isNotEmpty;
+              }).toList()
+          : <Map<String, dynamic>>[];
+      final partners = rawPartners is List
+          ? rawPartners.whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .where((item) {
+                final url = Uri.tryParse(item['logoUrl']?.toString() ?? '');
+                return (item['name']?.toString().trim().isNotEmpty ?? false) &&
+                    url != null && url.scheme == 'https' && url.host.isNotEmpty;
+              }).toList()
+          : <Map<String, dynamic>>[];
+      if (!mounted) return;
+      setState(() {
+        _managedGallery = gallery;
+        _managedPartners = partners;
+      });
+    } catch (_) {
+      // Keep the bundled PESO photo archive and partner logos if the API has
+      // not been configured or custom public content is temporarily offline.
+    }
+  }
+
   Future<void> _loadPublicJobs() async {
     final generation = ++_publicRequestGeneration;
     final search = _jobSearchController.text.trim();
@@ -98,8 +140,9 @@ class _LandingPageState extends State<LandingPage> {
         employmentType: _publicEmploymentType,
       );
       final page = result['jobs'];
-      if (page is! List)
+      if (page is! List) {
         throw const FormatException('Invalid PESO job response');
+      }
       final records = page
           .whereType<Map>()
           .map((item) => _LandingJob.fromApi(Map<String, dynamic>.from(item)))
@@ -137,8 +180,9 @@ class _LandingPageState extends State<LandingPage> {
         employmentType: _publicEmploymentType,
       );
       final page = result['jobs'];
-      if (page is! List)
+      if (page is! List) {
         throw const FormatException('Invalid PESO job response');
+      }
       if (!mounted || generation != _publicRequestGeneration) return;
       final known = _landingJobs.map((job) => job.id).toSet();
       final additions = page
@@ -151,8 +195,9 @@ class _LandingPageState extends State<LandingPage> {
         _publicNextPageToken = result['nextPageToken']?.toString();
       });
     } catch (_) {
-      if (mounted)
+      if (mounted) {
         setState(() => _publicJobsError = 'Could not load more jobs. Retry.');
+      }
     } finally {
       if (mounted) setState(() => _publicLoadingMore = false);
     }
@@ -332,6 +377,11 @@ class _LandingPageState extends State<LandingPage> {
           scrollController: _scrollController,
           child: const PesoPublicServices(),
         ),
+        _ScrollReveal(
+          key: const ValueKey<String>('home-faq-scroll-reveal'),
+          scrollController: _scrollController,
+          child: _buildFaq(),
+        ),
       ],
     );
   }
@@ -499,6 +549,8 @@ class _LandingPageState extends State<LandingPage> {
       'All roles',
       'Walk-in Application',
       'Local Recruitment Activity',
+      'SEAP Program',
+      'Government Internship Program (GIP)',
       ..._landingJobs
           .map((job) => job.type)
           .where((type) => type.isNotEmpty)
@@ -507,6 +559,8 @@ class _LandingPageState extends State<LandingPage> {
             'All roles',
             'Walk-in Application',
             'Local Recruitment Activity',
+            'SEAP Program',
+            'Government Internship Program (GIP)',
           }.contains(_selectedJobFilter) &&
           !_landingJobs.any((job) => job.type == _selectedJobFilter))
         _selectedJobFilter,
@@ -785,6 +839,8 @@ class _LandingPageState extends State<LandingPage> {
     final width = MediaQuery.sizeOf(context).width;
     final isMobile = width < PesoTokens.breakpointCompact;
     final List<String> images = PesoImageAssets.gallery;
+    final useManagedGallery = _managedGallery.isNotEmpty;
+    final imageCount = useManagedGallery ? _managedGallery.length : images.length;
 
     return Container(
       color: Colors.white,
@@ -830,14 +886,12 @@ class _LandingPageState extends State<LandingPage> {
                 alignment: WrapAlignment.center,
                 spacing: PesoTokens.spacingLG,
                 runSpacing: PesoTokens.spacingLG,
-                children: List.generate(images.length, (index) {
+                children: List.generate(imageCount, (index) {
                   return AnimatedEntrance(
                     delay: 200 + (index * 100),
-                    child: _buildGalleryImageCard(
-                      images[index],
-                      index,
-                      cardWidth,
-                    ),
+                    child: useManagedGallery
+                        ? _buildManagedGalleryImageCard(_managedGallery[index], cardWidth)
+                        : _buildGalleryImageCard(images[index], index, cardWidth),
                   );
                 }),
               );
@@ -910,6 +964,46 @@ class _LandingPageState extends State<LandingPage> {
     );
   }
 
+  Widget _buildManagedGalleryImageCard(Map<String, dynamic> item, double width) {
+    final title = item['title']?.toString().trim() ?? 'PESO activity';
+    final caption = item['caption']?.toString().trim() ?? '';
+    final url = item['imageUrl']?.toString() ?? '';
+    return Semantics(
+      label: caption.isEmpty ? title : '$title. $caption',
+      image: true,
+      child: SizedBox(
+        width: width,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(PesoTokens.radiusContainer),
+              child: AspectRatio(
+                aspectRatio: 4 / 3,
+                child: Image.network(
+                  url,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) => Container(
+                    color: PesoTokens.surfaceNeutral,
+                    alignment: Alignment.center,
+                    child: const Icon(Icons.broken_image_outlined, size: 36),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(title, style: PesoTokens.bodySmall.copyWith(fontWeight: FontWeight.w800)),
+            if (caption.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(caption, style: PesoTokens.bodySmall.copyWith(color: PesoTokens.textMuted)),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   // ==========================================
   // EMPLOYER PARTNERS
   // ==========================================
@@ -944,8 +1038,9 @@ class _LandingPageState extends State<LandingPage> {
             runSpacing: PesoTokens.spacingMD,
             alignment: WrapAlignment.center,
             children: [
-              for (final partner in PesoImageAssets.partnerLogos)
-                Container(
+              if (_managedPartners.isEmpty)
+                for (final partner in PesoImageAssets.partnerLogos)
+                  Container(
                   width: isMobile ? 140 : 168,
                   height: 104,
                   padding: const EdgeInsets.all(PesoTokens.spacingMD),
@@ -972,9 +1067,50 @@ class _LandingPageState extends State<LandingPage> {
                     ),
                   ),
                 ),
+              if (_managedPartners.isNotEmpty)
+                for (final partner in _managedPartners)
+                  _buildManagedPartnerCard(partner, isMobile),
             ],
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildManagedPartnerCard(Map<String, dynamic> partner, bool isMobile) {
+    final name = partner['name']?.toString().trim() ?? 'Employer';
+    final imageUrl = partner['logoUrl']?.toString() ?? '';
+    final website = Uri.tryParse(partner['websiteUrl']?.toString() ?? '');
+    final canOpenWebsite = website != null &&
+        website.scheme == 'https' && website.host.isNotEmpty;
+    return Container(
+      width: isMobile ? 140 : 168,
+      height: 104,
+      padding: const EdgeInsets.all(PesoTokens.spacingMD),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(PesoTokens.radiusCard),
+        border: Border.all(color: PesoTokens.brandGreenLight),
+        boxShadow: PesoTokens.shadowSM,
+      ),
+      child: Tooltip(
+        message: name,
+        child: InkWell(
+          onTap: canOpenWebsite
+              ? () => launchUrl(website, mode: LaunchMode.externalApplication)
+              : null,
+          child: Image.network(
+            imageUrl,
+            fit: BoxFit.contain,
+            errorBuilder: (_, _, _) => Center(
+              child: Text(
+                name,
+                textAlign: TextAlign.center,
+                style: PesoTokens.bodySmall.copyWith(color: PesoTokens.textMuted),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -1200,53 +1336,81 @@ class _LandingPageState extends State<LandingPage> {
   // ==========================================
 
   Widget _buildHowItWorks() {
-    final width = MediaQuery.sizeOf(context).width;
-    final isMobile = width < PesoTokens.breakpointCompact;
-
-    return Container(
-      padding: EdgeInsets.symmetric(
-        vertical: isMobile ? PesoTokens.spacing2XL : PesoTokens.spacing4XL,
-        horizontal: isMobile ? PesoTokens.spacingMD : PesoTokens.spacing2XL,
+    return JobKonekTutorial(onExploreJobs: _openJobSearch);
+  }
+  Widget _buildFaq() {
+    const questions = <({String question, String answer})>[
+      (
+        question: 'How do I create an account?',
+        answer: 'Choose Create an account, enter your real details, accept the Terms and Privacy Notice, and verify your email before continuing.',
       ),
-      color: Colors.white,
-      child: Column(
-        children: [
-          Text('How JobKonek Works', style: PesoTokens.headlineLarge),
-          const SizedBox(height: PesoTokens.spacingSM),
-          Text(
-            'No manual waiting. Just AI skill matching and direct PESO routing.',
-            style: PesoTokens.bodyLarge.copyWith(color: PesoTokens.textMuted),
-          ),
-          const SizedBox(height: PesoTokens.spacing2XL),
-          Wrap(
-            spacing: PesoTokens.spacingLG,
-            runSpacing: PesoTokens.spacingLG,
-            alignment: WrapAlignment.center,
+      (
+        question: 'Do I need to complete my resume and NSRP Form 1?',
+        answer: 'Prepare and save your resume and NSRP Form 1. The form will tell you which required fields still need attention before you continue.',
+      ),
+      (
+        question: 'How do I apply for a job?',
+        answer: 'Browse an active PESO posting, read the employer qualifications and vacancy details, open the screening questions, and submit if the app confirms you are eligible.',
+      ),
+      (
+        question: 'Where can I check my application?',
+        answer: 'Open Outcomes in your signed-in jobseeker workspace to review saved application records and the latest status available from PESO.',
+      ),
+      (
+        question: 'Does a compatibility score mean I am hired?',
+        answer: 'No. Compatibility or readiness information is advisory decision-support only. It does not guarantee a job, referral, or interview; hiring decisions belong to the employer and relevant PESO process.',
+      ),
+    ];
+
+    final isMobile = MediaQuery.sizeOf(context).width < PesoTokens.breakpointCompact;
+    return Container(
+      key: const Key('jobkonek-faq'),
+      width: double.infinity,
+      color: PesoTokens.surfaceNeutral,
+      padding: EdgeInsets.symmetric(
+        horizontal: isMobile ? PesoTokens.spacingMD : PesoTokens.spacing2XL,
+        vertical: isMobile ? PesoTokens.spacing2XL : PesoTokens.spacing4XL,
+      ),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 960),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              FeatureCard(
-                number: 1,
-                title: 'Inclusive Profiling',
-                description: 'Build your digital identity. Upload a PDF resume or write a bilingual bio (Tagalog/English) so our AI can extract your soft and technical skills.',
-                icon: Icons.person_add_alt_1_rounded,
-                accentColor: PesoTokens.brandGreen,
+              Text('Frequently Asked Questions', style: PesoTokens.headlineLarge),
+              const SizedBox(height: PesoTokens.spacingSM),
+              Text(
+                'Quick answers to help you use PESO JobKonek.',
+                style: PesoTokens.bodyLarge.copyWith(color: PesoTokens.textMuted),
               ),
-              FeatureCard(
-                number: 2,
-                title: 'AI Skill Vetting',
-                description: 'Select a target job to trigger an instant AI qualification check. The system analyzes your resume skills against employer requirements to measure job fit.',
-                icon: Icons.auto_awesome_rounded,
-                accentColor: PesoTokens.infoBlue,
-              ),
-              FeatureCard(
-                number: 3,
-                title: 'Smart Routing',
-                description: 'Fully qualified candidates are pre-vetted for DOLE SPRS extraction. Need upskilling? Get alternative job matches and TESDA course recommendations.',
-                icon: Icons.alt_route_rounded,
-                accentColor: PesoTokens.warningAmber,
-              ),
+              const SizedBox(height: PesoTokens.spacingLG),
+              for (var index = 0; index < questions.length; index++)
+                Card(
+                  key: ValueKey<String>('jobkonek-faq-item-$index'),
+                  margin: const EdgeInsets.only(bottom: PesoTokens.spacingSM),
+                  elevation: 0,
+                  color: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(PesoTokens.radiusMD),
+                    side: const BorderSide(color: PesoTokens.brandGreenLight),
+                  ),
+                  child: ExpansionTile(
+                    tilePadding: const EdgeInsets.symmetric(horizontal: PesoTokens.spacingLG),
+                    childrenPadding: const EdgeInsets.fromLTRB(
+                      PesoTokens.spacingLG, 0, PesoTokens.spacingLG, PesoTokens.spacingLG,
+                    ),
+                    title: Text(questions[index].question, style: PesoTokens.labelLarge),
+                    children: [
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(questions[index].answer, style: PesoTokens.bodyMedium.copyWith(height: 1.5)),
+                      ),
+                    ],
+                  ),
+                ),
             ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -1762,9 +1926,12 @@ class _LandingJob {
 
   factory _LandingJob.fromApi(Map<String, dynamic> job) {
     final category = job['category']?.toString();
-    final label = category == 'local_recruitment_activity'
-        ? 'Local Recruitment Activity'
-        : 'Walk-in Application';
+    final label = switch (category) {
+      'local_recruitment_activity' => 'Local Recruitment Activity',
+      'seap' => 'SEAP Program',
+      'gip' => 'Government Internship Program (GIP)',
+      _ => 'Walk-in Application',
+    };
     final rawRequirements = job['requirements'];
     final requirements = rawRequirements is List
         ? rawRequirements
@@ -2014,35 +2181,6 @@ class _LandingJobCard extends StatelessWidget {
               ),
           ],
           const SizedBox(height: PesoTokens.spacingLG),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(PesoTokens.spacingMD),
-            decoration: BoxDecoration(
-              color: PesoTokens.surfaceNeutral,
-              borderRadius: BorderRadius.circular(PesoTokens.radiusMD),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'SALARY',
-                  style: PesoTokens.labelSmall.copyWith(
-                    letterSpacing: 0.8,
-                    color: PesoTokens.textMuted,
-                  ),
-                ),
-                const SizedBox(height: PesoTokens.space1),
-                Text(
-                  job.salary,
-                  style: PesoTokens.labelLarge.copyWith(
-                    color: PesoTokens.brandGreenDark,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: PesoTokens.spacingMD),
           Wrap(
             spacing: PesoTokens.spacingSM,
             runSpacing: PesoTokens.spacingSM,

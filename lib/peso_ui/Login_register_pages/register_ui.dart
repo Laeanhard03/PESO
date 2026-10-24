@@ -1,4 +1,4 @@
-import 'dart:typed_data';
+
 import 'dart:async';
 
 import '../../peso_services/applicant_draft_service.dart';
@@ -6,6 +6,7 @@ import '../../peso_services/registration_draft_scope.dart';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 
 import '../../peso_services/peso_api_client.dart';
@@ -312,11 +313,30 @@ class _RegisterFormState extends State<RegisterForm> {
       );
       return;
     }
-    if (_firstNameController.text.trim().isEmpty ||
-        _lastNameController.text.trim().isEmpty ||
-        _emailController.text.trim().isEmpty ||
+    final firstName = _firstNameController.text.trim();
+    final lastName = _lastNameController.text.trim();
+    final email = _emailController.text.trim();
+    final phone = _phoneController.text.trim();
+    if (firstName.isEmpty || lastName.isEmpty || email.isEmpty ||
         _passwordController.text.isEmpty) {
       _showMessage('Complete your name, email, and password first.');
+      return;
+    }
+    if (!AuthService.isValidPersonName(firstName) ||
+        !AuthService.isValidPersonName(lastName)) {
+      _showMessage('Enter a valid first and last name using letters, spaces, apostrophes, periods, or hyphens.');
+      return;
+    }
+    if (!RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]{2,}$').hasMatch(email)) {
+      _showMessage('Enter a valid email address.');
+      return;
+    }
+    if (phone.isNotEmpty && !AuthService.isValidPhilippineMobileNumber(phone)) {
+      _showMessage('Enter a valid Philippine mobile number (09XXXXXXXXX or +639XXXXXXXXX).');
+      return;
+    }
+    if (_passwordController.text.length < 6) {
+      _showMessage('Password must be at least 6 characters.');
       return;
     }
     if (_barangay == null ||
@@ -325,10 +345,6 @@ class _RegisterFormState extends State<RegisterForm> {
       _showMessage(
         'Select your Montalban barangay and enter your complete address. PESO will verify residency.',
       );
-      return;
-    }
-    if (_passwordController.text.length < 6) {
-      _showMessage('Password must be at least 6 characters.');
       return;
     }
     setState(() => _registrationStep = 1);
@@ -351,6 +367,20 @@ class _RegisterFormState extends State<RegisterForm> {
         email.isEmpty ||
         password.isEmpty) {
       _showMessage('First name, last name, email, and password are required.');
+      return;
+    }
+    if (!AuthService.isValidPersonName(firstName) ||
+        !AuthService.isValidPersonName(lastName)) {
+      _showMessage('Enter a valid first and last name using letters, spaces, apostrophes, periods, or hyphens.');
+      return;
+    }
+    if (!RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]{2,}$').hasMatch(email)) {
+      _showMessage('Enter a valid email address.');
+      return;
+    }
+    if (_phoneController.text.trim().isNotEmpty &&
+        !AuthService.isValidPhilippineMobileNumber(_phoneController.text)) {
+      _showMessage('Enter a valid Philippine mobile number (09XXXXXXXXX or +639XXXXXXXXX).');
       return;
     }
     if (password.length < 6) {
@@ -491,10 +521,11 @@ class _RegisterFormState extends State<RegisterForm> {
               address: _addressController.text.trim(),
             );
           } catch (_) {
-            if (mounted)
+            if (mounted) {
               _showMessage(
                 'Signed in, but your residency details need synchronization.',
               );
+            }
           }
         }
         final consentAcceptedAt = DateTime.now().toUtc().toIso8601String();
@@ -603,6 +634,7 @@ class _RegisterFormState extends State<RegisterForm> {
                   borderColor,
                   textColor,
                   hintColor,
+                  inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r"[\p{L}\p{M} .'-]", unicode: true))],
                 ),
               ),
               const SizedBox(width: 12),
@@ -615,6 +647,7 @@ class _RegisterFormState extends State<RegisterForm> {
                   borderColor,
                   textColor,
                   hintColor,
+                  inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r"[\p{L}\p{M} .'-]", unicode: true))],
                 ),
               ),
             ],
@@ -640,6 +673,7 @@ class _RegisterFormState extends State<RegisterForm> {
             textColor,
             hintColor,
             keyboardType: TextInputType.phone,
+            inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9+ ().-]'))],
             helperText:
                 'Philippine numbers are automatically formatted with +63.',
           ),
@@ -688,35 +722,41 @@ class _RegisterFormState extends State<RegisterForm> {
                   : (value) => setState(() => _termsAccepted = value == true),
               controlAffinity: ListTileControlAffinity.leading,
               contentPadding: EdgeInsets.zero,
-              title: Wrap(
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  const Text('I agree to the '),
-                  TextButton(
-                    onPressed: _isLoading
-                        ? null
-                        : () => _showPolicyDialog(
-                            'Terms and Conditions',
-                            pesoTermsAndConditionsText,
-                          ),
-                    child: const Text('Terms and Conditions'),
-                  ),
-                  const Text(' and acknowledge the '),
-                  TextButton(
-                    onPressed: _isLoading
-                        ? null
-                        : () => _showPolicyDialog(
-                            'Privacy Notice',
-                            pesoPrivacyNoticeText,
-                          ),
-                    child: const Text('Privacy Notice'),
-                  ),
-                  const Text('.'),
-                ],
+              title: const Text(
+                'I agree to the Terms and Conditions and acknowledge the Privacy Notice.',
               ),
               subtitle: const Text(
                 'Required before creating an account or continuing with Google.',
               ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(left: 12, bottom: 8),
+            child: Wrap(
+              spacing: 4,
+              runSpacing: 4,
+              children: [
+                TextButton(
+                  key: const Key('registration-terms-link'),
+                  onPressed: _isLoading
+                      ? null
+                      : () => _showPolicyDialog(
+                          'Terms and Conditions',
+                          pesoTermsAndConditionsText,
+                        ),
+                  child: const Text('Read Terms and Conditions'),
+                ),
+                TextButton(
+                  key: const Key('registration-privacy-link'),
+                  onPressed: _isLoading
+                      ? null
+                      : () => _showPolicyDialog(
+                          'Privacy Notice',
+                          pesoPrivacyNoticeText,
+                        ),
+                  child: const Text('Read Privacy Notice'),
+                ),
+              ],
             ),
           ),
           Material(
@@ -938,12 +978,14 @@ class _RegisterFormState extends State<RegisterForm> {
     bool isPassword = false,
     TextInputType? keyboardType,
     String? helperText,
+    List<TextInputFormatter>? inputFormatters,
   }) {
     return TextField(
       key: isPassword ? const Key('registration-password-field') : null,
       controller: controller,
       obscureText: isPassword && _obscurePassword,
       keyboardType: isPassword ? TextInputType.visiblePassword : keyboardType,
+      inputFormatters: inputFormatters,
       textInputAction: isPassword ? TextInputAction.done : TextInputAction.next,
       autocorrect: false,
       enableSuggestions: !isPassword,

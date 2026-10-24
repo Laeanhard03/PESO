@@ -350,15 +350,54 @@ class AuthService {
     await PesoApiClient.saveOutcomes(outcomes);
   }
 
-  static String normalizePhoneNumber(String raw) {
-    var value = raw.trim().replaceAll(RegExp(r'[\s().-]'), '');
+  static bool isValidPersonName(String raw) {
+    final value = raw.trim();
+    if (value.isEmpty || value.length > 80) return false;
+    // Allow Unicode letters/marks plus ordinary multi-part Filipino names,
+    // spaces, periods, apostrophes, and hyphens; reject digits and symbols.
+    return RegExp(r"^[\p{L}\p{M}][\p{L}\p{M} .'-]*$", unicode: true)
+        .hasMatch(value);
+  }
+
+  static String? _normalizedPhilippineMobileNumber(String raw) {
+    var value = raw.trim();
     if (value.isEmpty) return '';
+    // Permit common visual separators only; letters, extensions and misplaced
+    // symbols are never silently stripped from a submitted contact number.
+    if (!RegExp(r'^\+?[0-9\s().-]+$').hasMatch(value)) return null;
+    value = value.replaceAll(RegExp(r'[\s().-]'), '');
     if (value.startsWith('00')) value = '+${value.substring(2)}';
-    if (value.startsWith('+')) return value;
-    if (value.startsWith('0')) return '+63${value.substring(1)}';
-    if (value.startsWith('63')) return '+$value';
-    // This prototype defaults to the Philippines for unprefixed numbers.
-    return '+63$value';
+
+    String nationalNumber;
+    if (value.startsWith('+63')) {
+      nationalNumber = value.substring(3);
+    } else if (value.startsWith('+')) {
+      return null; // A foreign country code is not accepted by this form.
+    } else if (value.startsWith('63')) {
+      nationalNumber = value.substring(2);
+    } else {
+      nationalNumber = value.startsWith('0') ? value.substring(1) : value;
+    }
+
+    // PH mobile numbers have ten national digits and start with 9.
+    if (!RegExp(r'^9\d{9}$').hasMatch(nationalNumber)) return null;
+    return '+63$nationalNumber';
+  }
+
+  static bool isValidPhilippineMobileNumber(String raw) {
+    return raw.trim().isNotEmpty &&
+        _normalizedPhilippineMobileNumber(raw) != null;
+  }
+
+  static String normalizePhoneNumber(String raw) {
+    if (raw.trim().isEmpty) return '';
+    final normalized = _normalizedPhilippineMobileNumber(raw);
+    if (normalized == null) {
+      throw const FormatException(
+        'Enter a valid Philippine mobile number, such as 09171234567 or +639171234567.',
+      );
+    }
+    return normalized;
   }
 
   static String _nonEmpty(

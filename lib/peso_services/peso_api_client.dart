@@ -81,6 +81,15 @@ class PesoApiClient {
     timeout: const Duration(seconds: 20),
   );
 
+  /// Public, non-sensitive landing-page content. The UI falls back to bundled
+  /// gallery and partner assets until IT Admin saves custom content.
+  static Future<Map<String, dynamic>> publicGetLandingSiteContent() => _request(
+    'GET',
+    '/api/public/site-content',
+    authenticated: false,
+    timeout: const Duration(seconds: 20),
+  );
+
   static Future<Map<String, dynamic>> _request(
     String method,
     String path, {
@@ -605,6 +614,29 @@ class PesoApiClient {
       if (pageToken != null && pageToken.isNotEmpty) 'pageToken': pageToken,
     },
     timeout: const Duration(seconds: 60),
+  );
+
+  static Future<Map<String, dynamic>> adminGetLandingSiteContent() => _request(
+    'GET',
+    '/api/admin/site-content',
+    timeout: const Duration(seconds: 30),
+  );
+
+  static Future<Map<String, dynamic>> adminSaveLandingSiteContent(
+    Map<String, dynamic> content,
+  ) => _request(
+    'PUT',
+    '/api/admin/site-content',
+    body: content,
+    timeout: const Duration(seconds: 30),
+  );
+
+  /// Sends the current protected Excel report to the configured PESO report email.
+  /// The backend confirms success only after the SMTP service accepts the message.
+  static Future<Map<String, dynamic>> adminEmailApplicantWorkbook() => _request(
+    'POST',
+    '/api/admin/applications/email-report',
+    timeout: const Duration(seconds: 90),
   );
 
   /// Returns a short-lived signed URL that opens the DOLE SPRS Excel workbook in

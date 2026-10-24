@@ -56,6 +56,9 @@ class UserJobFeedTab extends StatelessWidget {
   final Color textLight;
   final String selectedCategory;
   final ValueChanged<String> onCategoryChanged;
+  final List<String> companyOptions;
+  final String selectedCompany;
+  final ValueChanged<String> onCompanyChanged;
   final GlobalKey? detailsAnchor;
 
   const UserJobFeedTab({
@@ -90,6 +93,9 @@ class UserJobFeedTab extends StatelessWidget {
     required this.textLight,
     this.selectedCategory = PesoJobCategories.all,
     this.onCategoryChanged = _ignoreCategoryChange,
+    this.companyOptions = const [],
+    this.selectedCompany = '',
+    this.onCompanyChanged = _ignoreCategoryChange,
     this.detailsAnchor,
   });
 
@@ -98,6 +104,11 @@ class UserJobFeedTab extends StatelessWidget {
     final screenWidth = MediaQuery.sizeOf(context).width;
     final compact = screenWidth < pesoCompactBreakpoint;
     final medium = screenWidth < pesoExpandedBreakpoint;
+    final normalizedCompanies = companyOptions.map((name) => name.trim())
+        .where((name) => name.isNotEmpty).toSet().toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    final selectedCompany = normalizedCompanies.contains(this.selectedCompany)
+        ? this.selectedCompany : '';
     final suggestedCount = availableJobs
         .where((job) => job['suggestedForInterest'] == true)
         .length;
@@ -415,8 +426,46 @@ class UserJobFeedTab extends StatelessWidget {
                       PesoJobCategories.localRecruitmentActivity,
                     ),
                   ),
+                  ChoiceChip(
+                    label: Text(localizedJobHeading('SEAP Program', selectedLanguage)),
+                    selected: selectedCategory == PesoJobCategories.seap,
+                    onSelected: (_) => onCategoryChanged(PesoJobCategories.seap),
+                  ),
+                  ChoiceChip(
+                    label: Text(localizedJobHeading('Government Internship Program (GIP)', selectedLanguage)),
+                    selected: selectedCategory == PesoJobCategories.gip,
+                    onSelected: (_) => onCategoryChanged(PesoJobCategories.gip),
+                  ),
                 ],
               ),
+              if (normalizedCompanies.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 6,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text('Company:', style: TextStyle(color: textLight, fontWeight: FontWeight.w700)),
+                    ConstrainedBox(
+                      constraints: BoxConstraints(maxWidth: compact ? 265 : 320),
+                      child: DropdownButton<String>(
+                        key: const Key('user-job-company-filter'),
+                        isExpanded: true,
+                        value: selectedCompany,
+                        items: [
+                          const DropdownMenuItem(value: '', child: Text('All companies')),
+                          for (final company in normalizedCompanies)
+                            DropdownMenuItem(
+                              value: company,
+                              child: Text(company, maxLines: 1, overflow: TextOverflow.ellipsis),
+                            ),
+                        ],
+                        onChanged: (company) => onCompanyChanged(company ?? ''),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
               const SizedBox(height: 18),
               FadeSlideEntrance(
                 delay: 200,

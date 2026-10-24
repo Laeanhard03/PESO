@@ -281,15 +281,42 @@ class GlobalFooter extends StatelessWidget {
     child: InkWell(
       onTap: () =>
           launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication),
-      child: Text(
-        label,
-        style: const TextStyle(
-          color: Colors.white70,
-          fontWeight: FontWeight.w600,
-          decoration: TextDecoration.underline,
-          decorationColor: Colors.white70,
-        ),
-      ),
+      child: label == 'Montalban Local Government'
+          ? Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFB8E4C9).withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFB8E4C9).withValues(alpha: 0.65)),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.account_balance_outlined, color: Color(0xFFB8E4C9), size: 18),
+                  SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      'Official Montalban LGU Website ?',
+                      style: TextStyle(
+                        color: Color(0xFFB8E4C9),
+                        fontWeight: FontWeight.w800,
+                        decoration: TextDecoration.underline,
+                        decorationColor: Color(0xFFB8E4C9),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          : Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white70,
+                fontWeight: FontWeight.w600,
+                decoration: TextDecoration.underline,
+                decorationColor: Colors.white70,
+              ),
+            ),
     ),
   );
 

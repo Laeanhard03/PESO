@@ -4,11 +4,15 @@ class PesoJobCategories {
 
   static const String walkInApplication = 'walk_in_application';
   static const String localRecruitmentActivity = 'local_recruitment_activity';
+  static const String seap = 'seap';
+  static const String gip = 'gip';
   static const String all = 'all';
 
   static const List<String> choices = <String>[
     walkInApplication,
     localRecruitmentActivity,
+    seap,
+    gip,
   ];
 
   static String label(String? category) {
@@ -17,6 +21,10 @@ class PesoJobCategories {
         return 'Walk-in Application';
       case localRecruitmentActivity:
         return 'Local Recruitment Activity';
+      case seap:
+        return 'SEAP Program';
+      case gip:
+        return 'Government Internship Program (GIP)';
       default:
         return 'Other Job Posting';
     }
@@ -69,7 +77,8 @@ class PesoJobCategories {
   }
 
   static String expiryText(Map<String, dynamic> job, {DateTime? now}) {
-    if (job['category']?.toString() == walkInApplication) {
+    if (const <String>{walkInApplication, seap, gip}
+        .contains(job['category']?.toString())) {
       return 'No automatic expiration';
     }
     final expiry = effectiveExpiryAt(job);

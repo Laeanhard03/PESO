@@ -59,7 +59,7 @@ const Editable = ({ defaultText, className = "", prefillKey, ...props }) => {
     <span
       contentEditable
       suppressContentEditableWarning
-      data-template-default={typeof defaultText === 'string' ? defaultText : ''}
+      data-template-default={inherited ? '' : (typeof defaultText === 'string' ? defaultText : '')}
       data-prefill-key={prefillKey || undefined}
       className={`outline-none hover:bg-amber-50 focus:bg-amber-100 transition-colors rounded px-0.5 ${className}`}
       {...props}
@@ -290,7 +290,7 @@ export default function ResumeApp() {
     const zoomWrapper = document.getElementById('zoom-wrapper');
     const originalTransform = zoomWrapper?.style.transform ?? '';
     if (zoomWrapper) zoomWrapper.style.transform = 'scale(1)';
-    const hiddenTemplateSamples = [];
+    let sampleWarningNode = null;
 
     try {
       const element = document.getElementById('resume-node');
@@ -299,13 +299,24 @@ export default function ResumeApp() {
       let resumePdfBase64 = '';
       let pdfWarning = '';
       const normalizeSample = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
-      for (const node of element.querySelectorAll('[contenteditable="true"][data-template-default]')) {
-        const current = normalizeSample(node.innerText);
+      const hasUneditedSamples = Array.from(
+        element.querySelectorAll('[contenteditable="true"][data-template-default]'),
+      ).some((node) => {
         const sample = normalizeSample(node.getAttribute('data-template-default'));
-        if (sample && current === sample) {
-          hiddenTemplateSamples.push({ node, originalText: node.textContent });
-          node.textContent = '';
-        }
+        return sample && normalizeSample(node.innerText) === sample;
+      });
+      if (hasUneditedSamples) {
+        // Keep the visual template intact in the saved PDF (admin preview must
+        // not become blank), but clearly mark it when example text remains.
+        sampleWarningNode = document.createElement('div');
+        sampleWarningNode.setAttribute('role', 'note');
+        sampleWarningNode.textContent =
+          'TEMPLATE EXAMPLE CONTENT - Replace remaining sample details with your own accurate information before using this resume.';
+        sampleWarningNode.style.cssText =
+          'display:block;width:100%;box-sizing:border-box;padding:7px 10px;' +
+          'font:700 9px/1.35 Arial,sans-serif;color:#7c2d12;background:#fff3cd;' +
+          'border-bottom:1px solid #d97706;text-align:center;';
+        element.prepend(sampleWarningNode);
       }
       const exportOptions = {
         quality: 0.96,
@@ -455,7 +466,7 @@ export default function ResumeApp() {
         value: entry.value,
         fieldKey: entry.fieldKey,
       })));
-      const plainText = fields.map((field) => `${field.section} — ${field.label}: ${field.value}`).join('\n');
+      const plainText = fields.map((field) => [field.section, ' - ', field.label, ': ', field.value].join('')).join('\n');
       const resumeData = {
         documentType: 'Resume Builder',
         template: activeTemplate,
@@ -496,7 +507,7 @@ export default function ResumeApp() {
       console.error('Resume PDF or data extraction failed:', error);
       alert('Could not generate your resume. Please check the browser console and try again.');
     } finally {
-      for (const sample of hiddenTemplateSamples) sample.node.textContent = sample.originalText;
+      sampleWarningNode?.remove();
       if (zoomWrapper) zoomWrapper.style.transform = originalTransform;
       setIsProcessing(false);
     }
@@ -622,24 +633,24 @@ export default function ResumeApp() {
           </div>
         )}
         <div className="grid sm:grid-cols-2 gap-3 mt-4">
-          <label className="text-sm font-semibold">Highest schooling
-            <select aria-label="Resume highest education" value={careerEducation}
+          <label className="text-sm font-semibold">Highest schooling <span className="text-rose-600" aria-hidden="true">*</span>
+            <select aria-label="Resume highest education" aria-required="true" aria-invalid={missingEssentials.some(item => item.key === 'education')} style={missingEssentials.some(item => item.key === 'education') ? { borderColor: '#dc2626', boxShadow: '0 0 0 1px #dc2626' } : undefined} value={careerEducation}
               onChange={event => { setCareerEducation(event.target.value); setMissingEssentials([]); }}
               className="mt-1 w-full border border-gray-300 rounded-lg p-3 bg-white">
               <option value="">Choose your education</option>
               {educationChoices.map(v => <option key={v} value={v}>{v}</option>)}
             </select>
           </label>
-          <label className="text-sm font-semibold">Work experience
-            <select aria-label="Resume work experience" value={experienceStatus}
+          <label className="text-sm font-semibold">Work experience <span className="text-rose-600" aria-hidden="true">*</span>
+            <select aria-label="Resume work experience" aria-required="true" aria-invalid={missingEssentials.some(item => item.key === 'experience')} style={missingEssentials.some(item => item.key === 'experience') ? { borderColor: '#dc2626', boxShadow: '0 0 0 1px #dc2626' } : undefined} value={experienceStatus}
               onChange={event => { setExperienceStatus(event.target.value); setMissingEssentials([]); }}
               className="mt-1 w-full border border-gray-300 rounded-lg p-3 bg-white">
               <option value="">Select your situation</option>
               {experienceChoices.map(v => <option key={v} value={v}>{v}</option>)}
             </select>
           </label>
-          <label className="text-sm font-semibold sm:col-span-2">Skills and training
-            <select aria-label="Resume skills stage" value={skillsStage}
+          <label className="text-sm font-semibold sm:col-span-2">Skills and training <span className="text-rose-600" aria-hidden="true">*</span>
+            <select aria-label="Resume skills stage" aria-required="true" aria-invalid={missingEssentials.some(item => item.key === 'skillsStage')} style={missingEssentials.some(item => item.key === 'skillsStage') ? { borderColor: '#dc2626', boxShadow: '0 0 0 1px #dc2626' } : undefined} value={skillsStage}
               onChange={event => { setSkillsStage(event.target.value); setMissingEssentials([]); }}
               className="mt-1 w-full border border-gray-300 rounded-lg p-3 bg-white">
               <option value="">Select your situation</option>
@@ -647,14 +658,18 @@ export default function ResumeApp() {
             </select>
           </label>
           {skillsStage === skillsChoices[0] && (
-            <label className="text-sm font-semibold sm:col-span-2">Skills you can honestly describe
-              <textarea aria-label="Resume applicant skills" rows={2} value={careerSkills}
+            <label className="text-sm font-semibold sm:col-span-2">Skills you can honestly describe <span className="text-rose-600" aria-hidden="true">*</span>
+              <textarea aria-label="Resume applicant skills" aria-required="true" aria-invalid={missingEssentials.some(item => item.key === 'skills')} style={missingEssentials.some(item => item.key === 'skills') ? { borderColor: '#dc2626', boxShadow: '0 0 0 1px #dc2626' } : undefined} rows={2} value={careerSkills}
                 onChange={event => { setCareerSkills(event.target.value); setMissingEssentials([]); }}
                 className="mt-1 w-full border border-gray-300 rounded-lg p-3"
                 placeholder="e.g. Customer service, basic carpentry or computer skills" />
             </label>
           )}
         </div>
+        <p className="text-xs text-slate-500 mt-2">
+          <span className="font-bold text-rose-600" aria-hidden="true">*</span> Fields marked * are required.
+          Replace the sample name and contact details in the editable resume preview before saving.
+        </p>
       </section>
 
       {/* Canvas Workspace */}

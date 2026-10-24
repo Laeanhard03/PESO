@@ -2,13 +2,16 @@ import { useEffect, useRef, useState } from 'react';
 import * as htmlToImage from "html-to-image";
 import { jsPDF } from "jspdf";
 import { sendToFlutter } from './flutterBridge.js';
-import { applicantCareerEntries, educationChoices, experienceChoices, skillsChoices, validateApplicantEssentials } from './applicantEssentials.js';
+import { applicantCareerEntries, educationChoices, experienceChoices, skillsChoices } from './applicantEssentials.js';
+import { collectMissingNsrpFields } from './nsrpRequiredFields.js';
 import pesoformicon from './assets/pesoformicon.png';
 
-const GreenLabel = ({ children, className = '' }) => (
-  <span className={`bg-green-200/60 px-1 font-bold ${className}`}>{children}</span>
+const GreenLabel = ({ children, className = '', required = false }) => (
+  <span className={(required ? 'bg-green-200/60 ' : '') + 'px-1 font-bold ' + className}>
+    {children}
+    {required && <span aria-hidden="true" className="ml-0.5 font-black text-red-600">*</span>}
+  </span>
 );
-
 export default function App() {
   const [zoomLevel, setZoomLevel] = useState(1);
   const [fitScale, setFitScale] = useState(1);
@@ -55,8 +58,9 @@ export default function App() {
     const [, m, d, y] = match;
     const iso = y + '-' + m.padStart(2, '0') + '-' + d.padStart(2, '0');
     const parsed = new Date(iso + 'T12:00:00');
-    setDateOfBirth(!Number.isNaN(parsed.getTime()) &&
-      parsed.toISOString().slice(0, 10) === iso ? iso : '');
+    const valid = !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === iso;
+    setDateOfBirth(valid ? iso : '');
+    if (valid) setMissingEssentials(previous => previous.filter(item => item.key !== 'dateOfBirth'));
   };
 
   const snapshotDraft = () => {
@@ -155,6 +159,7 @@ export default function App() {
     context.beginPath();
     context.moveTo(x, y);
     setHasSignature(true);
+    setMissingEssentials(previous => previous.filter(item => item.key !== 'signature'));
     setIsSigning(true);
   };
 
@@ -173,6 +178,7 @@ export default function App() {
     context.lineTo(x, y);
     context.stroke();
     setHasSignature(true);
+    setMissingEssentials(previous => previous.filter(item => item.key !== 'signature'));
   };
 
   const clearSignature = () => {
@@ -181,13 +187,28 @@ export default function App() {
     canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
     setHasSignature(false);
     setIsSigning(false);
+    if (validationOpen) {
+      setMissingEssentials(previous => previous.some(item => item.key === 'signature')
+        ? previous : [...previous, { key: 'signature', label: 'Applicant signature' }]);
+    }
   };
 
   // Only mark fields invalid after a submit attempt, never on initial load.
   useEffect(() => {
     const invalidKeys = new Set(missingEssentials.map(item => item.key));
-    document.querySelectorAll('[data-applicant-field]').forEach(control => {
-      const invalid = invalidKeys.has(control.getAttribute('data-applicant-field'));
+
+    document.querySelectorAll('[data-applicant-field], [data-nsrp-required], [data-nsrp-group]').forEach(control => {
+      const directKey = control.getAttribute('data-applicant-field') ||
+        control.getAttribute('data-nsrp-required');
+      const groupKey = control.getAttribute('data-nsrp-group');
+      // A green-highlighted group requires at least one answer, not every
+      // optional checkbox/cell within the group. Highlight its first entry
+      // rather than painting dozens of unrelated subfields red.
+      const groupEntry = groupKey && control === document.querySelector(
+        '[data-nsrp-group="' + groupKey + '"]',
+      );
+      const invalid = invalidKeys.has(directKey) ||
+        Boolean(groupEntry && invalidKeys.has(groupKey));
       if (invalid) {
         control.setAttribute('data-validation-error', '');
         control.setAttribute('aria-invalid', 'true');
@@ -204,24 +225,36 @@ export default function App() {
   // the document level so the red highlight clears as each item is corrected.
   useEffect(() => {
     const handleFieldChange = event => {
-      const key = event.target?.getAttribute?.('data-applicant-field');
-      if (!key) return;
+      const target = event.target;
+      const key = target?.getAttribute?.('data-applicant-field');
+      const requiredKey = target?.getAttribute?.('data-nsrp-required');
+      const groupKey = target?.getAttribute?.('data-nsrp-group');
+      if (!key && !requiredKey && !groupKey) return;
+      if (key === 'dateOfBirth' || requiredKey === 'dateOfBirth') return; // Controlled date parser owns validity.
       // These fields are controlled by React. Updating state during a native
       // select's capture-phase input event resets its DOM value before React's
       // onChange can commit the user's keyboard/mouse choice.
       if (['education', 'experience', 'skillsStage', 'skills'].includes(key)) return;
-      const value = field => document.querySelector(
-        '[data-applicant-field="' + field + '"]')?.value?.trim() || '';
+
+      const groupHasValue = group => Array.from(document.querySelectorAll(
+        '[data-nsrp-group="' + group + '"]',
+      )).some(control => {
+        const type = (control.type || '').toLowerCase();
+        return type === 'checkbox' || type === 'radio'
+          ? control.checked
+          : String(control.value || '').trim().length > 0;
+      });
       setMissingEssentials(previous => {
         if (previous.length === 0) return previous;
         const remaining = previous.filter(item => {
-        if (item.key === 'firstName' && (key === 'firstName' || key === 'lastName')) {
-          return !(value('firstName') && value('lastName'));
+
+        if (requiredKey && item.key === requiredKey) {
+          return !String(target.value || '').trim();
         }
-        if (item.key === 'email' && (key === 'email' || key === 'phone')) {
-          return !(value('email') || value('phone'));
+        if (groupKey && item.key === groupKey) {
+          return !groupHasValue(groupKey);
         }
-        return item.key !== key || !String(event.target.value || '').trim();
+        return item.key !== key || !String(target.value || '').trim();
         });
         return remaining.length === previous.length ? previous : remaining;
       });
@@ -475,25 +508,59 @@ export default function App() {
       skillsStage,
       skills: careerSkills.trim(),
     };
-    const missing = validateApplicantEssentials(applicantEssentials);
-    const missingOfficialFields = [];
-    if (!dateOfBirth) missingOfficialFields.push('Date of birth');
-    if (!sex) missingOfficialFields.push('Sex');
-    if (missingOfficialFields.length) {
+    // Only green-highlighted NSRP fields/sections block completion; career-summary controls are optional.
+    const readNsrpValue = key => document.querySelector(
+      '[data-nsrp-required="' + key + '"]',
+    )?.value?.trim() || '';
+    const nsrpGroupHasValue = key => Array.from(document.querySelectorAll(
+      '[data-nsrp-group="' + key + '"]',
+    )).some(control => {
+      const type = (control.type || '').toLowerCase();
+      return type === 'checkbox' || type === 'radio'
+        ? control.checked
+        : String(control.value || '').trim().length > 0;
+    });
+    const officialMissing = collectMissingNsrpFields({
+      lastName: readField('lastName'),
+      firstName: readField('firstName'),
+      dateOfBirth: dateOfBirth ? true : '',
+      sex: sex ? true : '',
+      middleName: readNsrpValue('middleName'),
+      suffix: readNsrpValue('suffix'),
+      placeOfBirth: readNsrpValue('placeOfBirth'),
+      presentAddress: nsrpGroupHasValue('presentAddress') ? true : '',
+      city: readField('city'),
+      religion: religion,
+      height: readNsrpValue('height'),
+      email: readField('email'),
+      landline: readNsrpValue('landline'),
+      phone: readField('phone'),
+      civilStatus: nsrpGroupHasValue('civilStatus') ? true : '',
+      employmentStatus: nsrpGroupHasValue('employmentStatus') ? true : '',
+      preferredOccupation: readField('preferredOccupation'),
+      preferredWorkLocation: nsrpGroupHasValue('preferredWorkLocation') ? true : '',
+      languageProficiency: nsrpGroupHasValue('languageProficiency') ? true : '',
+      educationBackground: nsrpGroupHasValue('educationBackground') ? true : '',
+      workExperience: nsrpGroupHasValue('workExperience') ? true : '',
+      otherSkills: nsrpGroupHasValue('otherSkills') ? true : '',
+      signature: hasSignature ? true : '',
+      signatureDate: readNsrpValue('signatureDate'),
+    });
+    if (officialMissing.length) {
+      setMissingEssentials(officialMissing);
       setValidationOpen(true);
-      window.alert('Please complete the required NSRP fields: ' + missingOfficialFields.join(', ') + '.');
-      document.getElementById('zoom-wrapper')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      return;
-    }
-    if (missing.length) {
-      setMissingEssentials(missing);
-      setValidationOpen(true);
-      const firstField = document.querySelector(`[data-applicant-field="${missing[0].key}"]`);
-      if (firstField) {
-        firstField.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        firstField.focus({ preventScroll: true });
+
+      const first = officialMissing[0];
+      const target = document.querySelector(
+        '[data-nsrp-required="' + first.key + '"], ' +
+        '[data-nsrp-group="' + first.key + '"], ' +
+        '[data-applicant-field="' + first.key + '"]',
+      );
+      if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        target.focus?.({ preventScroll: true });
       } else {
-        document.getElementById('applicant-essentials')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        document.getElementById('zoom-wrapper')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
       return;
     }
@@ -526,8 +593,21 @@ export default function App() {
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = pdf.internal.pageSize.getHeight();
       let pdfPageCount = 0;
-      for (const id of ['peso-page-1', 'peso-page-2']) {
-        const page = document.getElementById(id);
+      const formPageTwo = document.getElementById('peso-page-2');
+      const pageTwoChildren = formPageTwo ? Array.from(formPageTwo.children) : [];
+      const careerSummaryIndex = pageTwoChildren.findIndex((element) =>
+        (element.innerText || '').trim().startsWith('APPLICANT CAREER INFORMATION'),
+      );
+      const pageSpecs = [{ id: 'peso-page-1' }];
+      if (formPageTwo && careerSummaryIndex > 0) {
+        // Keep official data sections intact and begin certification on its own page.
+        pageSpecs.push({ id: 'peso-page-2', start: 0, end: careerSummaryIndex, paddingBottom: '8px' });
+        pageSpecs.push({ id: 'peso-page-2', start: careerSummaryIndex, end: pageTwoChildren.length, paddingTop: '16px' });
+      } else {
+        pageSpecs.push({ id: 'peso-page-2' });
+      }
+      for (const spec of pageSpecs) {
+        const page = document.getElementById(spec.id);
         if (!page) continue;
         // A print-only DOM copy expands long text into wrapped, full-height
         // lines. Live editable inputs stay untouched and keep keyboard access.
@@ -543,6 +623,8 @@ export default function App() {
         printPage.style.width = page.offsetWidth + 'px';
         printPage.style.height = 'auto';
         printPage.style.transform = 'none';
+        if (spec.paddingBottom) printPage.style.paddingBottom = spec.paddingBottom;
+        if (spec.paddingTop) printPage.style.paddingTop = spec.paddingTop;
         const originals = Array.from(page.querySelectorAll('input, select, textarea'));
         const copies = Array.from(printPage.querySelectorAll('input, select, textarea'));
         originals.forEach((source, index) => {
@@ -561,10 +643,23 @@ export default function App() {
             visibleValue = source.value || '';
           }
           const replacement = document.createElement('span');
-          replacement.textContent = visibleValue;
-          replacement.style.cssText = 'display:block;flex:1;min-width:0;max-width:100%;' +
-            'white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;' +
-            'font-size:11px;line-height:1.45;padding:2px 0;min-height:16px;';
+          if (type === 'checkbox' || type === 'radio') {
+            // Do not rasterize native form controls: some mobile PDF viewers
+            // render their fallback glyph as a question mark. Draw the control
+            // in CSS so empty boxes remain empty and checked boxes show a clear X.
+            replacement.textContent = source.checked ? 'X' : '';
+            replacement.style.cssText =
+              'display:inline-flex;align-items:center;justify-content:center;' +
+              'flex:0 0 9px;width:9px;height:9px;box-sizing:border-box;' +
+              'border:1px solid #222;background:#fff;margin:0 3px 0 0;padding:0;' +
+              'font-family:Arial,sans-serif;font-size:7px;line-height:1;vertical-align:middle;';
+            replacement.style.borderRadius = type === 'radio' ? '50%' : '0';
+          } else {
+            replacement.textContent = visibleValue;
+            replacement.style.cssText = 'display:block;flex:1;min-width:0;max-width:100%;' +
+              'white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;' +
+              'font-size:11px;line-height:1.25;padding:0;min-height:14px;';
+          }
           target.replaceWith(replacement);
         });
         const originalCanvases = page.querySelectorAll('canvas');
@@ -573,13 +668,26 @@ export default function App() {
           const copy = cloneCanvases[index];
           if (copy) copy.getContext('2d')?.drawImage(canvas, 0, 0);
         });
+        if (spec.start != null || spec.end != null) {
+          Array.from(printPage.children).forEach((child, index) => {
+            if ((spec.start != null && index < spec.start) ||
+                (spec.end != null && index >= spec.end)) child.remove();
+          });
+        }
+        // Number the physical pages after final pagination is known.
+        printPage.querySelectorAll('div').forEach(element => {
+          if (element.children.length === 0 &&
+              /^Page\s+\d+\s+of\s+\d+$/.test(element.textContent.trim())) {
+            element.remove();
+          }
+        });
         printPage.querySelectorAll('.h-1\\/2').forEach(element => {
           element.style.height = 'auto';
         });
         document.body.appendChild(printPage);
         try {
           const image = await htmlToImage.toCanvas(printPage, {
-            backgroundColor: '#ffffff', pixelRatio: 1.5,
+            backgroundColor: '#ffffff', pixelRatio: 1.25,
           });
           const sliceHeight = Math.floor(image.width * pdfHeight / pdfWidth);
           for (let top = 0; top < image.height; top += sliceHeight) {
@@ -601,6 +709,14 @@ export default function App() {
         }
       }
       if (pdfPageCount === 0) throw new Error('NSRP pages could not be rendered.');
+      for (let pageNumber = 1; pageNumber <= pdfPageCount; pageNumber++) {
+        pdf.setPage(pageNumber);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(8);
+        pdf.text(`Page ${pageNumber} of ${pdfPageCount}`, pdfWidth - 8, pdfHeight - 8, {
+          align: 'right',
+        });
+      }
       pdf.save('NSRP_Form1.pdf');
 
       const normalize = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -767,7 +883,7 @@ export default function App() {
             <div className="rounded-full bg-amber-100 text-amber-700 p-2 font-black" aria-hidden="true">!</div>
             <div className="min-w-0 flex-1">
               <h3 className="font-extrabold text-base">A few details are still needed</h3>
-              <p className="text-xs text-slate-600 mt-1">Select a field to jump to it. Missing fields are highlighted below.</p>
+              <p className="text-xs text-slate-600 mt-1">Please complete the green-highlighted required fields. Select a field to jump to it; missing fields are highlighted below.</p>
             </div>
             <button aria-label="Dismiss validation notification" onClick={() => setValidationOpen(false)} className="text-slate-500 hover:text-slate-900 font-bold px-2">×</button>
           </div>
@@ -776,9 +892,13 @@ export default function App() {
               <li key={item.key}>
                 <button className="text-left text-sm w-full rounded-lg bg-amber-50 hover:bg-amber-100 p-2.5 text-amber-950"
                   onClick={() => {
-                    const target = document.querySelector('[data-applicant-field="' + item.key + '"]');
+                    const target = document.querySelector(
+                      '[data-applicant-field="' + item.key + '"], ' +
+                      '[data-nsrp-required="' + item.key + '"], ' +
+                      '[data-nsrp-group="' + item.key + '"]',
+                    );
                     target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    target?.focus({ preventScroll: true });
+                    target?.focus?.({ preventScroll: true });
                   }}>
                   • {item.label}
                 </button>
@@ -791,18 +911,14 @@ export default function App() {
       {/* Applicant-only matching essentials. These controls do not alter the
           official printable form's assessor or government-ID fields. */}
       <section id="applicant-essentials" className="mt-24 w-[min(94vw,850px)] bg-white rounded-2xl shadow p-5 sm:p-7 border border-emerald-200">
-        <div className="text-xs font-bold tracking-wider text-emerald-700">BEFORE CONTINUING</div>
-        <h2 className="font-bold text-xl text-slate-900 mt-1">Your career information</h2>
+        <div className="text-xs font-bold tracking-wider text-emerald-700">OPTIONAL FOR BETTER JOB SUGGESTIONS</div>
+        <h2 className="font-bold text-xl text-slate-900 mt-1">Additional career details</h2>
         <p className="text-sm text-slate-600 mt-2">
-          Please complete your name, an email or mobile number, city and one preferred occupation in the form below.
-          Then confirm these details. You may select no experience or still learning; do not invent qualifications.
-          TIN, SSS, PhilHealth, Pag-IBIG, certificates you do not hold, and PESO assessor fields are not required here.
+          These optional details can improve job suggestions, but they do not block Form 1 completion.
+          Complete the green-highlighted fields in the official NSRP form below. You may report no work experience or still learning; do not invent qualifications.
+          Government IDs, certificates you do not hold, and PESO assessor fields are not required here.
         </p>
-        {missingEssentials.length > 0 && (
-          <p className="mt-4 text-sm text-amber-800 font-semibold" aria-live="polite">
-            {missingEssentials.length} required {missingEssentials.length === 1 ? 'detail needs' : 'details need'} attention. Follow the highlighted fields.
-          </p>
-        )}
+
         <div className="grid sm:grid-cols-2 gap-4 mt-4">
           <label className="text-sm font-semibold text-slate-800">
             Highest education / currently studying
@@ -905,7 +1021,7 @@ export default function App() {
           </div>
 
           <div className="border border-black p-2 mb-2 bg-gray-50">
-            <span className="font-bold">INSTRUCTIONS:</span> Please fill out the form legibly with ball pen. Print in block letters. Check appropriate boxes. Please do not leave any items unanswered. Indicate "NA" if not applicable. You may use extra sheet if needed. Submit accomplished form to the Public Employment Service Office Manager or Officer in your city/municipality.
+            <span className="font-bold">INSTRUCTIONS:</span> Please fill out the form legibly with ball pen. Print in block letters. Complete every green-highlighted field or section before continuing. Enter "N/A" when a required field or section does not apply to you. Check the appropriate boxes.<br/><strong><span className="text-red-600">*</span> Green-highlighted fields/sections are required. Use N/A only where the field or section does not apply.</strong> You may use an extra sheet if needed. Submit the accomplished form to the Public Employment Service Office Manager or Officer in your city/municipality.
           </div>
 
           <div className="bg-gray-300 font-bold p-1 border border-black border-b-0">
@@ -914,52 +1030,64 @@ export default function App() {
 
           <div className="border border-black flex flex-col">
             <div className="flex border-b border-black divide-x divide-black">
-              <div className="w-1/4 p-1"><GreenLabel>SURNAME</GreenLabel><input type="text" required data-prefill="lastName" data-applicant-field="lastName" data-field="Surname" aria-label="Surname" className="block w-full min-w-0 box-border outline-none uppercase mt-1 text-[12px]" /></div>
-              <div className="w-1/4 p-1"><GreenLabel>FIRST NAME</GreenLabel><input type="text" required data-prefill="firstName" data-applicant-field="firstName" data-field="First name" aria-label="First name" className="block w-full min-w-0 box-border outline-none uppercase mt-1 text-[12px]" /></div>
-              <div className="w-1/4 p-1"><GreenLabel>MIDDLE NAME</GreenLabel><input type="text" data-prefill="middleName" className="w-full outline-none uppercase mt-1" /></div>
-              <div className="w-1/4 p-1"><GreenLabel>SUFFIX</GreenLabel> (Ex: Sr., Jr., III, etc.)<input type="text" className="w-full outline-none uppercase mt-1" /></div>
+              <div className="w-1/4 p-1"><GreenLabel required>SURNAME</GreenLabel><input type="text" required data-prefill="lastName" data-applicant-field="lastName" data-field="Surname" aria-required="true" aria-label="Surname" className="block w-full min-w-0 box-border outline-none uppercase mt-1 text-[12px]" /></div>
+              <div className="w-1/4 p-1"><GreenLabel required>FIRST NAME</GreenLabel><input type="text" required data-prefill="firstName" data-applicant-field="firstName" data-field="First name" aria-required="true" aria-label="First name" className="block w-full min-w-0 box-border outline-none uppercase mt-1 text-[12px]" /></div>
+              <div className="w-1/4 p-1"><GreenLabel required>MIDDLE NAME</GreenLabel><input type="text" data-prefill="middleName" data-nsrp-required="middleName" aria-label="Middle name or N/A" aria-required="true" placeholder="N/A if not applicable" className="w-full outline-none uppercase mt-1" /></div>
+              <div className="w-1/4 p-1"><GreenLabel required>SUFFIX</GreenLabel> (Ex: Sr., Jr., III, etc.)<input type="text" data-nsrp-required="suffix" aria-label="Name suffix or N/A" aria-required="true" placeholder="N/A if not applicable" className="w-full outline-none uppercase mt-1" /></div>
             </div>
 
             <div className="flex border-b border-black divide-x divide-black">
-              <div className="w-1/4 p-1 flex flex-col justify-between"><GreenLabel>DATE OF BIRTH</GreenLabel> (mm/dd/yyyy)<div className="flex flex-wrap gap-1 mt-1">
-                <input type="date" aria-label="Choose date of birth" value={dateOfBirth}
-                  onChange={event => { setDateOfBirth(event.target.value); if (manualDobRef.current) manualDobRef.current.value = dobAsText(event.target.value); }}
+              <div className="w-1/4 p-1 flex flex-col justify-between"><GreenLabel required>DATE OF BIRTH</GreenLabel> (mm/dd/yyyy)<div className="flex flex-wrap gap-1 mt-1">
+                <input type="date" aria-label="Choose date of birth" data-applicant-field="dateOfBirth"
+                  aria-required="true" aria-invalid={missingEssentials.some(item => item.key === 'dateOfBirth')}
+                  style={missingEssentials.some(item => item.key === 'dateOfBirth') ? { border: '1px solid #dc2626', backgroundColor: '#fff1f2' } : undefined}
+                  value={dateOfBirth}
+                  onChange={event => {
+                    setDateOfBirth(event.target.value);
+                    if (manualDobRef.current) manualDobRef.current.value = dobAsText(event.target.value);
+                    if (event.target.value) setMissingEssentials(previous => previous.filter(item => item.key !== 'dateOfBirth'));
+                  }}
                   className="w-full min-w-0 outline-none" />
-                <input type="text" inputMode="numeric" aria-label="Type date of birth"
+                <input type="text" inputMode="numeric" aria-label="Type date of birth" data-applicant-field="dateOfBirth"
+                  aria-required="true" aria-invalid={missingEssentials.some(item => item.key === 'dateOfBirth')}
+                  style={missingEssentials.some(item => item.key === 'dateOfBirth') ? { border: '1px solid #dc2626', backgroundColor: '#fff1f2' } : undefined}
                   placeholder="MM/DD/YYYY" maxLength={10} ref={manualDobRef}
                   onChange={event => changeTypedDob(event.target.value)}
                   className="w-full min-w-0 border-t border-gray-300 outline-none" />
               </div></div>
-              <div className="w-1/4 p-1"><GreenLabel>SEX</GreenLabel><select aria-label="Sex" className="w-full min-w-0 text-[11px]" value={sex} onChange={event => setSex(event.target.value)}><option value="">Choose</option><option>Male</option><option>Female</option><option>Other</option></select></div>
+              <div className="w-1/4 p-1"><GreenLabel required>SEX</GreenLabel><select aria-label="Sex" data-applicant-field="sex" aria-required="true"
+                aria-invalid={missingEssentials.some(item => item.key === 'sex')}
+                style={missingEssentials.some(item => item.key === 'sex') ? { border: '1px solid #dc2626', backgroundColor: '#fff1f2' } : undefined}
+                className="w-full min-w-0 text-[11px]" value={sex} onChange={event => setSex(event.target.value)}><option value="">Choose</option><option>Male</option><option>Female</option><option>Other</option></select></div>
               <div className="w-[12.5%] p-1"><GreenLabel>AGE</GreenLabel><input type="text" aria-label="Age (calculated)" readOnly value={age} className="w-full outline-none mt-1" /></div>
-              <div className="w-[37.5%] p-1"><GreenLabel>PLACE OF BIRTH</GreenLabel><input type="text" className="w-full outline-none mt-1" /></div>
+              <div className="w-[37.5%] p-1"><GreenLabel required>PLACE OF BIRTH</GreenLabel><input type="text" data-nsrp-required="placeOfBirth" aria-label="Place of birth" aria-required="true" placeholder="City / municipality" className="w-full outline-none mt-1" /></div>
             </div>
 
             <div className="flex border-b border-black divide-x divide-black">
               <div className="w-1/2 flex flex-col divide-y divide-black">
                 <div className="flex divide-x divide-black h-1/2">
                    <div className="w-1/2 p-1 font-bold text-green-700">Personal details</div>
-                   <div className="w-1/2 p-1"><GreenLabel>RELIGION</GreenLabel><select aria-label="Religion" className="w-full min-w-0" value={religion} onChange={event => setReligion(event.target.value)}><option value="">Optional / Prefer not to say</option><option>Prefer not to say</option><option>Roman Catholic</option><option>Islam</option><option>Iglesia ni Cristo</option><option>Protestant</option><option>Born Again Christian</option><option>Other</option><option>None</option></select></div>
+                   <div className="w-1/2 p-1"><GreenLabel required>RELIGION</GreenLabel><select data-nsrp-required="religion" aria-label="Religion" className="w-full min-w-0" value={religion} onChange={event => setReligion(event.target.value)}><option value="">Select or prefer not to say</option><option>Prefer not to say</option><option>Roman Catholic</option><option>Islam</option><option>Iglesia ni Cristo</option><option>Protestant</option><option>Born Again Christian</option><option>Other</option><option>None</option></select></div>
                 </div>
                 <div className="flex divide-x divide-black h-1/2">
-                    <div className="w-1/4 p-1"><GreenLabel>CIVIL STATUS</GreenLabel></div>
+                    <div className="w-1/4 p-1"><GreenLabel required>CIVIL STATUS</GreenLabel></div>
                     <div className="w-3/4 p-1 grid grid-cols-2 gap-1">
-                        <label className="flex items-center gap-1"><input type="checkbox"/> Single</label>
-                        <label className="flex items-center gap-1"><input type="checkbox"/> Separated</label>
-                        <label className="flex items-center gap-1"><input type="checkbox"/> Married</label>
-                        <label className="flex items-center gap-1"><input type="checkbox"/> Live-in</label>
-                        <label className="flex items-center gap-1"><input type="checkbox"/> Widowed</label>
+                        <label className="flex items-center gap-1"><input type="checkbox" data-nsrp-group="civilStatus"/> Single</label>
+                        <label className="flex items-center gap-1"><input type="checkbox" data-nsrp-group="civilStatus"/> Separated</label>
+                        <label className="flex items-center gap-1"><input type="checkbox" data-nsrp-group="civilStatus"/> Married</label>
+                        <label className="flex items-center gap-1"><input type="checkbox" data-nsrp-group="civilStatus"/> Live-in</label>
+                        <label className="flex items-center gap-1"><input type="checkbox" data-nsrp-group="civilStatus"/> Widowed</label>
                     </div>
                 </div>
               </div>
               <div className="w-1/2 flex divide-x divide-black">
-                  <div className="w-1/3 p-1 flex flex-col justify-center"><GreenLabel>PRESENT ADDRESS</GreenLabel></div>
+                  <div className="w-1/3 p-1 flex flex-col justify-center"><GreenLabel required>PRESENT ADDRESS</GreenLabel></div>
                   <div className="w-2/3 flex flex-col divide-y divide-black">
-                      <div className="p-1 flex"><span className="w-24 text-[10px]">House No./Street</span><input type="text" className="w-full outline-none" /></div>
-                      <div className="p-1 flex"><span className="w-24 text-[10px]">Village</span><input type="text" className="w-full outline-none" /></div>
-                      <div className="p-1 flex"><span className="w-24 text-[10px]">Barangay</span><input type="text" className="w-full outline-none" /></div>
-                      <div className="p-1 flex"><span className="w-24 text-[10px]"><GreenLabel>Municipality/City</GreenLabel></span><input type="text" data-applicant-field="city" data-field="Municipality/City" aria-label="City or municipality" className="w-full outline-none" /></div>
-                      <div className="p-1 flex"><span className="w-24 text-[10px]">Province</span><input type="text" className="w-full outline-none" /></div>
+                      <div className="p-1 flex"><span className="w-24 text-[10px]">House No./Street</span><input type="text" data-nsrp-group="presentAddress" aria-label="House number and street or N/A" placeholder="House / street or N/A" className="w-full outline-none" /></div>
+                      <div className="p-1 flex"><span className="w-24 text-[10px]">Village</span><input type="text" data-nsrp-group="presentAddress" aria-label="Village or N/A" placeholder="Village / N/A" className="w-full outline-none" /></div>
+                      <div className="p-1 flex"><span className="w-24 text-[10px]">Barangay</span><input type="text" data-nsrp-group="presentAddress" aria-label="Barangay of present address" placeholder="Barangay" className="w-full outline-none" /></div>
+                      <div className="p-1 flex"><span className="w-24 text-[10px]"><GreenLabel required>Municipality/City</GreenLabel></span><input type="text" data-applicant-field="city" data-nsrp-group="presentAddress" data-field="Municipality/City" aria-label="City or municipality" className="w-full outline-none" /></div>
+                      <div className="p-1 flex"><span className="w-24 text-[10px]">Province</span><input type="text" data-nsrp-group="presentAddress" aria-label="Province of present address" placeholder="Province" className="w-full outline-none" /></div>
                   </div>
               </div>
             </div>
@@ -972,10 +1100,10 @@ export default function App() {
                   <div className="flex"><div className="w-1/3 p-1 bg-gray-200">PHILHEALTH NO.</div><div className="w-2/3 p-1"><input type="text" className="w-full outline-none" /></div></div>
               </div>
               <div className="w-1/2 flex flex-col divide-y divide-black">
-                  <div className="flex"><div className="w-1/2 p-1"><GreenLabel>HEIGHT</GreenLabel></div><div className="w-1/2 p-1"><input type="text" className="w-full outline-none" /></div></div>
-                  <div className="flex"><div className="w-1/2 p-1"><GreenLabel>EMAIL ADDRESS</GreenLabel></div><div className="w-1/2 p-1"><input type="text" data-prefill="email" data-applicant-field="email" data-field="Email address" aria-label="Email address" className="w-full outline-none" /></div></div>
-                  <div className="flex"><div className="w-1/2 p-1"><GreenLabel>LANDLINE NUMBER</GreenLabel></div><div className="w-1/2 p-1"><input type="text" className="w-full outline-none" /></div></div>
-                  <div className="flex"><div className="w-1/2 p-1"><GreenLabel>CELLPHONE NUMBER</GreenLabel></div><div className="w-1/2 p-1"><input type="text" data-prefill="phone" data-applicant-field="phone" data-field="Cellphone number" aria-label="Cellphone number" className="w-full outline-none" /></div></div>
+                  <div className="flex"><div className="w-1/2 p-1"><GreenLabel required>HEIGHT</GreenLabel></div><div className="w-1/2 p-1"><input type="text" data-nsrp-required="height" aria-label="Height or N/A" aria-required="true" placeholder="cm / N/A" className="w-full outline-none" /></div></div>
+                  <div className="flex"><div className="w-1/2 p-1"><GreenLabel required>EMAIL ADDRESS</GreenLabel></div><div className="w-1/2 p-1"><input type="text" data-prefill="email" data-applicant-field="email" data-field="Email address" aria-label="Email address or N/A" aria-required="true" placeholder="Email / N/A" className="w-full outline-none" /></div></div>
+                  <div className="flex"><div className="w-1/2 p-1"><GreenLabel required>LANDLINE NUMBER</GreenLabel></div><div className="w-1/2 p-1"><input type="text" data-nsrp-required="landline" aria-label="Landline number or N/A" aria-required="true" placeholder="Number / N/A" className="w-full outline-none" /></div></div>
+                  <div className="flex"><div className="w-1/2 p-1"><GreenLabel required>CELLPHONE NUMBER</GreenLabel></div><div className="w-1/2 p-1"><input type="text" data-prefill="phone" data-applicant-field="phone" data-field="Cellphone number" aria-label="Cellphone number or N/A" aria-required="true" placeholder="Number / N/A" className="w-full outline-none" /></div></div>
               </div>
             </div>
 
@@ -993,33 +1121,33 @@ export default function App() {
             </div>
 
             <div className="flex border-b border-black divide-x divide-black">
-                <div className="w-[16.5%] p-1"><GreenLabel>EMPLOYMENT</GreenLabel><br/><GreenLabel>STATUS/TYPE</GreenLabel></div>
+                <div className="w-[16.5%] p-1"><GreenLabel required>EMPLOYMENT</GreenLabel><br/><GreenLabel required>STATUS/TYPE</GreenLabel></div>
                 <div className="w-[83.5%] flex divide-x divide-black">
                     <div className="w-1/3 p-1 flex flex-col gap-2 border-r border-black">
-                        <label className="flex items-center gap-1 font-bold"><input type="checkbox"/> Employed</label>
+                        <label className="flex items-center gap-1 font-bold"><input type="checkbox" data-nsrp-group="employmentStatus"/> Employed</label>
                         <div className="ml-4 flex flex-col gap-1">
-                            <label className="flex items-center gap-1"><input type="checkbox"/> Wage Employed</label>
-                            <label className="flex items-center gap-1"><input type="checkbox"/> Self Employed</label>
+                            <label className="flex items-center gap-1"><input type="checkbox" data-nsrp-group="employmentStatus"/> Wage Employed</label>
+                            <label className="flex items-center gap-1"><input type="checkbox" data-nsrp-group="employmentStatus"/> Self Employed</label>
                         </div>
                     </div>
                     <div className="w-2/3 p-1 flex flex-col gap-2">
-                        <label className="flex items-center gap-1 font-bold"><input type="checkbox"/> Unemployed</label>
+                        <label className="flex items-center gap-1 font-bold"><input type="checkbox" data-nsrp-group="employmentStatus"/> Unemployed</label>
                         <div className="ml-4 flex gap-4">
                             <div className="flex flex-col gap-1 w-1/2">
-                                <label className="flex items-center gap-1"><input type="checkbox"/> New Entrant/Fresh Graduate</label>
-                                <label className="flex items-center gap-1"><input type="checkbox"/> Finished Contract</label>
-                                <label className="flex items-center gap-1"><input type="checkbox"/> Resigned</label>
-                                <label className="flex items-center gap-1"><input type="checkbox"/> Retired</label>
+                                <label className="flex items-center gap-1"><input type="checkbox" data-nsrp-group="employmentStatus"/> New Entrant/Fresh Graduate</label>
+                                <label className="flex items-center gap-1"><input type="checkbox" data-nsrp-group="employmentStatus"/> Finished Contract</label>
+                                <label className="flex items-center gap-1"><input type="checkbox" data-nsrp-group="employmentStatus"/> Resigned</label>
+                                <label className="flex items-center gap-1"><input type="checkbox" data-nsrp-group="employmentStatus"/> Retired</label>
                             </div>
                              <div className="flex flex-col gap-1 w-1/2">
-                                <label className="flex items-center gap-1"><input type="checkbox"/> Terminated/Laidoff(local)</label>
-                                <label className="flex items-start gap-1"><input type="checkbox"/> 
+                                <label className="flex items-center gap-1"><input type="checkbox" data-nsrp-group="employmentStatus"/> Terminated/Laidoff(local)</label>
+                                <label className="flex items-start gap-1"><input type="checkbox" data-nsrp-group="employmentStatus"/>
                                     <div className="flex flex-col">
                                         <span>Terminated/Laidoff(abroad)</span>
                                         <span className="flex">specify country <input type="text" className="border-b border-black outline-none w-20 ml-1"/></span>
                                     </div>
                                 </label>
-                                <label className="flex items-center gap-1 mt-2"><input type="checkbox"/> Others, specify <input type="text" className="border-b border-black outline-none w-20 ml-1"/></label>
+                                <label className="flex items-center gap-1 mt-2"><input type="checkbox" data-nsrp-group="employmentStatus"/> Others, specify <input type="text" className="border-b border-black outline-none w-20 ml-1"/></label>
                             </div>
                         </div>
                     </div>
@@ -1054,8 +1182,8 @@ export default function App() {
           </div>
           <div className="border border-black flex flex-col">
             <div className="flex divide-x divide-black border-b border-black">
-                <div className="w-1/2 p-1 font-bold text-center"><GreenLabel>PREFERRED OCCUPATION</GreenLabel></div>
-                <div className="w-1/2 p-1 font-bold text-center"><GreenLabel>PREFERRED WORK LOCATION</GreenLabel></div>
+                <div className="w-1/2 p-1 font-bold text-center"><GreenLabel required>PREFERRED OCCUPATION</GreenLabel></div>
+                <div className="w-1/2 p-1 font-bold text-center"><GreenLabel required>PREFERRED WORK LOCATION</GreenLabel></div>
             </div>
             <div className="flex divide-x divide-black">
                 <div className="w-1/2 divide-y divide-black">
@@ -1067,13 +1195,13 @@ export default function App() {
                     <div className="w-1/2 divide-y divide-black border-r border-black">
                         <div className="p-1 flex items-center gap-1 border-b border-black h-8"><input type="checkbox"/> Local, specify cities/municipalities:</div>
                         {[1,2,3].map(num => (
-                             <div key={num} className="flex p-1 h-8"><span className="w-4">{num}.</span><input type="text" className="w-full outline-none"/></div>
+                             <div key={num} className="flex p-1 h-8"><span className="w-4">{num}.</span><input type="text" data-nsrp-group="preferredWorkLocation" placeholder="Location or N/A" className="w-full outline-none"/></div>
                         ))}
                     </div>
                      <div className="w-1/2 divide-y divide-black">
                         <div className="p-1 flex items-center gap-1 border-b border-black h-8"><input type="checkbox"/> Overseas, specify countries:</div>
                         {[1,2,3].map(num => (
-                             <div key={num} className="flex p-1 h-8"><span className="w-4">{num}.</span><input type="text" className="w-full outline-none"/></div>
+                             <div key={num} className="flex p-1 h-8"><span className="w-4">{num}.</span><input type="text" data-nsrp-group="preferredWorkLocation" placeholder="Location or N/A" className="w-full outline-none"/></div>
                         ))}
                     </div>
                 </div>
@@ -1086,7 +1214,7 @@ export default function App() {
           </div>
 
            <div className="font-bold p-1 border-l border-r border-black mt-2 bg-gray-100 flex items-center">
-             III. <GreenLabel className="ml-1">LANGUAGE / DIALECT PROFICIENCY</GreenLabel>
+             III. <GreenLabel required className="ml-1">LANGUAGE / DIALECT PROFICIENCY</GreenLabel>
           </div>
           <table className="w-full border-collapse border border-black text-center">
             <thead>
@@ -1101,10 +1229,10 @@ export default function App() {
             <tbody>
                 <tr className="divide-x divide-black border-b border-black">
                     <td className="p-1 text-left">English</td>
-                    <td><input type="checkbox" /></td>
-                    <td><input type="checkbox" /></td>
-                    <td><input type="checkbox" /></td>
-                    <td><input type="checkbox" /></td>
+                    <td><input type="checkbox" data-nsrp-group="languageProficiency" /></td>
+                    <td><input type="checkbox" data-nsrp-group="languageProficiency" /></td>
+                    <td><input type="checkbox" data-nsrp-group="languageProficiency" /></td>
+                    <td><input type="checkbox" data-nsrp-group="languageProficiency" /></td>
                 </tr>
             </tbody>
           </table>
@@ -1125,23 +1253,23 @@ export default function App() {
             <tbody>
                 <tr className="divide-x divide-black border-b border-black">
                     <td className="w-1/4 p-1 text-left">Filipino</td>
-                    <td className="w-[18.75%]"><input type="checkbox" /></td>
-                    <td className="w-[18.75%]"><input type="checkbox" /></td>
-                    <td className="w-[18.75%]"><input type="checkbox" /></td>
-                    <td className="w-[18.75%]"><input type="checkbox" /></td>
+                    <td className="w-[18.75%]"><input type="checkbox" data-nsrp-group="languageProficiency" /></td>
+                    <td className="w-[18.75%]"><input type="checkbox" data-nsrp-group="languageProficiency" /></td>
+                    <td className="w-[18.75%]"><input type="checkbox" data-nsrp-group="languageProficiency" /></td>
+                    <td className="w-[18.75%]"><input type="checkbox" data-nsrp-group="languageProficiency" /></td>
                 </tr>
                 <tr className="divide-x divide-black border-b border-black">
-                    <td className="p-1 text-left flex">Others: <input type="text" className="w-full outline-none ml-1"/></td>
-                    <td><input type="checkbox" /></td>
-                    <td><input type="checkbox" /></td>
-                    <td><input type="checkbox" /></td>
-                    <td><input type="checkbox" /></td>
+                    <td className="p-1 text-left flex">Others: <input type="text" data-nsrp-group="languageProficiency" aria-label="Other language or N/A" placeholder="Language / N/A" className="w-full outline-none ml-1"/></td>
+                    <td><input type="checkbox" data-nsrp-group="languageProficiency" /></td>
+                    <td><input type="checkbox" data-nsrp-group="languageProficiency" /></td>
+                    <td><input type="checkbox" data-nsrp-group="languageProficiency" /></td>
+                    <td><input type="checkbox" data-nsrp-group="languageProficiency" /></td>
                 </tr>
             </tbody>
           </table>
 
           <div className="bg-gray-300 font-bold p-1 border border-black border-b-0 flex items-center">
-             IV. <GreenLabel className="ml-1">EDUCATIONAL BACKGROUND</GreenLabel>
+             IV. <GreenLabel required className="ml-1">EDUCATIONAL BACKGROUND</GreenLabel>
           </div>
           <table className="w-full border-collapse border border-black text-center mb-4">
             <thead>
@@ -1161,11 +1289,11 @@ export default function App() {
                 {['Elementary', 'Secondary', 'Tertiary', 'Graduate Studies'].map((level) => (
                     <tr key={level} className="divide-x divide-black h-8">
                         <td className="p-1 text-left">{level}</td>
-                        <td><input type="text" className="w-full outline-none text-center h-full"/></td>
-                        <td><input type="text" className="w-full outline-none text-center h-full"/></td>
-                        <td><input type="text" className="w-full outline-none text-center h-full"/></td>
-                        <td><input type="text" className="w-full outline-none text-center h-full"/></td>
-                        <td><input type="text" className="w-full outline-none text-center h-full"/></td>
+                        <td><input type="text" data-nsrp-group="educationBackground" placeholder={level === 'Elementary' ? 'Course / N/A' : undefined} aria-label={level + ' course or N/A'} className="w-full outline-none text-center h-full"/></td>
+                        <td><input type="text" data-nsrp-group="educationBackground" className="w-full outline-none text-center h-full"/></td>
+                        <td><input type="text" data-nsrp-group="educationBackground" className="w-full outline-none text-center h-full"/></td>
+                        <td><input type="text" data-nsrp-group="educationBackground" className="w-full outline-none text-center h-full"/></td>
+                        <td><input type="text" data-nsrp-group="educationBackground" className="w-full outline-none text-center h-full"/></td>
                     </tr>
                 ))}
             </tbody>
@@ -1222,7 +1350,7 @@ export default function App() {
           </table>
 
           <div className="bg-gray-300 font-bold p-1 border border-black border-b-0 flex items-center">
-             <GreenLabel>VII. WORK EXPERIENCE</GreenLabel> <span className="ml-1 font-normal">(Limit to 10 year period, start with the most recent employment)</span>
+             <GreenLabel required>VII. WORK EXPERIENCE</GreenLabel> <span className="ml-1 font-normal">(Limit to 10 year period, start with the most recent employment)</span>
           </div>
           <table className="w-full border-collapse border border-black text-center mb-4">
             <thead>
@@ -1237,38 +1365,39 @@ export default function App() {
             <tbody className="divide-y divide-black">
                 {[1, 2, 3].map((num) => (
                     <tr key={num} className="divide-x divide-black h-10">
-                        <td><input type="text" className="w-full outline-none text-center h-full px-1"/></td>
-                        <td><input type="text" className="w-full outline-none text-center h-full px-1"/></td>
-                        <td><input type="text" className="w-full outline-none text-center h-full px-1"/></td>
-                        <td><input type="text" className="w-full outline-none text-center h-full px-1"/></td>
-                        <td><input type="text" className="w-full outline-none text-center h-full px-1"/></td>
+                        <td><input type="text" data-nsrp-group="workExperience" placeholder={num === 1 ? 'Company / N/A if none' : undefined} aria-label={'Work experience company ' + num + ' or N/A'} className="w-full outline-none text-center h-full px-1"/></td>
+                        <td><input type="text" data-nsrp-group="workExperience" className="w-full outline-none text-center h-full px-1"/></td>
+                        <td><input type="text" data-nsrp-group="workExperience" className="w-full outline-none text-center h-full px-1"/></td>
+                        <td><input type="text" data-nsrp-group="workExperience" className="w-full outline-none text-center h-full px-1"/></td>
+                        <td><input type="text" data-nsrp-group="workExperience" className="w-full outline-none text-center h-full px-1"/></td>
                     </tr>
                 ))}
             </tbody>
           </table>
 
           <div className="font-bold p-1 border border-black border-b-0 flex items-center bg-gray-100">
-             <GreenLabel>VII OTHER SKILLS ACQUIRED WITHOUT FORMAL TRAINING</GreenLabel>
+             <GreenLabel required>VII OTHER SKILLS ACQUIRED WITHOUT FORMAL TRAINING</GreenLabel>
           </div>
           <div className="border border-black p-4 grid grid-cols-3 gap-y-2 text-sm mb-4">
-             <label className="flex items-center gap-2"><input type="checkbox" className="w-4 h-4"/> AUTO MECHANIC</label>
-             <label className="flex items-center gap-2"><input type="checkbox" className="w-4 h-4"/> ELECTRICIAN</label>
-             <label className="flex items-center gap-2"><input type="checkbox" className="w-4 h-4"/> PHOTOGRAPHY</label>
-             <label className="flex items-center gap-2"><input type="checkbox" className="w-4 h-4"/> BEAUTICIAN</label>
-             <label className="flex items-center gap-2"><input type="checkbox" className="w-4 h-4"/> EMBROIDERY</label>
-             <label className="flex items-center gap-2"><input type="checkbox" className="w-4 h-4"/> PLUMBING</label>
-             <label className="flex items-center gap-2"><input type="checkbox" className="w-4 h-4"/> CARPENTRY WORK</label>
-             <label className="flex items-center gap-2"><input type="checkbox" className="w-4 h-4"/> GARDENING</label>
-             <label className="flex items-center gap-2"><input type="checkbox" className="w-4 h-4"/> SEWING DRESSES</label>
-             <label className="flex items-center gap-2"><input type="checkbox" className="w-4 h-4"/> COMPUTER LITERATE</label>
-             <label className="flex items-center gap-2"><input type="checkbox" className="w-4 h-4"/> MASONRY</label>
-             <label className="flex items-center gap-2"><input type="checkbox" className="w-4 h-4"/> STENOGRAPHY</label>
-             <label className="flex items-center gap-2"><input type="checkbox" className="w-4 h-4"/> DOMESTIC CHORES</label>
-             <label className="flex items-center gap-2"><input type="checkbox" className="w-4 h-4"/> PAINTER/ARTIST</label>
-             <label className="flex items-center gap-2"><input type="checkbox" className="w-4 h-4"/> TAILORING</label>
-             <label className="flex items-center gap-2"><input type="checkbox" className="w-4 h-4"/> DRIVER</label>
-             <label className="flex items-center gap-2"><input type="checkbox" className="w-4 h-4"/> PAINTING JOBS</label>
-             <label className="flex items-center gap-2"><input type="checkbox" className="w-4 h-4"/> OTHERS:</label>
+             <label className="flex items-center gap-2"><input type="checkbox" data-nsrp-group="otherSkills" className="w-4 h-4"/> AUTO MECHANIC</label>
+             <label className="flex items-center gap-2"><input type="checkbox" data-nsrp-group="otherSkills" className="w-4 h-4"/> ELECTRICIAN</label>
+             <label className="flex items-center gap-2"><input type="checkbox" data-nsrp-group="otherSkills" className="w-4 h-4"/> PHOTOGRAPHY</label>
+             <label className="flex items-center gap-2"><input type="checkbox" data-nsrp-group="otherSkills" className="w-4 h-4"/> BEAUTICIAN</label>
+             <label className="flex items-center gap-2"><input type="checkbox" data-nsrp-group="otherSkills" className="w-4 h-4"/> EMBROIDERY</label>
+             <label className="flex items-center gap-2"><input type="checkbox" data-nsrp-group="otherSkills" className="w-4 h-4"/> PLUMBING</label>
+             <label className="flex items-center gap-2"><input type="checkbox" data-nsrp-group="otherSkills" className="w-4 h-4"/> CARPENTRY WORK</label>
+             <label className="flex items-center gap-2"><input type="checkbox" data-nsrp-group="otherSkills" className="w-4 h-4"/> GARDENING</label>
+             <label className="flex items-center gap-2"><input type="checkbox" data-nsrp-group="otherSkills" className="w-4 h-4"/> SEWING DRESSES</label>
+             <label className="flex items-center gap-2"><input type="checkbox" data-nsrp-group="otherSkills" className="w-4 h-4"/> COMPUTER LITERATE</label>
+             <label className="flex items-center gap-2"><input type="checkbox" data-nsrp-group="otherSkills" className="w-4 h-4"/> MASONRY</label>
+             <label className="flex items-center gap-2"><input type="checkbox" data-nsrp-group="otherSkills" className="w-4 h-4"/> STENOGRAPHY</label>
+             <label className="flex items-center gap-2"><input type="checkbox" data-nsrp-group="otherSkills" className="w-4 h-4"/> DOMESTIC CHORES</label>
+             <label className="flex items-center gap-2"><input type="checkbox" data-nsrp-group="otherSkills" className="w-4 h-4"/> PAINTER/ARTIST</label>
+             <label className="flex items-center gap-2"><input type="checkbox" data-nsrp-group="otherSkills" className="w-4 h-4"/> TAILORING</label>
+             <label className="flex items-center gap-2"><input type="checkbox" data-nsrp-group="otherSkills" className="w-4 h-4"/> DRIVER</label>
+             <label className="flex items-center gap-2"><input type="checkbox" data-nsrp-group="otherSkills" className="w-4 h-4"/> PAINTING JOBS</label>
+             <label className="flex items-center gap-2"><input type="checkbox" data-nsrp-group="otherSkills" className="w-4 h-4"/> OTHERS:</label>
+             <label className="flex items-center gap-2"><input type="checkbox" data-nsrp-group="otherSkills" className="w-4 h-4"/> N/A - no other skills to list</label>
           </div>
 
           <div data-testid="print-career-information" className="border border-emerald-800 p-2 text-[10px] mb-3">
@@ -1298,6 +1427,7 @@ export default function App() {
                   height={150}
                   aria-label="Draw your signature"
                   data-testid="applicant-signature-canvas"
+                  data-nsrp-required="signature"
                   onPointerDown={beginSignature}
                   onPointerMove={drawSignature}
                   onPointerUp={() => setIsSigning(false)}
@@ -1305,11 +1435,12 @@ export default function App() {
                   onLostPointerCapture={() => setIsSigning(false)}
                   className="w-full h-20 border-b border-black touch-none cursor-crosshair"
                 />
-                <span className="font-bold"><GreenLabel>Signature of Applicant</GreenLabel></span>
+                <span className="font-bold"><GreenLabel required>Signature of Applicant</GreenLabel></span>
             </div>
             <div className="flex flex-col items-center w-48">
-                <input type="date" className="w-full border-b border-black outline-none text-center" />
-                <span className="font-bold"><GreenLabel>Date</GreenLabel></span>
+                <input type="date" data-nsrp-required="signatureDate" aria-label="Signature date" aria-required="true"
+                  className="w-full border-b border-black outline-none text-center" />
+                <span className="font-bold"><GreenLabel required>Date</GreenLabel></span>
             </div>
           </div>
 

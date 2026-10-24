@@ -20,6 +20,8 @@ class _AdminExcelLivePreviewState extends State<AdminExcelLivePreview> {
   final _rows = <List<String>>[];
   bool _loading = true;
   String _selected = 'All';
+  String _selectedBarangay = 'All';
+  Map<String, int> _registrantsByBarangay = <String, int>{};
   String? _error;
   Uri? _workbookUrl;
   DateTime? _updated;
@@ -28,7 +30,7 @@ class _AdminExcelLivePreviewState extends State<AdminExcelLivePreview> {
   static const _labels = [
     'Name',
     'Email',
-    'Location',
+    'Barangay / Location',
     'Job / Preference',
     'Employer',
     'Status',
@@ -69,11 +71,12 @@ class _AdminExcelLivePreviewState extends State<AdminExcelLivePreview> {
   Future<void> _copyLiveLink() async {
     final link = _liveLink;
     if (link == null) {
-      if (mounted)
+      if (mounted) {
         AppToast.warning(
           context,
           'Online links are available from the PESO web app.',
         );
+      }
       return;
     }
     await Clipboard.setData(ClipboardData(text: link.toString()));
@@ -88,11 +91,12 @@ class _AdminExcelLivePreviewState extends State<AdminExcelLivePreview> {
   Future<void> _openLiveLink() async {
     final link = _liveLink;
     if (link == null) {
-      if (mounted)
+      if (mounted) {
         AppToast.warning(
           context,
           'Open the PESO web app to view its live spreadsheet.',
         );
+      }
       return;
     }
     final opened = await launchUrl(
@@ -169,6 +173,12 @@ class _AdminExcelLivePreviewState extends State<AdminExcelLivePreview> {
           if (_str(item['uid']).isNotEmpty && _str(item['role']) != 'admin')
             _str(item['uid']): item,
       };
+      final registrantsByBarangay = <String, int>{};
+      for (final user in byUid.values) {
+        final barangay = _str(user['barangay']).trim();
+        final label = barangay.isEmpty ? 'Unspecified' : barangay;
+        registrantsByBarangay[label] = (registrantsByBarangay[label] ?? 0) + 1;
+      }
       final applied = <String>{};
       final rows = <List<String>>[];
       for (final app in applications) {
@@ -183,11 +193,16 @@ class _AdminExcelLivePreviewState extends State<AdminExcelLivePreview> {
           _str(app['applicantEmail']).isEmpty
               ? _str(u['email'])
               : _str(app['applicantEmail']),
-          _str(u['location']),
+          _str(u['barangay']).trim().isNotEmpty
+              ? _str(u['barangay'])
+              : _str(u['location']),
           _str(app['jobTitle']),
           _str(app['employer']),
           status.isEmpty ? 'submitted' : status,
           _category(status, applied: true),
+          _str(u['barangay']).trim().isEmpty
+              ? 'Unspecified'
+              : _str(u['barangay']).trim(),
         ]);
       }
       for (final entry in byUid.entries) {
@@ -196,11 +211,16 @@ class _AdminExcelLivePreviewState extends State<AdminExcelLivePreview> {
         rows.add([
           _str(u['displayName']),
           _str(u['email']),
-          _str(u['location']),
+          _str(u['barangay']).trim().isNotEmpty
+              ? _str(u['barangay'])
+              : _str(u['location']),
           _str(u['professionalTitle']),
           '',
           'Not yet applied',
           'Not Yet Applied',
+          _str(u['barangay']).trim().isEmpty
+              ? 'Unspecified'
+              : _str(u['barangay']).trim(),
         ]);
       }
       const rank = {
@@ -225,6 +245,11 @@ class _AdminExcelLivePreviewState extends State<AdminExcelLivePreview> {
                 (candidate.scheme == 'https' || candidate.scheme == 'http')
             ? candidate
             : null;
+        _registrantsByBarangay = registrantsByBarangay;
+        if (_selectedBarangay != 'All' &&
+            !registrantsByBarangay.containsKey(_selectedBarangay)) {
+          _selectedBarangay = 'All';
+        }
         _updated = DateTime.now();
       });
     } catch (error) {
@@ -295,9 +320,21 @@ class _AdminExcelLivePreviewState extends State<AdminExcelLivePreview> {
     final screen = MediaQuery.sizeOf(context);
     final width = (screen.width - 24).clamp(300.0, 1150.0);
     final height = (screen.height * 0.84).clamp(360.0, 790.0);
-    final displayed = _selected == 'All'
+    final statusRows = _selected == 'All'
         ? _rows
         : _rows.where((row) => row[6] == _selected).toList();
+    final displayed = _selectedBarangay == 'All'
+        ? statusRows
+        : statusRows.where((row) => row.length > 7 && row[7] == _selectedBarangay).toList();
+    final barangays = _registrantsByBarangay.keys.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    final registrantTotal = _registrantsByBarangay.values.fold<int>(0, (sum, count) => sum + count);
+    String barangayOptionLabel(String barangay) {
+      final count = _registrantsByBarangay[barangay] ?? 0;
+      return barangay == 'Unspecified'
+          ? '$barangay ($count)'
+          : 'Brgy. $barangay ($count)';
+    }
 
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
@@ -360,6 +397,59 @@ class _AdminExcelLivePreviewState extends State<AdminExcelLivePreview> {
                       selected: _selected == choice,
                       onSelected: (_) => setState(() => _selected = choice),
                     ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+              child: Wrap(
+                spacing: 12,
+                runSpacing: 6,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Text(
+                    [
+                      '$registrantTotal registered jobseekers • ',
+                      _registrantsByBarangay.length.toString(),
+                      ' barangay groups',
+                    ].join(),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF236349),
+                    ),
+                  ),
+                  ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: (screen.width - 52).clamp(220.0, 360.0),
+                    ),
+                    child: DropdownButton<String>(
+                      value: _registrantsByBarangay.containsKey(_selectedBarangay) ||
+                              _selectedBarangay == 'All'
+                          ? _selectedBarangay
+                          : 'All',
+                      isExpanded: true,
+                      hint: const Text('Filter by barangay'),
+                      items: [
+                        const DropdownMenuItem(
+                          value: 'All',
+                          child: Text('All barangays'),
+                        ),
+                        for (final barangay in barangays)
+                          DropdownMenuItem(
+                            value: barangay,
+                            child: Text(
+                              barangayOptionLabel(barangay),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
+                      onChanged: (value) => setState(
+                        () => _selectedBarangay = value ?? 'All',
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),

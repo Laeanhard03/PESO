@@ -8,6 +8,9 @@ const STATUS_LABELS = Object.freeze({
   matched: 'Matched',
   accepted: 'Accepted',
   rejected: 'Needs Support (not selected)',
+  not_matched: 'Needs Support (not selected)',
+  ongoing: 'Ongoing',
+  action_required: 'Action Required',
 });
 
 const ANSWER_COLUMNS = Object.freeze([
@@ -40,6 +43,7 @@ const COLUMNS = Object.freeze([
   'Job Title', 'Employer', 'Job Location', 'Match Score', 'Application Status',
   'Pipeline Category', 'Submitted Date', 'Registered Date',
   ...ANSWER_COLUMNS.map(([, label]) => label),
+  'Additional screening responses',
 ]);
 
 function excelSafe(value) {
@@ -80,7 +84,7 @@ export function buildAdminWorkbookRows({ profiles = [], applications = [] } = {}
     rows.push([
       excelSafe(app.applicantName || profile.displayName || profile.email || ''),
       excelSafe(app.email || profile.email),
-      excelSafe(profile.location || app.location || ''),
+      excelSafe(profile.barangay || profile.location || app.location || ''),
       excelSafe(profile.phoneNumber),
       Number.isFinite(Number(profile.yearsExperience)) && String(profile.yearsExperience ?? '') !== ''
         ? Number(profile.yearsExperience) : '',
@@ -92,6 +96,9 @@ export function buildAdminWorkbookRows({ profiles = [], applications = [] } = {}
       excelSafe(when(app.submittedAt)),
       excelSafe(when(profile.createdAt)),
       ...ANSWER_COLUMNS.map(([key]) => excelSafe(answerData[key])),
+      excelSafe(Object.entries(answerData)
+        .filter(([key]) => !ANSWER_COLUMNS.some(([name]) => name === key))
+        .map(([key, value]) => key + ': ' + String(value ?? '')).join('\n')),
     ]);
     if (uid) matchedUids.add(uid);
   }
@@ -103,13 +110,13 @@ export function buildAdminWorkbookRows({ profiles = [], applications = [] } = {}
         [profile.firstName, profile.lastName].filter(Boolean).join(' ') ||
         profile.email || ''),
       excelSafe(profile.email),
-      excelSafe(profile.location),
+      excelSafe(profile.barangay || profile.location),
       excelSafe(profile.phoneNumber),
       Number.isFinite(Number(profile.yearsExperience)) && String(profile.yearsExperience ?? '') !== ''
         ? Number(profile.yearsExperience) : '',
       excelSafe(profile.professionalTitle || ''),
       '', '', '', 'Not Yet Applied', 'Not Yet Applied', '',
-      excelSafe(when(profile.createdAt)), ...ANSWER_COLUMNS.map(() => ''),
+      excelSafe(when(profile.createdAt)), ...ANSWER_COLUMNS.map(() => ''), '',
     ]);
   }
 

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'admin_excel_live_preview.dart';
 import 'admin_pdf_link_ingestion.dart';
 
@@ -14,6 +15,7 @@ import 'admin_user_management_section.dart';
 import 'admin_applicant_document_viewer.dart';
 import 'job_applications_section.dart';
 import 'job_management_section.dart';
+import 'admin_landing_content_section.dart';
 import 'gemini_api_key_management_section.dart';
 import '../../peso_services/app_toast.dart';
 
@@ -148,59 +150,67 @@ enum AdminTab {
   export,
   geminiKeys,
   platform,
+  siteContent,
 }
 
-class _NavItem {
+class NavItem {
   final AdminTab tab;
   final String label;
   final IconData icon;
   final String title;
   final String description;
-  const _NavItem(this.tab, this.label, this.icon, this.title, this.description);
+  const NavItem(this.tab, this.label, this.icon, this.title, this.description);
 }
 
-const List<_NavItem> kNavItems = [
-  _NavItem(
+const List<NavItem> kNavItems = [
+  NavItem(
     AdminTab.analytics,
     'Applicant Analytics',
     Icons.insights_outlined,
     'Applicant Analytics',
     'Job seeker registrations and resume-based job matching outcomes across Montalban barangays.',
   ),
-  _NavItem(
+  NavItem(
     AdminTab.users,
     'User Management',
     Icons.manage_accounts_outlined,
     'Job Seeker Accounts',
     "Review Firebase Authentication accounts with profile fields stored in MongoDB through the trusted PESO API.",
   ),
-  _NavItem(
+  NavItem(
     AdminTab.concerns,
     'Concerns & Feedback',
     Icons.forum_outlined,
     'Concerns & Feedback',
     'Messages from job seekers who were not matched to a job, and other concerns they raised.',
   ),
-  _NavItem(
+  NavItem(
     AdminTab.jobs,
     'Jobs & Sources',
     Icons.work_outline,
     'Jobs & PDF Sources',
     'Manage existing job postings and review verified recruitment PDF links.',
   ),
-  _NavItem(
+  NavItem(
     AdminTab.applications,
     'Recruitment Pipeline',
     Icons.assignment_outlined,
     'Applications & DOLE Records',
     'Review job applications and access live DOLE SPRS export records.',
   ),
-  _NavItem(
+  NavItem(
     AdminTab.geminiKeys,
     'AI & Platform',
     Icons.tune_outlined,
     'AI Configuration & Platform',
     'Manage Gemini API keys, model matching preferences, and platform statistics.',
+  ),
+  NavItem(
+    AdminTab.siteContent,
+    'Landing Content',
+    Icons.photo_library_outlined,
+    'Landing Page Content',
+    'Manage public PESO gallery photos and employer-partner logos without changing code.',
   ),
 ];
 
@@ -399,8 +409,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
   DateTime _dateValue(Object? value) {
     if (value is DateTime) return value;
-    if (value is String)
+    if (value is String) {
       return DateTime.tryParse(value) ?? DateTime.fromMillisecondsSinceEpoch(0);
+    }
     return DateTime.fromMillisecondsSinceEpoch(0);
   }
 
@@ -507,10 +518,10 @@ class _AdminDashboardState extends State<AdminDashboard> {
       for (final data in profiles) {
         final displayName = _text(data['displayName']).trim().isNotEmpty
             ? _text(data['displayName']).trim()
-            : (_text(data['firstName']).trim() +
-                      ' ' +
-                      _text(data['lastName']).trim())
-                  .trim();
+            : <String>[
+                _text(data['firstName']).trim(),
+                _text(data['lastName']).trim(),
+              ].where((part) => part.isNotEmpty).join(' ');
         applicants.add(
           Applicant(
             uid: _text(data['uid']),
@@ -518,7 +529,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
             name: displayName.isNotEmpty
                 ? displayName
                 : _orText(data['email'], 'Unnamed user'),
-            barangay: _orText(data['location'], 'Unspecified'),
+            barangay: _orText(data['barangay'], _orText(data['location'], 'Unspecified')),
             targetJob: _orText(data['professionalTitle'], 'Not specified'),
             registeredDate: _dateValue(
               data['createdAt'] ?? data['lastSignInAt'],
@@ -557,7 +568,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
       if (mounted) {
         setState(() => _adminProfileLoadError = error.message);
       }
-      debugPrint('[ADMIN] PESO API profile load failed: ' + error.code);
+      debugPrint(['[ADMIN] PESO API profile load failed: ', error.code].join());
     } catch (error) {
       if (mounted) {
         setState(
@@ -658,10 +669,11 @@ class _AdminDashboardState extends State<AdminDashboard> {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) {
-        if (mounted)
+        if (mounted) {
           setState(
             () => _adminGateError = 'No Firebase session is active. Sign in below with your administrator account.',
           );
+        }
         return;
       }
       if (!await _confirmMongoAdminRole()) return;
@@ -673,10 +685,11 @@ class _AdminDashboardState extends State<AdminDashboard> {
       });
       await _loadAdminDashboardProfiles();
     } catch (_) {
-      if (mounted)
+      if (mounted) {
         setState(
           () => _adminGateError = 'Firebase could not verify the current session. Sign in below and retry.',
         );
+      }
     } finally {
       if (mounted) setState(() => _isVerifyingAdmin = false);
     }
@@ -702,11 +715,12 @@ class _AdminDashboardState extends State<AdminDashboard> {
       );
       final user = credential.user;
       if (user == null) {
-        if (mounted)
+        if (mounted) {
           setState(
             () => _adminGateError =
                 'Firebase could not confirm the signed-in account.',
           );
+        }
         return;
       }
       if (!await _confirmMongoAdminRole()) return;
@@ -739,11 +753,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
   }
 
   Future<void> _leaveAdminGate() async {
-    try {
-      await FirebaseAuth.instance.signOut();
-    } catch (_) {
-      // Firebase may not be initialized when the local preview is opened.
-    }
+    // Returning to the PESO landing page is navigation, not an explicit logout.
+    // The signed-in Firebase identity remains available to resume a workspace.
     if (!mounted) return;
     Navigator.pushAndRemoveUntil(
       context,
@@ -977,29 +988,50 @@ class _AdminDashboardState extends State<AdminDashboard> {
   }
 
   Future<void> _logout() async {
+    if (_isLoggingOut || !mounted) return;
     setState(() => _isLoggingOut = true);
     try {
       await FirebaseAuth.instance.signOut();
-    } catch (error) {
-      debugPrint('[ADMIN] Firebase sign-out failed: $error');
+    } catch (_) {
+      if (mounted) {
+        setState(() => _isLoggingOut = false);
+        AppToast.error(
+          context,
+          'Could not sign out. Check your connection and retry.',
+        );
+      }
+      return;
     }
-    await Future.delayed(const Duration(milliseconds: 1400));
     if (!mounted) return;
-    Navigator.pushReplacement(
-      context,
+    Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const LandingPage()),
+      (_) => false,
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    if (!_firebaseAdminVerified) return _buildAdminSecurityGate();
+    if (!_firebaseAdminVerified) {
+      return PopScope<Object?>(
+        canPop: false,
+        // Browser/system Back must not sign out the existing Firebase user.
+        // The security gate provides an explicit Back to PESO home action.
+        child: _buildAdminSecurityGate(),
+      );
+    }
     final navItem = kNavItems.firstWhere((n) => n.tab == _activeTab);
     final unresolvedConcerns = _concerns.where((c) => !c.resolved).length;
     final badgeCounts = <AdminTab, int>{
       if (unresolvedConcerns > 0) AdminTab.concerns: unresolvedConcerns,
     };
-    return LayoutBuilder(
+    return PopScope<Object?>(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop && _activeTab != AdminTab.analytics) {
+          setState(() => _activeTab = AdminTab.analytics);
+        }
+      },
+      child: LayoutBuilder(
       builder: (context, constraints) {
         final isWide = constraints.maxWidth >= 980;
         return Scaffold(
@@ -1078,7 +1110,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
             ],
           ),
         );
-      },
+        },
+      ),
     );
   }
 
@@ -1166,6 +1199,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
         );
       case AdminTab.platform:
         return PlatformAnalyticsSection(applicants: _applicants);
+      case AdminTab.siteContent:
+        return const AdminLandingContentSection();
     }
   }
 
@@ -1596,7 +1631,7 @@ class _SectionCard extends StatelessWidget {
                     ),
                   ],
                 ),
-                if (trailing != null) trailing!,
+                ?trailing,
               ],
             ),
           if (title != null) const SizedBox(height: 18),
@@ -2750,7 +2785,7 @@ class _ApplicantAnalyticsSectionState extends State<ApplicantAnalyticsSection> {
                 child: DataTable(
                   dataRowMinHeight: 52,
                   dataRowMaxHeight: 70,
-                  headingRowColor: MaterialStateProperty.all(_C.slate100),
+                  headingRowColor: WidgetStateProperty.all(_C.slate100),
                   columns: const [
                     DataColumn(label: Text('Job Seeker')),
                     DataColumn(label: Text('Barangay')),
@@ -3186,12 +3221,49 @@ class _DoleSprsExportSectionState extends State<DoleSprsExportSection> {
   }
 
   final Set<int> _handedOff = {};
+  bool _sendingEmail = false;
 
   Future<void> _viewExcelOnline() async {
     await showDialog<void>(
       context: context,
       builder: (_) => const AdminExcelLivePreview(),
     );
+  }
+
+  Future<void> _emailExcelToPeso() async {
+    if (_sendingEmail) return;
+    setState(() => _sendingEmail = true);
+    try {
+      final response = await PesoApiClient.adminEmailApplicantWorkbook();
+      if (!mounted) return;
+      final recipient = response['recipient']?.toString() ?? 'the configured PESO email';
+      AppToast.show(
+        context,
+        'Excel report sent to $recipient.',
+        kind: AppToastKind.success,
+        icon: Icons.mark_email_read_outlined,
+      );
+    } on PesoApiException catch (error) {
+      if (mounted) {
+        AppToast.show(
+          context,
+          error.message,
+          kind: AppToastKind.error,
+          icon: Icons.error_outline_rounded,
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        AppToast.show(
+          context,
+          'Could not email the Excel report. Check the mail-server configuration and retry.',
+          kind: AppToastKind.error,
+          icon: Icons.error_outline_rounded,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _sendingEmail = false);
+    }
   }
 
   void _handoff() {
@@ -3269,6 +3341,22 @@ class _DoleSprsExportSectionState extends State<DoleSprsExportSection> {
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
+                      ),
+                    ),
+                    OutlinedButton.icon(
+                      key: const Key('admin-email-applicant-report'),
+                      onPressed: _sendingEmail ? null : _emailExcelToPeso,
+                      icon: _sendingEmail
+                          ? const SizedBox(width: 15, height: 15, child: CircularProgressIndicator(strokeWidth: 2))
+                          : const Icon(Icons.email_outlined, size: 15),
+                      label: Text(
+                        _sendingEmail ? 'Sending Excel...' : 'Email Excel to PESO',
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: _C.primary,
+                        side: const BorderSide(color: _C.primary),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                     ),
                     // Secondary: Handoff to PESO Admin (behavior unchanged)

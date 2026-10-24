@@ -5,6 +5,7 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
 import dotenv from 'dotenv';
+import nodemailer from 'nodemailer';
 import express from 'express';
 import { applicationDefault, cert, getApps, initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
@@ -25,6 +26,8 @@ import {
 } from './src/public-pdf-ai-listings.js';
 import { installPublicPdfRoutes } from './src/public-pdf-routes.js';
 import { generateAdminWorkbookBuffer } from './src/admin-excel-report.js';
+import { sanitizeLandingSiteContent } from './src/landing-site-content.js';
+import { sendAdminWorkbookEmail } from './src/admin-report-email.js';
 import { jobTranslationSource, readSafeTranslation, safeTranslationLanguage, translationPrompt } from './src/job-translation.js';
 import { evaluateProfileAgainstJobs, normalizeApplicantProfile, verifyGeminiFacts } from './src/mini-ai-service.js';
 import { CAREER_FIELDS } from './src/occupation-categories.js';
@@ -288,6 +291,7 @@ app.use((req, res, next) => {
   if (req.method === 'OPTIONS' || !req.path.startsWith('/api/') ||
       req.path === '/api/residency/barangays' ||
       req.path.startsWith('/api/auth/sms/') ||
+      req.path.startsWith('/api/auth/password-reset/sms/') ||
       req.path.startsWith('/api/password-reset/sms/')) return next();
   if (state.mongoConnected && state.db && state.bucket) return next();
   // Injected test identity verifiers use an isolated mock database. Never
@@ -1134,6 +1138,62 @@ app.patch('/api/admin/jobs/:id/status', requireAuth, requireAdmin, requireMongo,
   }
 });
 
+// Public content is presentation-only. Admin writes require both a valid
+// Firebase identity and the MongoDB-backed IT Admin role.
+async function readLandingSiteContent() {
+  const saved = await state.db.collection('landingSiteContent').findOne({ key: 'home' });
+  return {
+    gallery: Array.isArray(saved?.gallery) ? saved.gallery : [],
+    partners: Array.isArray(saved?.partners) ? saved.partners : [],
+    updatedAt: saved?.updatedAt instanceof Date ? saved.updatedAt.toISOString() : null,
+  };
+}
+
+app.get('/api/public/site-content', requireMongo, async (_req, res, next) => {
+  try {
+    res.set('Cache-Control', 'no-store');
+    return res.json({ ok: true, ...(await readLandingSiteContent()) });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+app.get('/api/admin/site-content', requireAuth, requireAdmin, requireMongo, async (_req, res, next) => {
+  try {
+    return res.json({ ok: true, ...(await readLandingSiteContent()) });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+app.put('/api/admin/site-content', requireAuth, requireAdmin, requireMongo, async (req, res, next) => {
+  try {
+    let content;
+    try {
+      content = sanitizeLandingSiteContent(req.body);
+    } catch (error) {
+      return res.status(400).json({
+        ok: false,
+        error: 'landing_site_content_invalid',
+        message: String(error?.message || 'Check the gallery and partner entries.').slice(0, 240),
+      });
+    }
+    const updatedAt = new Date();
+    await state.db.collection('landingSiteContent').updateOne(
+      { key: 'home' },
+      { $set: { key: 'home', ...content, updatedAt, updatedBy: req.user.uid } },
+      { upsert: true },
+    );
+    return res.json({
+      ok: true,
+      ...content,
+      updatedAt: updatedAt.toISOString(),
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 // Public registration constants. A selected barangay is a claim, not proof of residency.
 app.get('/api/residency/barangays', (_req, res) => res.json({
   ok: true, municipality: 'Montalban', province: 'Rizal',
@@ -1866,6 +1926,35 @@ async function buildApplicationsWorkbook() {
   ]);
   return generateAdminWorkbookBuffer({ applications, profiles });
 }
+
+app.post('/api/admin/applications/email-report', requireAuth, requireAdmin, requireMongo, async (_req, res, next) => {
+  try {
+    const workbook = await buildApplicationsWorkbook();
+    try {
+      const delivery = await sendAdminWorkbookEmail({ workbook, mailer: nodemailer });
+      return res.json({
+        ok: true,
+        recipient: delivery.recipient,
+        sentAt: delivery.sentAt,
+      });
+    } catch (error) {
+      const code = String(error?.code || '');
+      const configError = code === 'email_delivery_not_configured' ||
+        code === 'email_configuration_invalid' ||
+        code === 'email_transport_unavailable' ||
+        code === 'email_workbook_invalid';
+      return res.status(configError ? 503 : 502).json({
+        ok: false,
+        error: configError ? code : 'email_delivery_failed',
+        message: configError
+          ? String(error?.message || 'Configure the PESO email delivery settings and retry.')
+          : 'The Excel report could not be emailed. Check the configured SMTP service and retry.',
+      });
+    }
+  } catch (error) {
+    return next(error);
+  }
+});
 
 app.post('/api/admin/applications/export-link', requireAuth, requireAdmin, requireMongo, async (req, res, next) => {
   try {

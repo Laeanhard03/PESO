@@ -18,7 +18,16 @@ void main() {
         await tester.pump(const Duration(milliseconds: 250));
         expect(find.text('Live Applicant Register'), findsOneWidget);
         expect(find.text('Successful'), findsWidgets);
-        expect(tester.takeException(), isNull);
+        expect(find.text('All barangays'), findsOneWidget);
+        expect(find.textContaining('registered jobseekers'), findsOneWidget);
+        final layoutException = tester.takeException();
+        if (layoutException is FlutterError) {
+          debugPrint(layoutException.toString());
+          for (final diagnostic in layoutException.diagnostics) {
+            debugPrint(diagnostic.toString());
+          }
+        }
+        expect(layoutException, isNull);
       },
     );
 

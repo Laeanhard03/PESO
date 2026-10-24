@@ -88,6 +88,7 @@ class _UserProfileState extends State<UserProfile> {
   List<Map<String, dynamic>> _profileArtifacts = <Map<String, dynamic>>[];
   ProfileArtifactInput? _pendingResumeExtraction;
   String _selectedJobCategory = PesoJobCategories.all;
+  String _selectedJobCompany = '';
   final TextEditingController _jobSearchController = TextEditingController();
   String _jobSearchQuery = '';
   final Map<String, Map<String, dynamic>> _jobTranslationCache = {};
@@ -172,6 +173,27 @@ class _UserProfileState extends State<UserProfile> {
     });
   }
 
+  Future<void> _logoutAndReturnToLanding() async {
+    if (_isLoggingOut || !mounted) return;
+    setState(() => _isLoggingOut = true);
+    try {
+      await AuthService.signOut();
+    } catch (_) {
+      if (mounted) {
+        setState(() => _isLoggingOut = false);
+        AppToast.error(
+          context,
+          'Could not sign out. Check your connection and retry.',
+        );
+      }
+      return;
+    }
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const LandingPage()),
+      (_) => false,
+    );
+  }
   Future<void> _welcomeNewApplicant() async {
     if (!mounted) return;
     final chosen = await showDialog<String>(
@@ -317,8 +339,9 @@ class _UserProfileState extends State<UserProfile> {
         .toList();
   }
 
-  List<Map<String, dynamic>> _filteredAvailableJobs([String? category]) {
+  List<Map<String, dynamic>> _filteredAvailableJobs([String? category, String? company]) {
     final selectedCategory = category ?? _selectedJobCategory;
+    final selectedCompany = company ?? _selectedJobCompany;
     final query = _jobSearchQuery.trim().toLowerCase();
     const filipinoRoleNames = <String, String>{
       'karpintero': 'carpenter',
@@ -347,6 +370,11 @@ class _UserProfileState extends State<UserProfile> {
               selectedCategory == PesoJobCategories.all ||
               job['category']?.toString() == selectedCategory,
         )
+        .where((job) {
+          if (selectedCompany.isEmpty) return true;
+          return (job['company']?.toString().trim() ?? '').toLowerCase() ==
+              selectedCompany.trim().toLowerCase();
+        })
         .where((job) {
           if (query.isEmpty) return true;
           final cached =
@@ -860,10 +888,14 @@ class _UserProfileState extends State<UserProfile> {
 
   Future<void> _showRequiredOnboarding() async {
     if (!mounted || !_welcomeFinished || _onboardingModalShown ||
-        _accountDocuments.isEmpty) return;
+        _accountDocuments.isEmpty) {
+      return;
+    }
     final resumeMissing = _accountDocuments['resumeSubmitted'] != true;
     final nsrpMissing = _accountDocuments['formSubmitted'] != true;
-    if (!resumeMissing && !nsrpMissing) return;
+    if (!resumeMissing && !nsrpMissing) {
+      return;
+    }
     _onboardingModalShown = true;
     final choice = await showDialog<String>(
       context: context, barrierDismissible: false,
@@ -975,8 +1007,12 @@ class _UserProfileState extends State<UserProfile> {
         unawaited(_retryAiExtraction());
       }
     } catch (_) {
-      if (mounted) AppToast.error(context,
-        'Could not sync the resume. Your encrypted draft remains available.');
+      if (mounted) {
+        AppToast.error(
+          context,
+          'Could not sync the resume. Your encrypted draft remains available.',
+        );
+      }
     }
   }
 
@@ -1257,8 +1293,12 @@ class _UserProfileState extends State<UserProfile> {
           bytes[0] == 0xff && bytes[1] == 0xd8 && bytes[2] == 0xff;
       if (bytes == null || bytes.length > ProfileArtifactService.maxArtifactBytes ||
           !(validPdf || (category != 'nsrp_form' && (validPng || validJpg)))) {
-        if (mounted) AppToast.error(context,
-          'Choose a PDF/JPG/PNG resume under 20 MB or a PDF for NSRP.');
+        if (mounted) {
+          AppToast.error(
+            context,
+            'Choose a PDF/JPG/PNG resume under 20 MB or a PDF for NSRP.',
+          );
+        }
         return false;
       }
       final newCategory = category == 'nsrp_form'
@@ -1489,8 +1529,17 @@ class _UserProfileState extends State<UserProfile> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF3F7F4),
+    return PopScope<Object?>(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        // Back returns to the job feed without revoking the user's session.
+        // Only the visible Logout actions call _logoutAndReturnToLanding.
+        if (!didPop && _selectedIndex != 0) {
+          setState(() => _selectedIndex = 0);
+        }
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF3F7F4),
       body: Stack(
         children: [
           Column(
@@ -1525,6 +1574,7 @@ class _UserProfileState extends State<UserProfile> {
           ),
           if (_isLoggingOut) _buildLogoutOverlay(),
         ],
+      ),
       ),
     );
   }
@@ -1604,19 +1654,7 @@ class _UserProfileState extends State<UserProfile> {
                 } else if (value == 4) {
                   setState(() => _selectedIndex = 4);
                 } else {
-                  setState(() => _isLoggingOut = true);
-                  try {
-                    await AuthService.signOut();
-                  } catch (error) {
-                    debugPrint('[AUTH] Sign-out issue: $error');
-                  }
-                  if (mounted) {
-                    Navigator.pushAndRemoveUntil(
-                      context,
-                      MaterialPageRoute(builder: (_) => const LandingPage()),
-                      (route) => false,
-                    );
-                  }
+                  await _logoutAndReturnToLanding();
                 }
               },
               itemBuilder: (context) => const [
@@ -1771,19 +1809,7 @@ class _UserProfileState extends State<UserProfile> {
                 color: Colors.redAccent,
                 tooltip: 'Logout',
                 onPressed: () async {
-                  setState(() => _isLoggingOut = true);
-                  try {
-                    await AuthService.signOut();
-                  } catch (error) {
-                    debugPrint('[AUTH] Sign-out issue: $error');
-                  }
-                  if (mounted) {
-                    Navigator.pushAndRemoveUntil(
-                      context,
-                      MaterialPageRoute(builder: (_) => const LandingPage()),
-                      (route) => false,
-                    );
-                  }
+                  await _logoutAndReturnToLanding();
                 },
               ),
             ],
@@ -1908,6 +1934,7 @@ class _UserProfileState extends State<UserProfile> {
           onSearchChanged: (query) {
             setState(() {
               _jobSearchQuery = query;
+              _selectedJobCompany = '';
               final visible = _filteredAvailableJobs();
               _selectedJob = visible.isEmpty ? null : visible.first;
               _hasManuallySelectedJob = false;
@@ -1918,13 +1945,30 @@ class _UserProfileState extends State<UserProfile> {
           newRegistration: widget.newRegistration,
           selectedCategory: _selectedJobCategory,
           onCategoryChanged: (category) {
-            final visible = _filteredAvailableJobs(category);
+            final visible = _filteredAvailableJobs(category, '');
             setState(() {
               _selectedJobCategory = category;
+              _selectedJobCompany = '';
               _selectedJob = visible.isEmpty ? null : visible.first;
               _hasManuallySelectedJob = false;
             });
             unawaited(_loadJobPostings());
+          },
+          companyOptions: _availableJobs
+              .where(PesoJobCategories.isVisible)
+              .map((job) => job['company']?.toString().trim() ?? '')
+              .where((name) => name.isNotEmpty)
+              .toSet()
+              .toList()
+            ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase())),
+          selectedCompany: _selectedJobCompany,
+          onCompanyChanged: (company) {
+            final visible = _filteredAvailableJobs(null, company);
+            setState(() {
+              _selectedJobCompany = company;
+              _selectedJob = visible.isEmpty ? null : visible.first;
+              _hasManuallySelectedJob = false;
+            });
           },
           selectedJob: _selectedJob,
           detailsAnchor: _jobDetailsAnchor,

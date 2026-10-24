@@ -14,7 +14,11 @@ before(async () => {
 });
 
 after(async () => {
-  if (server) await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  if (!server) return;
+  const closed = new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  // undici fetch can leave keep-alive connections open; close them so node --test exits.
+  server.closeAllConnections?.();
+  await closed;
 });
 
 test('all legacy SMS auth and SMS password-reset routes are no longer mounted', async () => {

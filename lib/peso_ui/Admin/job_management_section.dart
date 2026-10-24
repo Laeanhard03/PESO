@@ -605,6 +605,14 @@ class _JobManagementSectionState extends State<JobManagementSection> {
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
+                            DropdownMenuItem(
+                              value: PesoJobCategories.seap,
+                              child: Text('SEAP Program', maxLines: 1, overflow: TextOverflow.ellipsis),
+                            ),
+                            DropdownMenuItem(
+                              value: PesoJobCategories.gip,
+                              child: Text('Government Internship Program (GIP)', maxLines: 1, overflow: TextOverflow.ellipsis),
+                            ),
                           ],
                           onChanged: _saving
                               ? null
@@ -623,9 +631,9 @@ class _JobManagementSectionState extends State<JobManagementSection> {
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Text(
-                            _category == PesoJobCategories.walkInApplication
-                                ? 'Walk-in Application: remains listed until an Admin deactivates it. No automatic expiration.'
-                                : 'Local Recruitment Activity: expires at the end of the final scheduled recruitment day (11:59 PM Philippine time).',
+                            _category == PesoJobCategories.localRecruitmentActivity
+                                ? 'Local Recruitment Activity: expires at the end of the final scheduled recruitment day (11:59 PM Philippine time).'
+                                : '${PesoJobCategories.label(_category)}: remains listed until an Admin deactivates it. No automatic expiration.',
                             style: const TextStyle(
                               color: Color(0xFF1E40AF),
                               height: 1.4,

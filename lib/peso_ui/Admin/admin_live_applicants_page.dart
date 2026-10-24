@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -135,6 +137,25 @@ class _AdminLiveApplicantsPageState extends State<AdminLiveApplicantsPage> {
         : FirebaseAuth.instance.signInWithProvider(provider);
   });
 
+  Future<void> _returnToPeso() async {
+    if (FirebaseAuth.instance.currentUser != null) {
+      try {
+        await AuthService.signOut();
+      } catch (_) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Could not sign out. Check your connection and retry.')),
+          );
+        }
+        return;
+      }
+    }
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const LandingPage()),
+      (route) => false,
+    );
+  }
   Widget _buildLogin() => Center(
     child: SingleChildScrollView(
       padding: const EdgeInsets.all(20),
@@ -216,14 +237,8 @@ class _AdminLiveApplicantsPageState extends State<AdminLiveApplicantsPage> {
                   ),
                   const SizedBox(height: 8),
                   TextButton(
-                    onPressed: _signingIn
-                        ? null
-                        : () => Navigator.of(context).pushReplacement(
-                            MaterialPageRoute(
-                              builder: (_) => const LandingPage(),
-                            ),
-                          ),
-                    child: const Text('Return to PESO'),
+                    onPressed: _signingIn ? null : _returnToPeso,
+                    child: const Text('Sign out and return to PESO'),
                   ),
                 ],
               ),
@@ -235,28 +250,34 @@ class _AdminLiveApplicantsPageState extends State<AdminLiveApplicantsPage> {
   );
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    backgroundColor: const Color(0xFFF0F6F2),
-    appBar: AppBar(
-      backgroundColor: Colors.white,
-      title: const Text('PESO Live Applicant Spreadsheet'),
-      leading: IconButton(
-        tooltip: 'Return to PESO',
-        icon: const Icon(Icons.arrow_back),
-        onPressed: () => Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const LandingPage()),
+  Widget build(BuildContext context) {
+    final hasSignedInIdentity = FirebaseAuth.instance.currentUser != null;
+    return PopScope<Object?>(
+      canPop: !hasSignedInIdentity,
+      // Keep the authenticated session intact on browser/system Back.
+      // The labelled sign-out control is the deliberate logout action.
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF0F6F2),
+        appBar: AppBar(
+          backgroundColor: Colors.white,
+          title: const Text('PESO Live Applicant Spreadsheet'),
+          leading: IconButton(
+            tooltip: 'Sign out and return to PESO',
+            icon: const Icon(Icons.arrow_back),
+            onPressed: _returnToPeso,
+          ),
+        ),
+        body: FutureBuilder<bool>(
+          future: _authorized,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.data != true) return _buildLogin();
+            return const Center(child: AdminExcelLivePreview());
+          },
         ),
       ),
-    ),
-    body: FutureBuilder<bool>(
-      future: _authorized,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState != ConnectionState.done) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (snapshot.data != true) return _buildLogin();
-        return const Center(child: AdminExcelLivePreview());
-      },
-    ),
-  );
+    );
+  }
 }

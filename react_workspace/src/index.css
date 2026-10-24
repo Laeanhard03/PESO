@@ -1,7 +1,9 @@
 @import "tailwindcss";
 
 /* Applicant-only validation is shown only after attempting to continue. */
-[data-applicant-field][data-validation-error] {
+[data-applicant-field][data-validation-error],
+[data-nsrp-required][data-validation-error],
+[data-nsrp-group][data-validation-error] {
   background-color: #fff7ed !important;
   outline: 3px solid #ef4444 !important;
   outline-offset: 2px;

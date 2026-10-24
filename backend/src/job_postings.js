@@ -1,5 +1,7 @@
 const WALK_IN = 'walk_in_application';
 const LOCAL_RECRUITMENT_ACTIVITY = 'local_recruitment_activity';
+const SEAP = 'seap';
+const GIP = 'gip';
 const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
 
 // A scheduled recruitment day closes at 23:59:59.999 Philippine time.
@@ -22,6 +24,8 @@ function manilaDateString(value) {
 export const JOB_POSTING_CATEGORIES = Object.freeze({
   WALK_IN,
   LOCAL_RECRUITMENT_ACTIVITY,
+  SEAP,
+  GIP,
 });
 
 function invalid(message) {
@@ -52,8 +56,8 @@ export function createJobPostingRecord(body, createdBy, now = new Date()) {
   }
 
   const category = String(body.category || '').trim();
-  if (![WALK_IN, LOCAL_RECRUITMENT_ACTIVITY].includes(category)) {
-    throw invalid('Choose Walk-in Application or Local Recruitment Activity.');
+  if (![WALK_IN, LOCAL_RECRUITMENT_ACTIVITY, SEAP, GIP].includes(category)) {
+    throw invalid('Choose Walk-in Application, Local Recruitment Activity, SEAP, or GIP.');
   }
 
   const vacancies = Number(body.vacancies ?? 1);

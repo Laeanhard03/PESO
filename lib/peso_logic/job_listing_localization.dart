@@ -35,6 +35,11 @@ String localizedJobHeading(String heading, String language) {
       'Lokal na recruitment (LRA)',
       'Local Recruitment Activity (LRA)',
     ],
+    'SEAP Program': ['Programa ng SEAP', 'SEAP Program'],
+    'Government Internship Program (GIP)': [
+      'Government Internship Program (GIP)',
+      'Government Internship Program (GIP)',
+    ],
     'All jobs': ['Lahat ng trabaho', 'All jobs'],
     'Your career workspace': [
       'Iyong lugar para sa paghahanap ng trabaho',

@@ -6,6 +6,28 @@ void main() {
     test('labels both categories', () {
       expect(PesoJobCategories.label(PesoJobCategories.walkInApplication), 'Walk-in Application');
       expect(PesoJobCategories.label(PesoJobCategories.localRecruitmentActivity), 'Local Recruitment Activity');
+      expect(PesoJobCategories.label(PesoJobCategories.seap), 'SEAP Program');
+      expect(PesoJobCategories.label(PesoJobCategories.gip), 'Government Internship Program (GIP)');
+      expect(PesoJobCategories.choices, containsAll([
+        PesoJobCategories.walkInApplication,
+        PesoJobCategories.localRecruitmentActivity,
+        PesoJobCategories.seap,
+        PesoJobCategories.gip,
+      ]));
+    });
+
+    test('SEAP and GIP postings remain visible until an Admin deactivates them', () {
+      for (final category in [PesoJobCategories.seap, PesoJobCategories.gip]) {
+        final job = <String, dynamic>{
+          'category': category,
+          'status': 'active',
+          'createdAt': '2020-01-01T00:00:00.000Z',
+        };
+        expect(PesoJobCategories.effectiveExpiryAt(job), isNull);
+        expect(PesoJobCategories.isVisible(job, now: DateTime(2035, 1, 1)), isTrue);
+        expect(PesoJobCategories.expiryText(job, now: DateTime(2035, 1, 1)), 'No automatic expiration');
+        expect(PesoJobCategories.isVisible({...job, 'status': 'inactive'}), isFalse);
+      }
     });
 
     test('walk-in applications never receive time-based expiration', () {
