@@ -1,4 +1,3 @@
-
 import 'dart:async';
 
 import '../../peso_services/applicant_draft_service.dart';
@@ -16,6 +15,7 @@ import '../../peso_services/app_toast.dart';
 
 import '../../peso_services/auth_service.dart';
 import 'privacy_notice.dart';
+import '../Reusable_Designs/spotlight_tour.dart';
 
 class RegisterForm extends StatefulWidget {
   final Color pesoGreen;
@@ -69,6 +69,18 @@ class RegistrationVerificationRequest {
 }
 
 class _RegisterFormState extends State<RegisterForm> {
+  final GlobalKey<SpotlightTourState> _tourKey =
+      GlobalKey<SpotlightTourState>();
+  final GlobalKey _nameTourKey = GlobalKey(debugLabel: 'register-first-name');
+  final GlobalKey _emailTourKey = GlobalKey(debugLabel: 'register-email');
+  final GlobalKey _barangayTourKey = GlobalKey(debugLabel: 'register-barangay');
+  final GlobalKey _consentTourKey = GlobalKey(debugLabel: 'register-consent');
+  final GlobalKey _actionTourKey = GlobalKey(
+    debugLabel: 'register-next-button',
+  );
+  final GlobalKey _avatarTourKey = GlobalKey(
+    debugLabel: 'register-avatar-options',
+  );
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   final TextEditingController _firstNameController = TextEditingController();
@@ -317,14 +329,18 @@ class _RegisterFormState extends State<RegisterForm> {
     final lastName = _lastNameController.text.trim();
     final email = _emailController.text.trim();
     final phone = _phoneController.text.trim();
-    if (firstName.isEmpty || lastName.isEmpty || email.isEmpty ||
+    if (firstName.isEmpty ||
+        lastName.isEmpty ||
+        email.isEmpty ||
         _passwordController.text.isEmpty) {
       _showMessage('Complete your name, email, and password first.');
       return;
     }
     if (!AuthService.isValidPersonName(firstName) ||
         !AuthService.isValidPersonName(lastName)) {
-      _showMessage('Enter a valid first and last name using letters, spaces, apostrophes, periods, or hyphens.');
+      _showMessage(
+        'Enter a valid first and last name using letters, spaces, apostrophes, periods, or hyphens.',
+      );
       return;
     }
     if (!RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]{2,}$').hasMatch(email)) {
@@ -332,7 +348,9 @@ class _RegisterFormState extends State<RegisterForm> {
       return;
     }
     if (phone.isNotEmpty && !AuthService.isValidPhilippineMobileNumber(phone)) {
-      _showMessage('Enter a valid Philippine mobile number (09XXXXXXXXX or +639XXXXXXXXX).');
+      _showMessage(
+        'Enter a valid Philippine mobile number (09XXXXXXXXX or +639XXXXXXXXX).',
+      );
       return;
     }
     if (_passwordController.text.length < 6) {
@@ -346,6 +364,9 @@ class _RegisterFormState extends State<RegisterForm> {
         'Select your Montalban barangay and enter your complete address. PESO will verify residency.',
       );
       return;
+    }
+    if (_tourKey.currentState?.isShowing ?? false) {
+      _tourKey.currentState?.finish();
     }
     setState(() => _registrationStep = 1);
   }
@@ -371,7 +392,9 @@ class _RegisterFormState extends State<RegisterForm> {
     }
     if (!AuthService.isValidPersonName(firstName) ||
         !AuthService.isValidPersonName(lastName)) {
-      _showMessage('Enter a valid first and last name using letters, spaces, apostrophes, periods, or hyphens.');
+      _showMessage(
+        'Enter a valid first and last name using letters, spaces, apostrophes, periods, or hyphens.',
+      );
       return;
     }
     if (!RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]{2,}$').hasMatch(email)) {
@@ -380,7 +403,9 @@ class _RegisterFormState extends State<RegisterForm> {
     }
     if (_phoneController.text.trim().isNotEmpty &&
         !AuthService.isValidPhilippineMobileNumber(_phoneController.text)) {
-      _showMessage('Enter a valid Philippine mobile number (09XXXXXXXXX or +639XXXXXXXXX).');
+      _showMessage(
+        'Enter a valid Philippine mobile number (09XXXXXXXXX or +639XXXXXXXXX).',
+      );
       return;
     }
     if (password.length < 6) {
@@ -589,372 +614,455 @@ class _RegisterFormState extends State<RegisterForm> {
         : Colors.white.withValues(alpha: 0.1);
     final Color hintColor = widget.isLight ? Colors.black38 : Colors.white38;
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            _stepIndicator(widget.pesoGreen),
-            const SizedBox(width: 8),
-            _stepIndicator(
-              _registrationStep == 1 ? widget.pesoGreen : Colors.grey.shade300,
-            ),
-          ],
-        ),
-        const SizedBox(height: 20),
-        Text(
-          'Create Account',
-          style: TextStyle(
-            fontSize: 32,
-            fontWeight: FontWeight.w900,
-            color: textColor,
-          ),
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 5),
-        Text(
-          _registrationStep == 0
-              ? 'Step 1 of 2: Your account details'
-              : 'Step 2 of 2: Choose your profile image',
-          style: TextStyle(color: subtitleColor, fontSize: 16),
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 30),
-        if (_registrationStep == 0) ...[
+    return SpotlightTour(
+      key: _tourKey,
+      tourId: _registrationStep == 0
+          ? 'registration-details-v1'
+          : 'registration-photo-v1',
+      steps: _registrationStep == 0
+          ? [
+              SpotlightStep(
+                target: _nameTourKey,
+                title: 'Enter your real name',
+                description: 'Use your legal first and last names. Only appropriate letters and name punctuation are accepted.',
+              ),
+              SpotlightStep(
+                target: _emailTourKey,
+                title: 'Add an email you can access',
+                description: 'We send verification to this address. Make sure the spelling is correct.',
+              ),
+              SpotlightStep(
+                target: _barangayTourKey,
+                title: 'Choose your Montalban barangay',
+                description: 'Select your real barangay and complete your residential address. PESO reviews residency separately.',
+              ),
+              SpotlightStep(
+                target: _consentTourKey,
+                title: 'Read the privacy and consent notices',
+                description: 'Review the Terms and Privacy Notice. The two consent checkboxes must be accepted before proceeding.',
+              ),
+              SpotlightStep(
+                target: _actionTourKey,
+                title: 'Continue to your profile photo',
+                description: 'When your required information is valid, this takes you to the next registration stage.',
+              ),
+            ]
+          : [
+              SpotlightStep(
+                target: _avatarTourKey,
+                title: 'Choose a profile picture',
+                description: 'Pick a simple avatar or upload your own profile photo. You can change it later.',
+              ),
+              SpotlightStep(
+                target: _actionTourKey,
+                title: 'Create and verify your account',
+                description: 'Check your details, then create the account. Verify your email to start using PESO JobKonek.',
+              ),
+            ],
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
           Row(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Expanded(
-                child: _buildTextField(
-                  'First Name',
-                  Icons.person_outline,
-                  _firstNameController,
-                  fieldBg,
-                  borderColor,
-                  textColor,
-                  hintColor,
-                  inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r"[\p{L}\p{M} .'-]", unicode: true))],
+              _stepIndicator(widget.pesoGreen),
+              const SizedBox(width: 8),
+              _stepIndicator(
+                _registrationStep == 1
+                    ? widget.pesoGreen
+                    : Colors.grey.shade300,
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          Text(
+            'Create Account',
+            style: TextStyle(
+              fontSize: 32,
+              fontWeight: FontWeight.w900,
+              color: textColor,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 5),
+          Text(
+            _registrationStep == 0
+                ? 'Step 1 of 2: Your account details'
+                : 'Step 2 of 2: Choose your profile image',
+            style: TextStyle(color: subtitleColor, fontSize: 16),
+            textAlign: TextAlign.center,
+          ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              key: const Key('registration-start-spotlight'),
+              onPressed: () =>
+                  unawaited(_tourKey.currentState?.start(replay: true)),
+              icon: const Icon(Icons.tips_and_updates_outlined),
+              label: const Text('Guide this form'),
+            ),
+          ),
+          const SizedBox(height: 20),
+          if (_registrationStep == 0) ...[
+            Row(
+              children: [
+                Expanded(
+                  child: _buildTextField(
+                    'First Name',
+                    Icons.person_outline,
+                    _firstNameController,
+                    fieldBg,
+                    borderColor,
+                    textColor,
+                    hintColor,
+                    tourAnchorKey: _nameTourKey,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(
+                        RegExp(r"[\p{L}\p{M} .'-]", unicode: true),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildTextField(
+                    'Last Name',
+                    null,
+                    _lastNameController,
+                    fieldBg,
+                    borderColor,
+                    textColor,
+                    hintColor,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(
+                        RegExp(r"[\p{L}\p{M} .'-]", unicode: true),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 15),
+            _buildTextField(
+              'Email Address',
+              Icons.email_outlined,
+              _emailController,
+              fieldBg,
+              borderColor,
+              textColor,
+              hintColor,
+              tourAnchorKey: _emailTourKey,
+              keyboardType: TextInputType.emailAddress,
+            ),
+            const SizedBox(height: 15),
+            _buildTextField(
+              'Phone Number (optional)',
+              Icons.phone_android,
+              _phoneController,
+              fieldBg,
+              borderColor,
+              textColor,
+              hintColor,
+              keyboardType: TextInputType.phone,
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'[0-9+ ().-]')),
+              ],
+              helperText:
+                  'Philippine numbers are automatically formatted with +63.',
+            ),
+            const SizedBox(height: 15),
+            KeyedSubtree(
+              key: _barangayTourKey,
+              child: DropdownButtonFormField<String>(
+                key: const Key('registration-barangay'),
+                initialValue: _barangay,
+                isExpanded: true,
+                decoration: InputDecoration(
+                  labelText: 'Barangay — Montalban, Rizal (required)',
+                  helperText: 'Selecting a barangay does not verify residency. PESO must review eligibility.',
+                  helperMaxLines: 3,
+                  filled: true,
+                  fillColor: fieldBg,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(15),
+                  ),
+                ),
+                items: barangays
+                    .map(
+                      (name) =>
+                          DropdownMenuItem(value: name, child: Text(name)),
+                    )
+                    .toList(),
+                onChanged: (value) => setState(() => _barangay = value),
+              ),
+            ),
+            const SizedBox(height: 15),
+            _buildTextField(
+              'Full residential address in Montalban, Rizal',
+              Icons.home_outlined,
+              _addressController,
+              fieldBg,
+              borderColor,
+              textColor,
+              hintColor,
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Draft: $_draftStatus (encrypted on this device; passwords are never saved)',
+              style: TextStyle(fontSize: 12, color: subtitleColor, height: 1.4),
+            ),
+            const SizedBox(height: 10),
+            Material(
+              key: _consentTourKey,
+              color: Colors.transparent,
+              child: CheckboxListTile(
+                value: _termsAccepted,
+                onChanged: _isLoading
+                    ? null
+                    : (value) => setState(() => _termsAccepted = value == true),
+                controlAffinity: ListTileControlAffinity.leading,
+                contentPadding: EdgeInsets.zero,
+                title: const Text(
+                  'I agree to the Terms and Conditions and acknowledge the Privacy Notice.',
+                ),
+                subtitle: const Text(
+                  'Required before creating an account or continuing with Google.',
                 ),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildTextField(
-                  'Last Name',
-                  null,
-                  _lastNameController,
-                  fieldBg,
-                  borderColor,
-                  textColor,
-                  hintColor,
-                  inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r"[\p{L}\p{M} .'-]", unicode: true))],
+            ),
+            Padding(
+              padding: const EdgeInsets.only(left: 12, bottom: 8),
+              child: Wrap(
+                spacing: 4,
+                runSpacing: 4,
+                children: [
+                  TextButton(
+                    key: const Key('registration-terms-link'),
+                    onPressed: _isLoading
+                        ? null
+                        : () => _showPolicyDialog(
+                            'Terms and Conditions',
+                            pesoTermsAndConditionsText,
+                          ),
+                    child: const Text('Read Terms and Conditions'),
+                  ),
+                  TextButton(
+                    key: const Key('registration-privacy-link'),
+                    onPressed: _isLoading
+                        ? null
+                        : () => _showPolicyDialog(
+                            'Privacy Notice',
+                            pesoPrivacyNoticeText,
+                          ),
+                    child: const Text('Read Privacy Notice'),
+                  ),
+                ],
+              ),
+            ),
+            Material(
+              color: Colors.transparent,
+              child: CheckboxListTile(
+                value: _personalDataConsent,
+                onChanged: _isLoading
+                    ? null
+                    : (value) =>
+                          setState(() => _personalDataConsent = value == true),
+                controlAffinity: ListTileControlAffinity.leading,
+                contentPadding: EdgeInsets.zero,
+                title: const Text(
+                  'I consent to processing the personal information I submit, including sensitive information in NSRP Form 1 such as date of birth, sex, religion, education and documents, for the purposes described in the Privacy Notice.',
+                ),
+                subtitle: const Text(
+                  'AI-assisted compatibility is advisory only. Do not submit real applicant data to this unapproved prototype.',
+                ),
+              ),
+            ),
+            const SizedBox(height: 15),
+            _buildTextField(
+              'Password (at least 6 characters)',
+              Icons.lock_outline,
+              _passwordController,
+              fieldBg,
+              borderColor,
+              textColor,
+              hintColor,
+              isPassword: true,
+            ),
+            const SizedBox(height: 28),
+          ],
+          if (_registrationStep == 1) ...[
+            KeyedSubtree(
+              key: _avatarTourKey,
+              child: Container(
+                key: const Key('registration-avatar-choices'),
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: fieldBg,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: borderColor),
+                ),
+                child: Column(
+                  children: [
+                    CircleAvatar(
+                      radius: 44,
+                      backgroundColor: widget.pesoGreen.withValues(alpha: 0.12),
+                      backgroundImage: _pendingPhoto == null
+                          ? null
+                          : MemoryImage(_pendingPhoto!),
+                      child: _pendingPhoto == null
+                          ? Icon(
+                              pesoAvatarIcon(_avatarStyle),
+                              color: widget.pesoGreen,
+                              size: 42,
+                            )
+                          : null,
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      'Choose an avatar or add a profile photo',
+                      style: TextStyle(
+                        color: textColor,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      'You can change this any time in your account settings.',
+                      style: TextStyle(color: subtitleColor, fontSize: 13),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 18),
+                    Wrap(
+                      alignment: WrapAlignment.center,
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final style in pesoAvatarStyles)
+                          ChoiceChip(
+                            avatar: Icon(pesoAvatarIcon(style), size: 17),
+                            label: Text(style == 'person' ? 'Classic' : style),
+                            selected:
+                                _avatarStyle == style && _pendingPhoto == null,
+                            onSelected: _isLoading
+                                ? null
+                                : (_) => setState(() {
+                                    _avatarStyle = style;
+                                    _pendingPhoto = null;
+                                    _pendingPhotoName = null;
+                                  }),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: _isLoading ? null : _chooseRegistrationPhoto,
+                      icon: const Icon(Icons.add_a_photo_outlined),
+                      label: Text(
+                        _pendingPhoto == null
+                            ? 'Upload a profile photo'
+                            : 'Choose a different photo',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(height: 28),
+          if (_registrationStep == 1)
+            OutlinedButton(
+              onPressed: _isLoading
+                  ? null
+                  : () => setState(() => _registrationStep = 0),
+              child: const Text('Back to account details'),
+            ),
+          ElevatedButton(
+            key: _actionTourKey,
+            onPressed: _isLoading
+                ? null
+                : (_registrationStep == 0 ? _continueToAvatar : _registerUser),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: widget.pesoGreen,
+              padding: const EdgeInsets.symmetric(vertical: 22),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(15),
+              ),
+              elevation: 0,
+            ),
+            child: _isLoading
+                ? const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(
+                      color: Colors.white,
+                      strokeWidth: 3,
+                    ),
+                  )
+                : Text(
+                    _registrationStep == 0
+                        ? 'Continue to profile photo'
+                        : 'Create account and verify email',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+          ),
+          const SizedBox(height: 15),
+          if (_registrationStep == 0)
+            OutlinedButton.icon(
+              onPressed: _googlePending
+                  ? _cancelGoogle
+                  : (_isLoading ? null : _registerWithGoogle),
+              icon: Icon(
+                _googlePending ? Icons.close_rounded : Icons.g_mobiledata,
+                size: 28,
+              ),
+              label: Text(
+                _googlePending
+                    ? 'Cancel Google sign-in / unlock form'
+                    : 'Continue with Google',
+              ),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: _googlePending
+                    ? Colors.orangeAccent
+                    : textColor,
+                side: BorderSide(color: borderColor),
+                padding: const EdgeInsets.symmetric(vertical: 17),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+            ),
+          const SizedBox(height: 25),
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 4,
+            runSpacing: 4,
+            children: [
+              Text(
+                'Already have an account? ',
+                style: TextStyle(color: subtitleColor, fontSize: 15),
+              ),
+              GestureDetector(
+                onTap: widget.onSwitchToLogin,
+                child: Text(
+                  'Login Here',
+                  style: TextStyle(
+                    color: widget.pesoGreen,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                  ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 15),
-          _buildTextField(
-            'Email Address',
-            Icons.email_outlined,
-            _emailController,
-            fieldBg,
-            borderColor,
-            textColor,
-            hintColor,
-            keyboardType: TextInputType.emailAddress,
-          ),
-          const SizedBox(height: 15),
-          _buildTextField(
-            'Phone Number (optional)',
-            Icons.phone_android,
-            _phoneController,
-            fieldBg,
-            borderColor,
-            textColor,
-            hintColor,
-            keyboardType: TextInputType.phone,
-            inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9+ ().-]'))],
-            helperText:
-                'Philippine numbers are automatically formatted with +63.',
-          ),
-          const SizedBox(height: 15),
-          DropdownButtonFormField<String>(
-            key: const Key('registration-barangay'),
-            initialValue: _barangay,
-            isExpanded: true,
-            decoration: InputDecoration(
-              labelText: 'Barangay — Montalban, Rizal (required)',
-              helperText: 'Selecting a barangay does not verify residency. PESO must review eligibility.',
-              helperMaxLines: 3,
-              filled: true,
-              fillColor: fieldBg,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(15),
-              ),
-            ),
-            items: barangays
-                .map((name) => DropdownMenuItem(value: name, child: Text(name)))
-                .toList(),
-            onChanged: (value) => setState(() => _barangay = value),
-          ),
-          const SizedBox(height: 15),
-          _buildTextField(
-            'Full residential address in Montalban, Rizal',
-            Icons.home_outlined,
-            _addressController,
-            fieldBg,
-            borderColor,
-            textColor,
-            hintColor,
-          ),
-          const SizedBox(height: 10),
-          Text(
-            'Draft: $_draftStatus (encrypted on this device; passwords are never saved)',
-            style: TextStyle(fontSize: 12, color: subtitleColor, height: 1.4),
-          ),
-          const SizedBox(height: 10),
-          Material(
-            color: Colors.transparent,
-            child: CheckboxListTile(
-              value: _termsAccepted,
-              onChanged: _isLoading
-                  ? null
-                  : (value) => setState(() => _termsAccepted = value == true),
-              controlAffinity: ListTileControlAffinity.leading,
-              contentPadding: EdgeInsets.zero,
-              title: const Text(
-                'I agree to the Terms and Conditions and acknowledge the Privacy Notice.',
-              ),
-              subtitle: const Text(
-                'Required before creating an account or continuing with Google.',
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.only(left: 12, bottom: 8),
-            child: Wrap(
-              spacing: 4,
-              runSpacing: 4,
-              children: [
-                TextButton(
-                  key: const Key('registration-terms-link'),
-                  onPressed: _isLoading
-                      ? null
-                      : () => _showPolicyDialog(
-                          'Terms and Conditions',
-                          pesoTermsAndConditionsText,
-                        ),
-                  child: const Text('Read Terms and Conditions'),
-                ),
-                TextButton(
-                  key: const Key('registration-privacy-link'),
-                  onPressed: _isLoading
-                      ? null
-                      : () => _showPolicyDialog(
-                          'Privacy Notice',
-                          pesoPrivacyNoticeText,
-                        ),
-                  child: const Text('Read Privacy Notice'),
-                ),
-              ],
-            ),
-          ),
-          Material(
-            color: Colors.transparent,
-            child: CheckboxListTile(
-              value: _personalDataConsent,
-              onChanged: _isLoading
-                  ? null
-                  : (value) =>
-                        setState(() => _personalDataConsent = value == true),
-              controlAffinity: ListTileControlAffinity.leading,
-              contentPadding: EdgeInsets.zero,
-              title: const Text(
-                'I consent to processing the personal information I submit, including sensitive information in NSRP Form 1 such as date of birth, sex, religion, education and documents, for the purposes described in the Privacy Notice.',
-              ),
-              subtitle: const Text(
-                'AI-assisted compatibility is advisory only. Do not submit real applicant data to this unapproved prototype.',
-              ),
-            ),
-          ),
-          const SizedBox(height: 15),
-          _buildTextField(
-            'Password (at least 6 characters)',
-            Icons.lock_outline,
-            _passwordController,
-            fieldBg,
-            borderColor,
-            textColor,
-            hintColor,
-            isPassword: true,
-          ),
-          const SizedBox(height: 28),
         ],
-        if (_registrationStep == 1) ...[
-          Container(
-            key: const Key('registration-avatar-choices'),
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: fieldBg,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: borderColor),
-            ),
-            child: Column(
-              children: [
-                CircleAvatar(
-                  radius: 44,
-                  backgroundColor: widget.pesoGreen.withValues(alpha: 0.12),
-                  backgroundImage: _pendingPhoto == null
-                      ? null
-                      : MemoryImage(_pendingPhoto!),
-                  child: _pendingPhoto == null
-                      ? Icon(
-                          pesoAvatarIcon(_avatarStyle),
-                          color: widget.pesoGreen,
-                          size: 42,
-                        )
-                      : null,
-                ),
-                const SizedBox(height: 14),
-                Text(
-                  'Choose an avatar or add a profile photo',
-                  style: TextStyle(
-                    color: textColor,
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  'You can change this any time in your account settings.',
-                  style: TextStyle(color: subtitleColor, fontSize: 13),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 18),
-                Wrap(
-                  alignment: WrapAlignment.center,
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final style in pesoAvatarStyles)
-                      ChoiceChip(
-                        avatar: Icon(pesoAvatarIcon(style), size: 17),
-                        label: Text(style == 'person' ? 'Classic' : style),
-                        selected:
-                            _avatarStyle == style && _pendingPhoto == null,
-                        onSelected: _isLoading
-                            ? null
-                            : (_) => setState(() {
-                                _avatarStyle = style;
-                                _pendingPhoto = null;
-                                _pendingPhotoName = null;
-                              }),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  onPressed: _isLoading ? null : _chooseRegistrationPhoto,
-                  icon: const Icon(Icons.add_a_photo_outlined),
-                  label: Text(
-                    _pendingPhoto == null
-                        ? 'Upload a profile photo'
-                        : 'Choose a different photo',
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-        const SizedBox(height: 28),
-        if (_registrationStep == 1)
-          OutlinedButton(
-            onPressed: _isLoading
-                ? null
-                : () => setState(() => _registrationStep = 0),
-            child: const Text('Back to account details'),
-          ),
-        ElevatedButton(
-          onPressed: _isLoading
-              ? null
-              : (_registrationStep == 0 ? _continueToAvatar : _registerUser),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: widget.pesoGreen,
-            padding: const EdgeInsets.symmetric(vertical: 22),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(15),
-            ),
-            elevation: 0,
-          ),
-          child: _isLoading
-              ? const SizedBox(
-                  width: 24,
-                  height: 24,
-                  child: CircularProgressIndicator(
-                    color: Colors.white,
-                    strokeWidth: 3,
-                  ),
-                )
-              : Text(
-                  _registrationStep == 0
-                      ? 'Continue to profile photo'
-                      : 'Create account and verify email',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-        ),
-        const SizedBox(height: 15),
-        if (_registrationStep == 0)
-          OutlinedButton.icon(
-            onPressed: _googlePending
-                ? _cancelGoogle
-                : (_isLoading ? null : _registerWithGoogle),
-            icon: Icon(
-              _googlePending ? Icons.close_rounded : Icons.g_mobiledata,
-              size: 28,
-            ),
-            label: Text(
-              _googlePending
-                  ? 'Cancel Google sign-in / unlock form'
-                  : 'Continue with Google',
-            ),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: _googlePending ? Colors.orangeAccent : textColor,
-              side: BorderSide(color: borderColor),
-              padding: const EdgeInsets.symmetric(vertical: 17),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
-              ),
-            ),
-          ),
-        const SizedBox(height: 25),
-        Wrap(
-          alignment: WrapAlignment.center,
-          spacing: 4,
-          runSpacing: 4,
-          children: [
-            Text(
-              'Already have an account? ',
-              style: TextStyle(color: subtitleColor, fontSize: 15),
-            ),
-            GestureDetector(
-              onTap: widget.onSwitchToLogin,
-              child: Text(
-                'Login Here',
-                style: TextStyle(
-                  color: widget.pesoGreen,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 15,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ],
+      ),
     );
   }
 
@@ -979,9 +1087,12 @@ class _RegisterFormState extends State<RegisterForm> {
     TextInputType? keyboardType,
     String? helperText,
     List<TextInputFormatter>? inputFormatters,
+    GlobalKey? tourAnchorKey,
   }) {
     return TextField(
-      key: isPassword ? const Key('registration-password-field') : null,
+      key:
+          tourAnchorKey ??
+          (isPassword ? const Key('registration-password-field') : null),
       controller: controller,
       obscureText: isPassword && _obscurePassword,
       keyboardType: isPassword ? TextInputType.visiblePassword : keyboardType,

@@ -10,12 +10,16 @@ class HeroSection extends StatelessWidget {
     super.key,
     required this.onPrimaryTap,
     required this.onSecondaryTap,
+    this.exploreJobsKey,
+    this.createAccountKey,
     this.backgroundAsset = PesoImageAssets.heroBanner,
   });
 
   final VoidCallback onPrimaryTap;
   final VoidCallback onSecondaryTap;
   final String backgroundAsset;
+  final GlobalKey? exploreJobsKey;
+  final GlobalKey? createAccountKey;
 
   @override
   Widget build(BuildContext context) {
@@ -27,6 +31,8 @@ class HeroSection extends StatelessWidget {
           compact: compact,
           onPrimaryTap: onPrimaryTap,
           onSecondaryTap: onSecondaryTap,
+          exploreJobsKey: exploreJobsKey,
+          createAccountKey: createAccountKey,
         );
         return RepaintBoundary(
           child: Container(
@@ -91,7 +97,11 @@ class _HeroCopy extends StatelessWidget {
     required this.compact,
     required this.onPrimaryTap,
     required this.onSecondaryTap,
+    this.exploreJobsKey,
+    this.createAccountKey,
   });
+  final GlobalKey? exploreJobsKey;
+  final GlobalKey? createAccountKey;
   final bool compact;
   final VoidCallback onPrimaryTap;
   final VoidCallback onSecondaryTap;
@@ -150,6 +160,7 @@ class _HeroCopy extends StatelessWidget {
           runSpacing: 12,
           children: [
             FilledButton(
+              key: exploreJobsKey,
               onPressed: onPrimaryTap,
               style: FilledButton.styleFrom(
                 backgroundColor: const Color(0xFFE4C68C),
@@ -173,6 +184,7 @@ class _HeroCopy extends StatelessWidget {
               ),
             ),
             OutlinedButton(
+              key: createAccountKey,
               onPressed: onSecondaryTap,
               style: OutlinedButton.styleFrom(
                 foregroundColor: Colors.white,

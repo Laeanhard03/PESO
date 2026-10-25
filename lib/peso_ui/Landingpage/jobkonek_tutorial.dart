@@ -3,9 +3,14 @@ import 'package:flutter/material.dart';
 import '../Reusable_Designs/reusable_ui.dart';
 
 class JobKonekTutorial extends StatefulWidget {
-  const JobKonekTutorial({super.key, required this.onExploreJobs});
+  const JobKonekTutorial({
+    super.key,
+    required this.onExploreJobs,
+    this.headingKey,
+  });
 
   final VoidCallback onExploreJobs;
+  final GlobalKey? headingKey;
 
   @override
   State<JobKonekTutorial> createState() => _JobKonekTutorialState();
@@ -195,6 +200,7 @@ class _JobKonekTutorialState extends State<JobKonekTutorial> {
             children: [
               Text(
                 'How JobKonek Works',
+                key: widget.headingKey,
                 textAlign: TextAlign.center,
                 style: PesoTokens.headlineLarge,
               ),

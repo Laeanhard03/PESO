@@ -15,6 +15,7 @@ import '../../peso_models/profile_artifact.dart';
 import '../../peso_services/profile_artifact_service.dart';
 import '../../peso_services/peso_api_client.dart';
 import '../../peso_services/applicant_draft_service.dart';
+
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../peso_models/job_posting.dart';
@@ -27,6 +28,7 @@ import '../Reusable_Designs/resumebuilder_ui.dart';
 import 'user_job_feed_tab.dart';
 import 'user_ai_profile_tab.dart';
 import 'user_outcomes_tab.dart';
+import '../Reusable_Designs/spotlight_tour.dart';
 import 'user_settings_tab.dart';
 import 'user_account_tab.dart';
 import 'user_profile_avatar.dart';
@@ -65,6 +67,24 @@ class UserProfile extends StatefulWidget {
 }
 
 class _UserProfileState extends State<UserProfile> {
+  final GlobalKey<SpotlightTourState> _tourKey =
+      GlobalKey<SpotlightTourState>();
+  final GlobalKey _tourFeedKey = GlobalKey(debugLabel: 'jobseeker-feed-tab');
+  final GlobalKey _tourProfileKey = GlobalKey(debugLabel: 'jobseeker-ai-tab');
+  final GlobalKey _tourOutcomesKey = GlobalKey(
+    debugLabel: 'jobseeker-outcomes-tab',
+  );
+  final GlobalKey _tourSettingsKey = GlobalKey(
+    debugLabel: 'jobseeker-settings-tab',
+  );
+
+  GlobalKey? _tourTabKey(int index) => switch (index) {
+    0 => _tourFeedKey,
+    1 => _tourProfileKey,
+    2 => _tourOutcomesKey,
+    3 => _tourSettingsKey,
+    _ => null,
+  };
   int _selectedIndex = 0;
   final GlobalKey _jobDetailsAnchor = GlobalKey();
   String? _submittingReportId;
@@ -194,6 +214,7 @@ class _UserProfileState extends State<UserProfile> {
       (_) => false,
     );
   }
+
   Future<void> _welcomeNewApplicant() async {
     if (!mounted) return;
     final chosen = await showDialog<String>(
@@ -339,7 +360,10 @@ class _UserProfileState extends State<UserProfile> {
         .toList();
   }
 
-  List<Map<String, dynamic>> _filteredAvailableJobs([String? category, String? company]) {
+  List<Map<String, dynamic>> _filteredAvailableJobs([
+    String? category,
+    String? company,
+  ]) {
     final selectedCategory = category ?? _selectedJobCategory;
     final selectedCompany = company ?? _selectedJobCompany;
     final query = _jobSearchQuery.trim().toLowerCase();
@@ -518,9 +542,11 @@ class _UserProfileState extends State<UserProfile> {
     if (notice == null || notice['aiListingKind'] != 'notice') return [];
     final embedded = notice['linkedRoles'];
     if (embedded is List) {
-      return embedded.whereType<Map>()
+      return embedded
+          .whereType<Map>()
           .map((row) => _jobPostingForFeed(Map<String, dynamic>.from(row)))
-          .where(PesoJobCategories.isVisible).toList();
+          .where(PesoJobCategories.isVisible)
+          .toList();
     }
     final rawIds = notice['linkedRoleIds'];
     if (rawIds is! List) return [];
@@ -887,7 +913,9 @@ class _UserProfileState extends State<UserProfile> {
   }
 
   Future<void> _showRequiredOnboarding() async {
-    if (!mounted || !_welcomeFinished || _onboardingModalShown ||
+    if (!mounted ||
+        !_welcomeFinished ||
+        _onboardingModalShown ||
         _accountDocuments.isEmpty) {
       return;
     }
@@ -898,27 +926,40 @@ class _UserProfileState extends State<UserProfile> {
     }
     _onboardingModalShown = true;
     final choice = await showDialog<String>(
-      context: context, barrierDismissible: false,
+      context: context,
+      barrierDismissible: false,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Finish your PESO JobKonek onboarding'),
-        content: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 460),
-          child: Column(mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(resumeMissing ? 'Resume: Missing' : 'Resume: Submitted'),
-            const SizedBox(height: 8),
-            Text(nsrpMissing ? 'NSRP Form 1: Missing' : 'NSRP Form 1: Submitted'),
-            const SizedBox(height: 12),
-            const Text('Complete these steps: (1) create or upload a resume, '
-              '(2) complete NSRP Form 1, (3) review AI extraction. '
-              'Gemini errors do not erase saved documents.',
-              style: TextStyle(height: 1.5)),
-          ]),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 460),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(resumeMissing ? 'Resume: Missing' : 'Resume: Submitted'),
+              const SizedBox(height: 8),
+              Text(
+                nsrpMissing ? 'NSRP Form 1: Missing' : 'NSRP Form 1: Submitted',
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Complete these steps: (1) create or upload a resume, '
+                '(2) complete NSRP Form 1, (3) review AI extraction. '
+                'Gemini errors do not erase saved documents.',
+                style: TextStyle(height: 1.5),
+              ),
+            ],
+          ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, 'account'),
-            child: const Text('Open My Account')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, 'continue'),
-            child: const Text('Continue onboarding')),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, 'account'),
+            child: const Text('Open My Account'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, 'continue'),
+            child: const Text('Continue onboarding'),
+          ),
         ],
       ),
     );
@@ -939,14 +980,22 @@ class _UserProfileState extends State<UserProfile> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Resume onboarding'),
-        content: const Text('Use the current resume builder or upload an existing document.'),
+        content: const Text(
+          'Use the current resume builder or upload an existing document.',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel')),
-          OutlinedButton(onPressed: () => Navigator.pop(dialogContext, 'upload'),
-            child: const Text('Upload resume')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, 'build'),
-            child: const Text('Create resume')),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          OutlinedButton(
+            onPressed: () => Navigator.pop(dialogContext, 'upload'),
+            child: const Text('Upload resume'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, 'build'),
+            child: const Text('Create resume'),
+          ),
         ],
       ),
     );
@@ -961,20 +1010,23 @@ class _UserProfileState extends State<UserProfile> {
   }
 
   Future<void> _openResumeBuilder() async {
-    await Navigator.push<void>(context, MaterialPageRoute(
-      builder: (_) => ResumeBuilderWizard(
-        initialValues: <String, String>{
-          'firstName': _accountProfile['firstName']?.toString() ?? '',
-          'lastName': _accountProfile['lastName']?.toString() ?? '',
-          'email': _accountProfile['email']?.toString() ?? '',
-          'phone': _accountProfile['phoneNumber']?.toString() ?? '',
-        },
-        onComplete: (payload) {
-          Navigator.of(context).pop();
-          unawaited(_saveBuiltResume(payload));
-        },
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ResumeBuilderWizard(
+          initialValues: <String, String>{
+            'firstName': _accountProfile['firstName']?.toString() ?? '',
+            'lastName': _accountProfile['lastName']?.toString() ?? '',
+            'email': _accountProfile['email']?.toString() ?? '',
+            'phone': _accountProfile['phoneNumber']?.toString() ?? '',
+          },
+          onComplete: (payload) {
+            Navigator.of(context).pop();
+            unawaited(_saveBuiltResume(payload));
+          },
+        ),
       ),
-    ));
+    );
   }
 
   Future<void> _saveBuiltResume(Map<String, dynamic> payload) async {
@@ -984,13 +1036,18 @@ class _UserProfileState extends State<UserProfile> {
       await PesoApiClient.saveOnboarding(<String, dynamic>{
         'resumeData': Map<String, dynamic>.from(rawData),
       });
-      final artifact = ProfileArtifactInput.fromBridgePayload(payload['artifact']);
+      final artifact = ProfileArtifactInput.fromBridgePayload(
+        payload['artifact'],
+      );
       var documentConfirmed = false;
       if (artifact != null) {
         final saved = await ProfileArtifactService.saveArtifacts([artifact]);
         documentConfirmed = saved.records.isNotEmpty && saved.warnings.isEmpty;
         if (!documentConfirmed && mounted) {
-          AppToast.warning(context, 'Resume details saved; PDF upload needs a retry.');
+          AppToast.warning(
+            context,
+            'Resume details saved; PDF upload needs a retry.',
+          );
         }
       }
       if (documentConfirmed) {
@@ -1120,7 +1177,8 @@ class _UserProfileState extends State<UserProfile> {
       });
       unawaited(_translateSelectedJob());
       unawaited(_refreshCareerRecommendations());
-      if (_accountDocuments.isNotEmpty && !_onboardingModalShown &&
+      if (_accountDocuments.isNotEmpty &&
+          !_onboardingModalShown &&
           _welcomeFinished) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) unawaited(_showRequiredOnboarding());
@@ -1151,7 +1209,8 @@ class _UserProfileState extends State<UserProfile> {
       final newResume = _pendingResumeExtraction;
       final extracted = await PesoAIEngine.generateProfile(
         artifacts: newResume == null
-            ? widget.retryArtifacts : <ProfileArtifactInput>[newResume],
+            ? widget.retryArtifacts
+            : <ProfileArtifactInput>[newResume],
         rawText: safeText,
       );
       if (extracted.isEmpty) throw const FormatException('Empty extraction');
@@ -1230,7 +1289,9 @@ class _UserProfileState extends State<UserProfile> {
         'pesoFormData': Map<String, dynamic>.from(form),
       });
       await ApplicantDraftService.clear(
-        FirebaseAuth.instance.currentUser?.uid ?? '', 'nsrp');
+        FirebaseAuth.instance.currentUser?.uid ?? '',
+        'nsrp',
+      );
       await _loadAccountProfile();
       if (mounted) {
         AppToast.success(context, 'Updated NSRP Form 1 and PDF saved.');
@@ -1277,21 +1338,36 @@ class _UserProfileState extends State<UserProfile> {
       final picked = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: category == 'nsrp_form'
-            ? const ['pdf'] : const ['pdf', 'jpg', 'jpeg', 'png'],
+            ? const ['pdf']
+            : const ['pdf', 'jpg', 'jpeg', 'png'],
         withData: true,
       );
       if (picked == null || picked.files.isEmpty) return false;
       final file = picked.files.single;
       final bytes = file.bytes;
-      final validPdf = bytes != null && bytes.length >= 5 &&
-          bytes[0] == 0x25 && bytes[1] == 0x50 &&
-          bytes[2] == 0x44 && bytes[3] == 0x46 && bytes[4] == 0x2d;
-      final validPng = bytes != null && bytes.length >= 8 &&
-          bytes[0] == 0x89 && bytes[1] == 0x50 &&
-          bytes[2] == 0x4e && bytes[3] == 0x47;
-      final validJpg = bytes != null && bytes.length >= 3 &&
-          bytes[0] == 0xff && bytes[1] == 0xd8 && bytes[2] == 0xff;
-      if (bytes == null || bytes.length > ProfileArtifactService.maxArtifactBytes ||
+      final validPdf =
+          bytes != null &&
+          bytes.length >= 5 &&
+          bytes[0] == 0x25 &&
+          bytes[1] == 0x50 &&
+          bytes[2] == 0x44 &&
+          bytes[3] == 0x46 &&
+          bytes[4] == 0x2d;
+      final validPng =
+          bytes != null &&
+          bytes.length >= 8 &&
+          bytes[0] == 0x89 &&
+          bytes[1] == 0x50 &&
+          bytes[2] == 0x4e &&
+          bytes[3] == 0x47;
+      final validJpg =
+          bytes != null &&
+          bytes.length >= 3 &&
+          bytes[0] == 0xff &&
+          bytes[1] == 0xd8 &&
+          bytes[2] == 0xff;
+      if (bytes == null ||
+          bytes.length > ProfileArtifactService.maxArtifactBytes ||
           !(validPdf || (category != 'nsrp_form' && (validPng || validJpg)))) {
         if (mounted) {
           AppToast.error(
@@ -1307,15 +1383,22 @@ class _UserProfileState extends State<UserProfile> {
       await PesoApiClient.uploadArtifact(
         fileName: file.name,
         category: newCategory,
-        mimeType: validPdf ? 'application/pdf' :
-          validPng ? 'image/png' : 'image/jpeg',
+        mimeType: validPdf
+            ? 'application/pdf'
+            : validPng
+            ? 'image/png'
+            : 'image/jpeg',
         bytes: bytes,
       );
       if (newCategory == 'resume_upload') {
         _pendingResumeExtraction = ProfileArtifactInput(
-          fileName: file.name, category: 'resume_upload',
-          mimeType: validPdf ? 'application/pdf' :
-            validPng ? 'image/png' : 'image/jpeg',
+          fileName: file.name,
+          category: 'resume_upload',
+          mimeType: validPdf
+              ? 'application/pdf'
+              : validPng
+              ? 'image/png'
+              : 'image/jpeg',
           bytes: bytes,
         );
         try {
@@ -1337,7 +1420,10 @@ class _UserProfileState extends State<UserProfile> {
       }
       await _loadAccountProfile();
       if (mounted) {
-        AppToast.success(context, 'Revised resume/document saved to your PESO account.');
+        AppToast.success(
+          context,
+          'Revised resume/document saved to your PESO account.',
+        );
         if (newCategory == 'resume_upload' &&
             _accountDocuments['formSubmitted'] == true) {
           setState(() => _selectedIndex = 1);
@@ -1529,58 +1615,86 @@ class _UserProfileState extends State<UserProfile> {
 
   @override
   Widget build(BuildContext context) {
-    return PopScope<Object?>(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, result) {
-        // Back returns to the job feed without revoking the user's session.
-        // Only the visible Logout actions call _logoutAndReturnToLanding.
-        if (!didPop && _selectedIndex != 0) {
-          setState(() => _selectedIndex = 0);
-        }
-      },
-      child: Scaffold(
-        backgroundColor: const Color(0xFFF3F7F4),
-      body: Stack(
-        children: [
-          Column(
+    return SpotlightTour(
+      key: _tourKey,
+      tourId: 'jobseeker-dashboard-v1',
+      autoStart: !widget.newRegistration,
+      steps: [
+        SpotlightStep(
+          target: _tourFeedKey,
+          title: 'Find opportunities',
+          description: 'Use Job Feed to search openings, narrow results by company or category and check role requirements before applying.',
+        ),
+        SpotlightStep(
+          target: _tourProfileKey,
+          title: 'Review your AI profile',
+          description: 'Check the information extracted from your documents. Make corrections when needed; matching is guidance, not hiring approval.',
+        ),
+        SpotlightStep(
+          target: _tourOutcomesKey,
+          title: 'Track applications',
+          description: 'Open Outcomes to review your saved evaluations, application statuses and recommended next steps.',
+        ),
+        SpotlightStep(
+          target: _tourSettingsKey,
+          title: 'Adjust your settings',
+          description: 'Control language and notifications here. Your session stays active when you switch pages or use Back.',
+        ),
+      ],
+      child: PopScope<Object?>(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, result) {
+          // Back returns to the job feed without revoking the user's session.
+          // Only the visible Logout actions call _logoutAndReturnToLanding.
+          if (!didPop && _selectedIndex != 0) {
+            setState(() => _selectedIndex = 0);
+          }
+        },
+        child: Scaffold(
+          backgroundColor: const Color(0xFFF3F7F4),
+          body: Stack(
             children: [
-              _buildTopNavBar(),
-              Expanded(
-                child: AnimatedSwitcher(
-                  duration: MediaQuery.disableAnimationsOf(context)
-                      ? Duration.zero
-                      : const Duration(milliseconds: 180),
-                  switchInCurve: Curves.easeOutCubic,
-                  switchOutCurve: Curves.easeInCubic,
-                  transitionBuilder: (child, animation) => FadeTransition(
-                    opacity: animation,
-                    child: SlideTransition(
-                      position: Tween<Offset>(
-                        begin: const Offset(0.02, 0),
-                        end: Offset.zero,
-                      ).animate(animation),
-                      child: child,
+              Column(
+                children: [
+                  _buildTopNavBar(),
+                  Expanded(
+                    child: AnimatedSwitcher(
+                      duration: MediaQuery.disableAnimationsOf(context)
+                          ? Duration.zero
+                          : const Duration(milliseconds: 180),
+                      switchInCurve: Curves.easeOutCubic,
+                      switchOutCurve: Curves.easeInCubic,
+                      transitionBuilder: (child, animation) => FadeTransition(
+                        opacity: animation,
+                        child: SlideTransition(
+                          position: Tween<Offset>(
+                            begin: const Offset(0.02, 0),
+                            end: Offset.zero,
+                          ).animate(animation),
+                          child: child,
+                        ),
+                      ),
+                      child: Container(
+                        key: ValueKey<int>(_selectedIndex),
+                        child: _buildCurrentView(),
+                      ),
                     ),
                   ),
-                  child: Container(
-                    key: ValueKey<int>(_selectedIndex),
-                    child: _buildCurrentView(),
-                  ),
-                ),
+                  if (MediaQuery.sizeOf(context).width < 1100)
+                    _buildCompactNavigation(),
+                ],
               ),
-              if (MediaQuery.sizeOf(context).width < 1100)
-                _buildCompactNavigation(),
+              if (_isLoggingOut) _buildLogoutOverlay(),
             ],
           ),
-          if (_isLoggingOut) _buildLogoutOverlay(),
-        ],
-      ),
+        ),
       ),
     );
   }
 
   Widget _buildTopNavBar() {
     final screenWidth = MediaQuery.sizeOf(context).width;
+    final compactDesktop = screenWidth < 1450;
     if (screenWidth < 1100) {
       return Container(
         height: 72,
@@ -1640,6 +1754,13 @@ class _UserProfileState extends State<UserProfile> {
               ),
             ),
             const SizedBox(width: 6),
+            IconButton(
+              key: const Key('jobseeker-start-tour'),
+              tooltip: 'Guide me through JobKonek',
+              icon: Icon(Icons.tips_and_updates_outlined, color: _primary),
+              onPressed: () =>
+                  unawaited(_tourKey.currentState?.start(replay: true)),
+            ),
             IconButton(
               tooltip: 'PESO application notifications',
               icon: const Icon(Icons.notifications_outlined),
@@ -1740,14 +1861,23 @@ class _UserProfileState extends State<UserProfile> {
           Row(
             children: [
               IconButton(
+                key: const Key('jobseeker-start-tour'),
+                icon: const Icon(Icons.tips_and_updates_outlined, size: 24),
+                color: _primary,
+                tooltip: 'Guide me through JobKonek',
+                onPressed: () =>
+                    unawaited(_tourKey.currentState?.start(replay: true)),
+              ),
+              SizedBox(width: compactDesktop ? 2 : 8),
+              IconButton(
                 icon: const Icon(Icons.notifications_none, size: 26),
                 color: _textLight,
                 tooltip: 'View PESO application notifications',
                 onPressed: () => unawaited(_openNotifications()),
               ),
-              const SizedBox(width: 20),
+              SizedBox(width: compactDesktop ? 8 : 20),
               Container(width: 1, height: 30, color: Colors.grey.shade200),
-              const SizedBox(width: 20),
+              SizedBox(width: compactDesktop ? 8 : 20),
               InkWell(
                 onTap: () => setState(() => _selectedIndex = 4),
                 borderRadius: BorderRadius.circular(28),
@@ -1784,7 +1914,7 @@ class _UserProfileState extends State<UserProfile> {
                           ),
                         ],
                       ),
-                      const SizedBox(width: 15),
+                      SizedBox(width: compactDesktop ? 8 : 15),
                       Container(
                         padding: const EdgeInsets.all(3),
                         decoration: BoxDecoration(
@@ -1803,7 +1933,7 @@ class _UserProfileState extends State<UserProfile> {
                   ),
                 ),
               ),
-              const SizedBox(width: 15),
+              SizedBox(width: compactDesktop ? 8 : 15),
               IconButton(
                 icon: const Icon(Icons.logout, size: 22),
                 color: Colors.redAccent,
@@ -1848,6 +1978,7 @@ class _UserProfileState extends State<UserProfile> {
             return Expanded(
               child: Center(
                 child: IconButton(
+                  key: _tourTabKey(index),
                   tooltip: names[index],
                   isSelected: active,
                   onPressed: () => setState(() => _selectedIndex = index),
@@ -1871,6 +2002,7 @@ class _UserProfileState extends State<UserProfile> {
   Widget _buildNavTab(String title, int index) {
     bool isActive = _selectedIndex == index;
     return Padding(
+      key: _tourTabKey(index),
       padding: const EdgeInsets.symmetric(horizontal: 5),
       child: InkWell(
         onTap: () => setState(() => _selectedIndex = index),
@@ -1954,13 +2086,14 @@ class _UserProfileState extends State<UserProfile> {
             });
             unawaited(_loadJobPostings());
           },
-          companyOptions: _availableJobs
-              .where(PesoJobCategories.isVisible)
-              .map((job) => job['company']?.toString().trim() ?? '')
-              .where((name) => name.isNotEmpty)
-              .toSet()
-              .toList()
-            ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase())),
+          companyOptions:
+              _availableJobs
+                  .where(PesoJobCategories.isVisible)
+                  .map((job) => job['company']?.toString().trim() ?? '')
+                  .where((name) => name.isNotEmpty)
+                  .toSet()
+                  .toList()
+                ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase())),
           selectedCompany: _selectedJobCompany,
           onCompanyChanged: (company) {
             final visible = _filteredAvailableJobs(null, company);

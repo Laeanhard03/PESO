@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import 'admin_excel_live_preview.dart';
 import 'admin_pdf_link_ingestion.dart';
 
@@ -7,6 +8,9 @@ import 'dart:math' as math;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+
+import '../Reusable_Designs/spotlight_tour.dart';
+
 import 'package:url_launcher/url_launcher.dart';
 
 import '../Landingpage/landingpage_ui.dart';
@@ -383,6 +387,15 @@ class AdminDashboard extends StatefulWidget {
 class _AdminDashboardState extends State<AdminDashboard> {
   // Admin authorization is validated by the protected MongoDB-backed PESO API.
 
+  final GlobalKey<SpotlightTourState> _adminTourKey =
+      GlobalKey<SpotlightTourState>();
+  final GlobalKey _adminMenuTourKey = GlobalKey(debugLabel: 'admin-menu');
+  final Map<AdminTab, GlobalKey> _adminTourTargets = {
+    AdminTab.analytics: GlobalKey(debugLabel: 'admin-analytics'),
+    AdminTab.users: GlobalKey(debugLabel: 'admin-user-management'),
+    AdminTab.applications: GlobalKey(debugLabel: 'admin-applications'),
+    AdminTab.siteContent: GlobalKey(debugLabel: 'admin-gallery-editor'),
+  };
   AdminTab _activeTab = AdminTab.analytics;
   final _adminGateEmailController = TextEditingController();
   final _adminGatePasswordController = TextEditingController();
@@ -494,13 +507,18 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
       // Authoritative GridFS/structured document availability, batched by UID.
       final documentStatuses = <String, Map<String, dynamic>>{};
-      final profileUids = profiles.map((p) => _text(p['uid']))
-          .where((uid) => uid.isNotEmpty).toList();
+      final profileUids = profiles
+          .map((p) => _text(p['uid']))
+          .where((uid) => uid.isNotEmpty)
+          .toList();
       for (var start = 0; start < profileUids.length; start += 100) {
-        final end = start + 100 < profileUids.length ? start + 100 : profileUids.length;
+        final end = start + 100 < profileUids.length
+            ? start + 100
+            : profileUids.length;
         try {
           final result = await PesoApiClient.adminApplicantDocumentStatuses(
-              profileUids.sublist(start, end));
+            profileUids.sublist(start, end),
+          );
           final records = result['records'];
           if (records is Map) {
             for (final entry in records.entries) {
@@ -529,17 +547,25 @@ class _AdminDashboardState extends State<AdminDashboard> {
             name: displayName.isNotEmpty
                 ? displayName
                 : _orText(data['email'], 'Unnamed user'),
-            barangay: _orText(data['barangay'], _orText(data['location'], 'Unspecified')),
+            barangay: _orText(
+              data['barangay'],
+              _orText(data['location'], 'Unspecified'),
+            ),
             targetJob: _orText(data['professionalTitle'], 'Not specified'),
             registeredDate: _dateValue(
               data['createdAt'] ?? data['lastSignInAt'],
             ),
             yearsExperience: _intValue(data['yearsExperience']),
-            resumeSubmitted: documentStatuses[_text(data['uid'])]?['resume'] is Map
-                ? (documentStatuses[_text(data['uid'])]!['resume'] as Map)['status'] != 'not_submitted'
+            resumeSubmitted:
+                documentStatuses[_text(data['uid'])]?['resume'] is Map
+                ? (documentStatuses[_text(data['uid'])]!['resume']
+                          as Map)['status'] !=
+                      'not_submitted'
                 : data['resumeSubmitted'] == true,
             formSubmitted: documentStatuses[_text(data['uid'])]?['nsrp'] is Map
-                ? (documentStatuses[_text(data['uid'])]!['nsrp'] as Map)['status'] != 'not_submitted'
+                ? (documentStatuses[_text(data['uid'])]!['nsrp']
+                          as Map)['status'] !=
+                      'not_submitted'
                 : data['formSubmitted'] == true,
             matchStatus:
                 const {
@@ -1024,93 +1050,143 @@ class _AdminDashboardState extends State<AdminDashboard> {
     final badgeCounts = <AdminTab, int>{
       if (unresolvedConcerns > 0) AdminTab.concerns: unresolvedConcerns,
     };
-    return PopScope<Object?>(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, result) {
-        if (!didPop && _activeTab != AdminTab.analytics) {
-          setState(() => _activeTab = AdminTab.analytics);
-        }
-      },
-      child: LayoutBuilder(
-      builder: (context, constraints) {
-        final isWide = constraints.maxWidth >= 980;
-        return Scaffold(
-          key: _scaffoldKey,
-          backgroundColor: _C.bg,
-          drawer: isWide
-              ? null
-              : Drawer(
-                  backgroundColor: _C.sidebar,
-                  child: _Sidebar(
-                    activeTab: _activeTab,
-                    badgeCounts: badgeCounts,
-                    onSelect: (t) {
-                      setState(() => _activeTab = t);
-                      Navigator.pop(context);
-                    },
-                    onLogout: () {
-                      Navigator.pop(context);
-                      _logout();
-                    },
-                  ),
-                ),
-          body: Stack(
-            children: [
-              Row(
-                children: [
-                  if (isWide)
-                    SizedBox(
-                      width: 300,
+    final wideTour = MediaQuery.sizeOf(context).width >= 980;
+    return SpotlightTour(
+      key: _adminTourKey,
+      autoStart: false,
+      tourId: wideTour ? 'admin-desktop-v1' : 'admin-compact-v1',
+      steps: wideTour
+          ? [
+              SpotlightStep(
+                target: _adminTourTargets[AdminTab.analytics]!,
+                title: 'Registration analytics',
+                description: 'Review applicant totals, barangay breakdowns and dashboard trends.',
+              ),
+              SpotlightStep(
+                target: _adminTourTargets[AdminTab.users]!,
+                title: 'Jobseeker records',
+                description: 'Find an applicant and inspect their own NSRP and resume documents securely.',
+              ),
+              SpotlightStep(
+                target: _adminTourTargets[AdminTab.applications]!,
+                title: 'Recruitment pipeline',
+                description: 'Review application statuses and export verified records from the Admin workspace.',
+              ),
+              SpotlightStep(
+                target: _adminTourTargets[AdminTab.siteContent]!,
+                title: 'Public gallery and partners',
+                description: 'Edit approved PESO photos and employer-partner logos without changing application code.',
+              ),
+            ]
+          : [
+              SpotlightStep(
+                target: _adminMenuTourKey,
+                title: 'Open Admin navigation',
+                description: 'This menu contains Applicant Analytics, User Management, Recruitment Pipeline and Landing Content.',
+                actionHint: 'Tap the highlighted menu button, then choose the section you need.',
+              ),
+            ],
+      child: PopScope<Object?>(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, result) {
+          if (!didPop && _activeTab != AdminTab.analytics) {
+            setState(() => _activeTab = AdminTab.analytics);
+          }
+        },
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final isWide = constraints.maxWidth >= 980;
+            return Scaffold(
+              key: _scaffoldKey,
+              backgroundColor: _C.bg,
+              drawer: isWide
+                  ? null
+                  : Drawer(
+                      backgroundColor: _C.sidebar,
                       child: _Sidebar(
                         activeTab: _activeTab,
                         badgeCounts: badgeCounts,
-                        onSelect: (t) => setState(() => _activeTab = t),
-                        onLogout: _logout,
+                        onSelect: (t) {
+                          setState(() => _activeTab = t);
+                          Navigator.pop(context);
+                        },
+                        onLogout: () {
+                          Navigator.pop(context);
+                          _logout();
+                        },
                       ),
                     ),
-                  Expanded(
-                    child: Column(
-                      children: [
-                        _TopBar(
-                          title: navItem.title,
-                          subtitle: navItem.description,
-                          onMenuTap: isWide
-                              ? null
-                              : () => _scaffoldKey.currentState?.openDrawer(),
-                        ),
-                        Expanded(
-                          child: AnimatedSwitcher(
-                            duration: const Duration(milliseconds: 380),
-                            switchInCurve: Curves.easeOutCubic,
-                            switchOutCurve: Curves.easeInCubic,
-                            transitionBuilder: (child, animation) =>
-                                FadeTransition(
-                                  opacity: animation,
-                                  child: SlideTransition(
-                                    position: Tween<Offset>(
-                                      begin: const Offset(0, 0.03),
-                                      end: Offset.zero,
-                                    ).animate(animation),
-                                    child: child,
-                                  ),
-                                ),
-                            child: Padding(
-                              key: ValueKey(_activeTab),
-                              padding: const EdgeInsets.all(24),
-                              child: _buildActiveSection(),
-                            ),
+              body: Stack(
+                children: [
+                  Row(
+                    children: [
+                      if (isWide)
+                        SizedBox(
+                          width: 300,
+                          child: _Sidebar(
+                            activeTab: _activeTab,
+                            badgeCounts: badgeCounts,
+                            tourTargets: _adminTourTargets,
+                            onSelect: (t) => setState(() => _activeTab = t),
+                            onLogout: _logout,
                           ),
                         ),
-                      ],
-                    ),
+                      Expanded(
+                        child: Column(
+                          children: [
+                            _TopBar(
+                              title: navItem.title,
+                              subtitle: navItem.description,
+                              onHelpTap: () => unawaited(
+                                _adminTourKey.currentState?.start(replay: true),
+                              ),
+                              menuKey: isWide ? null : _adminMenuTourKey,
+                              onMenuTap: isWide
+                                  ? null
+                                  : () {
+                                      if (_adminTourKey
+                                              .currentState
+                                              ?.isShowing ??
+                                          false) {
+                                        _adminTourKey.currentState?.finish();
+                                      }
+                                      _scaffoldKey.currentState?.openDrawer();
+                                    },
+                            ),
+                            Expanded(
+                              child: AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 380),
+                                switchInCurve: Curves.easeOutCubic,
+                                switchOutCurve: Curves.easeInCubic,
+                                transitionBuilder: (child, animation) =>
+                                    FadeTransition(
+                                      opacity: animation,
+                                      child: SlideTransition(
+                                        position: Tween<Offset>(
+                                          begin: const Offset(0, 0.03),
+                                          end: Offset.zero,
+                                        ).animate(animation),
+                                        child: child,
+                                      ),
+                                    ),
+                                child: Padding(
+                                  key: ValueKey(_activeTab),
+                                  padding: const EdgeInsets.all(24),
+                                  child: _buildActiveSection(),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
+                  if (_isLoggingOut) _buildLogoutOverlay(),
                 ],
               ),
-              if (_isLoggingOut) _buildLogoutOverlay(),
-            ],
-          ),
-        );
-        },
+            );
+          },
+        ),
       ),
     );
   }
@@ -1262,11 +1338,13 @@ class _Sidebar extends StatelessWidget {
   final ValueChanged<AdminTab> onSelect;
   final VoidCallback onLogout;
   final Map<AdminTab, int> badgeCounts;
+  final Map<AdminTab, GlobalKey>? tourTargets;
   const _Sidebar({
     required this.activeTab,
     required this.onSelect,
     required this.onLogout,
     this.badgeCounts = const {},
+    this.tourTargets,
   });
 
   @override
@@ -1340,6 +1418,7 @@ class _Sidebar extends StatelessWidget {
                     delayMs: index * 60,
                     duration: const Duration(milliseconds: 380),
                     child: Padding(
+                      key: tourTargets?[item.tab],
                       padding: const EdgeInsets.only(bottom: 4),
                       child: Material(
                         color: isActive
@@ -1460,7 +1539,15 @@ class _TopBar extends StatelessWidget {
   final String title;
   final String subtitle;
   final VoidCallback? onMenuTap;
-  const _TopBar({required this.title, required this.subtitle, this.onMenuTap});
+  final VoidCallback? onHelpTap;
+  final GlobalKey? menuKey;
+  const _TopBar({
+    required this.title,
+    required this.subtitle,
+    this.onMenuTap,
+    this.onHelpTap,
+    this.menuKey,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1475,6 +1562,8 @@ class _TopBar extends StatelessWidget {
         children: [
           if (onMenuTap != null) ...[
             IconButton(
+              key: menuKey,
+              tooltip: 'Open Admin navigation',
               onPressed: onMenuTap,
               icon: const Icon(Icons.menu),
               color: _C.slate600,
@@ -1521,6 +1610,13 @@ class _TopBar extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
+          IconButton(
+            key: const Key('admin-start-spotlight'),
+            tooltip: 'Guide me through Admin',
+            onPressed: onHelpTap,
+            icon: const Icon(Icons.tips_and_updates_outlined),
+            color: _C.primary,
+          ),
           _iconBtn(Icons.settings_outlined, _C.slate600, _C.slate100),
           const SizedBox(width: 10),
           _iconBtn(Icons.person_outline, _C.primary, const Color(0xFFDBEAFE)),
@@ -2447,23 +2543,40 @@ class _ApplicantAnalyticsSectionState extends State<ApplicantAnalyticsSection> {
       : widget.applicants.where((a) => a.barangay == _barangayFilter).toList();
 
   Future<void> _openDocument(Applicant a, String kind) =>
-      AdminApplicantDocumentViewer.open(context,
-          uid: a.uid, applicantName: a.name, kind: kind);
+      AdminApplicantDocumentViewer.open(
+        context,
+        uid: a.uid,
+        applicantName: a.name,
+        kind: kind,
+      );
 
   Future<void> _exportApplicationsWorkbook() async {
     try {
       final response = await PesoApiClient.adminCreateExportLink();
       final uri = Uri.tryParse(response['url']?.toString() ?? '');
-      if (uri == null || !uri.hasAuthority || !{'http', 'https'}.contains(uri.scheme)) {
+      if (uri == null ||
+          !uri.hasAuthority ||
+          !{'http', 'https'}.contains(uri.scheme)) {
         throw StateError('The protected report URL is unavailable.');
       }
-      final opened = await launchUrl(uri, mode: LaunchMode.platformDefault,
-          webOnlyWindowName: '_blank');
+      final opened = await launchUrl(
+        uri,
+        mode: LaunchMode.platformDefault,
+        webOnlyWindowName: '_blank',
+      );
       if (!opened && mounted) {
-        showToast(context, 'Could not open the protected Excel report. Check popup settings.');
+        showToast(
+          context,
+          'Could not open the protected Excel report. Check popup settings.',
+        );
       }
     } catch (_) {
-      if (mounted) showToast(context, 'Could not generate the Excel report. Please retry.');
+      if (mounted) {
+        showToast(
+          context,
+          'Could not generate the Excel report. Please retry.',
+        );
+      }
     }
   }
 
@@ -2780,108 +2893,140 @@ class _ApplicantAnalyticsSectionState extends State<ApplicantAnalyticsSection> {
                 ),
               ),
               child: Column(
-                children: [SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: DataTable(
-                  dataRowMinHeight: 52,
-                  dataRowMaxHeight: 70,
-                  headingRowColor: WidgetStateProperty.all(_C.slate100),
-                  columns: const [
-                    DataColumn(label: Text('Job Seeker')),
-                    DataColumn(label: Text('Barangay')),
-                    DataColumn(label: Text('Target Job')),
-                    DataColumn(label: Text('Registered')),
-                    DataColumn(label: Text('Yrs. Exp.')),
-                    DataColumn(label: Text('Matched Jobs')),
-                    DataColumn(label: Text('Status')),
-                    DataColumn(label: Text('Resume / NSRP')),
-                  ],
-                  rows: recentTop
-                      .map(
-                        (a) => DataRow(
-                          cells: [
-                            DataCell(
-                              Text(
-                                a.name,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 12,
+                children: [
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: DataTable(
+                      dataRowMinHeight: 52,
+                      dataRowMaxHeight: 70,
+                      headingRowColor: WidgetStateProperty.all(_C.slate100),
+                      columns: const [
+                        DataColumn(label: Text('Job Seeker')),
+                        DataColumn(label: Text('Barangay')),
+                        DataColumn(label: Text('Target Job')),
+                        DataColumn(label: Text('Registered')),
+                        DataColumn(label: Text('Yrs. Exp.')),
+                        DataColumn(label: Text('Matched Jobs')),
+                        DataColumn(label: Text('Status')),
+                        DataColumn(label: Text('Resume / NSRP')),
+                      ],
+                      rows: recentTop
+                          .map(
+                            (a) => DataRow(
+                              cells: [
+                                DataCell(
+                                  Text(
+                                    a.name,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 12,
+                                    ),
+                                  ),
                                 ),
-                              ),
-                            ),
-                            DataCell(
-                              Text(
-                                'Brgy. ${a.barangay}',
-                                style: const TextStyle(fontSize: 12),
-                              ),
-                            ),
-                            DataCell(
-                              Text(
-                                a.targetJob,
-                                style: const TextStyle(fontSize: 12),
-                              ),
-                            ),
-                            DataCell(
-                              Text(
-                                _fmtDate(a.registeredDate),
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  fontFamily: 'monospace',
+                                DataCell(
+                                  Text(
+                                    'Brgy. ${a.barangay}',
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
                                 ),
-                              ),
-                            ),
-                            DataCell(
-                              Text(
-                                '${a.yearsExperience}',
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
+                                DataCell(
+                                  Text(
+                                    a.targetJob,
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
                                 ),
-                              ),
-                            ),
-                            DataCell(
-                              Text(
-                                a.matchStatus == 'matched'
-                                    ? '${a.matchedJobsCount}'
-                                    : '\u2014',
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
+                                DataCell(
+                                  Text(
+                                    _fmtDate(a.registeredDate),
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontFamily: 'monospace',
+                                    ),
+                                  ),
                                 ),
-                              ),
+                                DataCell(
+                                  Text(
+                                    '${a.yearsExperience}',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                                DataCell(
+                                  Text(
+                                    a.matchStatus == 'matched'
+                                        ? '${a.matchedJobsCount}'
+                                        : '\u2014',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                                DataCell(
+                                  _StatusBadge(kMatchStyles[a.matchStatus]!),
+                                ),
+                                DataCell(
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        tooltip: a.resumeSubmitted
+                                            ? 'View saved resume'
+                                            : 'Resume not submitted',
+                                        icon: Icon(
+                                          Icons.picture_as_pdf,
+                                          size: 19,
+                                          color: a.resumeSubmitted
+                                              ? _C.rose600
+                                              : _C.slate400,
+                                        ),
+                                        onPressed: a.uid.isEmpty
+                                            ? null
+                                            : () => _openDocument(a, 'resume'),
+                                      ),
+                                      IconButton(
+                                        tooltip: a.formSubmitted
+                                            ? 'View saved NSRP Form 1'
+                                            : 'NSRP Form 1 not submitted',
+                                        icon: Icon(
+                                          Icons.assignment_outlined,
+                                          size: 19,
+                                          color: a.formSubmitted
+                                              ? _C.primary
+                                              : _C.slate400,
+                                        ),
+                                        onPressed: a.uid.isEmpty
+                                            ? null
+                                            : () => _openDocument(a, 'nsrp'),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
                             ),
-                            DataCell(
-                              _StatusBadge(kMatchStyles[a.matchStatus]!),
-                            ),
-                            DataCell(Row(mainAxisSize: MainAxisSize.min, children: [
-                              IconButton(tooltip: a.resumeSubmitted
-                                  ? 'View saved resume' : 'Resume not submitted',
-                                icon: Icon(Icons.picture_as_pdf, size: 19,
-                                  color: a.resumeSubmitted ? _C.rose600 : _C.slate400),
-                                onPressed: a.uid.isEmpty ? null : () => _openDocument(a, 'resume')),
-                              IconButton(tooltip: a.formSubmitted
-                                  ? 'View saved NSRP Form 1' : 'NSRP Form 1 not submitted',
-                                icon: Icon(Icons.assignment_outlined, size: 19,
-                                  color: a.formSubmitted ? _C.primary : _C.slate400),
-                                onPressed: a.uid.isEmpty ? null : () => _openDocument(a, 'nsrp')),
-                            ])),
-                          ],
-                        ),
-                      )
-                      .toList(),
-                ),
-              ),
-              if (recent.length > recentTop.length)
-                Align(alignment: Alignment.centerRight,
-                  child: Padding(padding: const EdgeInsets.only(top: 12),
-                    child: TextButton.icon(
-                      onPressed: () => setState(() => _visibleApplicantRows += 25),
-                      icon: const Icon(Icons.expand_more),
-                      label: Text('Show more applicants (${recentTop.length}/${recent.length})'),
+                          )
+                          .toList(),
                     ),
                   ),
-                ),
-              ],),
+                  if (recent.length > recentTop.length)
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: TextButton.icon(
+                          onPressed: () =>
+                              setState(() => _visibleApplicantRows += 25),
+                          icon: const Icon(Icons.expand_more),
+                          label: Text(
+                            'Show more applicants (${recentTop.length}/${recent.length})',
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
         ],
@@ -3236,7 +3381,8 @@ class _DoleSprsExportSectionState extends State<DoleSprsExportSection> {
     try {
       final response = await PesoApiClient.adminEmailApplicantWorkbook();
       if (!mounted) return;
-      final recipient = response['recipient']?.toString() ?? 'the configured PESO email';
+      final recipient =
+          response['recipient']?.toString() ?? 'the configured PESO email';
       AppToast.show(
         context,
         'Excel report sent to $recipient.',
@@ -3347,16 +3493,27 @@ class _DoleSprsExportSectionState extends State<DoleSprsExportSection> {
                       key: const Key('admin-email-applicant-report'),
                       onPressed: _sendingEmail ? null : _emailExcelToPeso,
                       icon: _sendingEmail
-                          ? const SizedBox(width: 15, height: 15, child: CircularProgressIndicator(strokeWidth: 2))
+                          ? const SizedBox(
+                              width: 15,
+                              height: 15,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
                           : const Icon(Icons.email_outlined, size: 15),
                       label: Text(
-                        _sendingEmail ? 'Sending Excel...' : 'Email Excel to PESO',
-                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                        _sendingEmail
+                            ? 'Sending Excel...'
+                            : 'Email Excel to PESO',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: _C.primary,
                         side: const BorderSide(color: _C.primary),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
                     ),
                     // Secondary: Handoff to PESO Admin (behavior unchanged)

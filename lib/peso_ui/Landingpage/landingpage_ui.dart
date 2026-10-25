@@ -11,6 +11,7 @@ import '../Reusable_Designs/peso_employer_branding.dart';
 import '../../peso_services/peso_api_client.dart';
 import 'peso_public_services.dart';
 import 'jobkonek_tutorial.dart';
+import '../Reusable_Designs/spotlight_tour.dart';
 
 class LandingPage extends StatefulWidget {
   const LandingPage({super.key});
@@ -22,6 +23,17 @@ class LandingPage extends StatefulWidget {
 class _LandingPageState extends State<LandingPage> {
   final ScrollController _scrollController = ScrollController();
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  final GlobalKey<SpotlightTourState> _spotlightKey =
+      GlobalKey<SpotlightTourState>();
+  final GlobalKey _tourCreateAccount = GlobalKey(
+    debugLabel: 'landing-create-account',
+  );
+  final GlobalKey _tourExploreJobs = GlobalKey(
+    debugLabel: 'landing-explore-jobs',
+  );
+  final GlobalKey _tourHowItWorks = GlobalKey(
+    debugLabel: 'landing-how-it-works',
+  );
   final TextEditingController _jobSearchController = TextEditingController();
 
   int _activePageIndex = 0;
@@ -95,22 +107,32 @@ class _LandingPageState extends State<LandingPage> {
       final rawGallery = response['gallery'];
       final rawPartners = response['partners'];
       final gallery = rawGallery is List
-          ? rawGallery.whereType<Map>()
-              .map((item) => Map<String, dynamic>.from(item))
-              .where((item) {
-                final url = Uri.tryParse(item['imageUrl']?.toString() ?? '');
-                return (item['title']?.toString().trim().isNotEmpty ?? false) &&
-                    url != null && url.scheme == 'https' && url.host.isNotEmpty;
-              }).toList()
+          ? rawGallery
+                .whereType<Map>()
+                .map((item) => Map<String, dynamic>.from(item))
+                .where((item) {
+                  final url = Uri.tryParse(item['imageUrl']?.toString() ?? '');
+                  return (item['title']?.toString().trim().isNotEmpty ??
+                          false) &&
+                      url != null &&
+                      url.scheme == 'https' &&
+                      url.host.isNotEmpty;
+                })
+                .toList()
           : <Map<String, dynamic>>[];
       final partners = rawPartners is List
-          ? rawPartners.whereType<Map>()
-              .map((item) => Map<String, dynamic>.from(item))
-              .where((item) {
-                final url = Uri.tryParse(item['logoUrl']?.toString() ?? '');
-                return (item['name']?.toString().trim().isNotEmpty ?? false) &&
-                    url != null && url.scheme == 'https' && url.host.isNotEmpty;
-              }).toList()
+          ? rawPartners
+                .whereType<Map>()
+                .map((item) => Map<String, dynamic>.from(item))
+                .where((item) {
+                  final url = Uri.tryParse(item['logoUrl']?.toString() ?? '');
+                  return (item['name']?.toString().trim().isNotEmpty ??
+                          false) &&
+                      url != null &&
+                      url.scheme == 'https' &&
+                      url.host.isNotEmpty;
+                })
+                .toList()
           : <Map<String, dynamic>>[];
       if (!mounted) return;
       setState(() {
@@ -235,81 +257,125 @@ class _LandingPageState extends State<LandingPage> {
     super.dispose();
   }
 
+  void _startSpotlightTour() {
+    if (_activePageIndex != 0) {
+      setState(() => _activePageIndex = 0);
+      _scrollToTop();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_spotlightKey.currentState?.start(replay: true));
+      });
+      return;
+    }
+    unawaited(_spotlightKey.currentState?.start(replay: true));
+  }
+
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
     final isMobile = width < PesoTokens.breakpointCompact;
 
-    return Scaffold(
-      key: _scaffoldKey,
-      extendBodyBehindAppBar: false,
-      backgroundColor: Colors.white,
-      appBar: AdaptiveNavBar(
-        activeIndex: _activePageIndex,
-        isScrolled: _isScrolled,
-        onTabSelected: (index) {
-          setState(() => _activePageIndex = index);
-          _scrollToTop();
-        },
-        onRegisterTap: () => Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => const AuthPage(initialIsLogin: false),
-          ),
+    return SpotlightTour(
+      key: _spotlightKey,
+      tourId: 'landing-spotlight-v1',
+      steps: [
+        SpotlightStep(
+          target: _tourCreateAccount,
+          title: 'Create your PESO account',
+          description: 'This real button opens registration. Tap it to begin, or choose Next to preview the other tools.',
         ),
-        onLoginTap: () => Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => const AuthPage(initialIsLogin: true),
-          ),
+        SpotlightStep(
+          target: _tourExploreJobs,
+          title: 'Explore active vacancies',
+          description: 'This opens the live job board. Search by employer or role and review each listing carefully.',
         ),
-        showAuthActions: true,
-      ),
-      bottomNavigationBar: isMobile
-          ? MobileBottomNavBar(
-              activeIndex: _activePageIndex,
-              onTabSelected: (index) {
-                setState(() => _activePageIndex = index);
-                _scrollToTop();
-              },
-            )
-          : null,
-      body: SingleChildScrollView(
-        controller: _scrollController,
-        child: Column(
-          children: [
-            AnimatedSwitcher(
-              duration: MediaQuery.disableAnimationsOf(context)
-                  ? Duration.zero
-                  : const Duration(milliseconds: 320),
-              switchInCurve: Curves.easeOutCubic,
-              switchOutCurve: Curves.easeInCubic,
-              transitionBuilder: (Widget child, Animation<double> animation) {
-                final slide = Tween<Offset>(
-                  begin: const Offset(0, 0.025),
-                  end: Offset.zero,
-                ).animate(animation);
-                return FadeTransition(
-                  opacity: animation,
-                  child: SlideTransition(position: slide, child: child),
-                );
-              },
-              child: Container(
-                key: ValueKey<int>(_activePageIndex),
-                child: _buildActiveContent(),
+        SpotlightStep(
+          target: _tourHowItWorks,
+          title: 'Review the complete walkthrough',
+          description: 'This interactive guide explains registration, NSRP, job matching and tracking applications.',
+          actionHint: 'Scroll here again anytime, or finish this tour.',
+        ),
+      ],
+      child: Scaffold(
+        key: _scaffoldKey,
+        extendBodyBehindAppBar: false,
+        backgroundColor: Colors.white,
+        floatingActionButton: FloatingActionButton.extended(
+          key: const Key('landing-start-spotlight'),
+          heroTag: 'landing-spotlight-help',
+          tooltip: 'Replay the guided page tour',
+          backgroundColor: PesoTokens.brandGreenDark,
+          foregroundColor: Colors.white,
+          onPressed: _startSpotlightTour,
+          icon: const Icon(Icons.tips_and_updates_outlined),
+          label: const Text('Guide me'),
+        ),
+        appBar: AdaptiveNavBar(
+          activeIndex: _activePageIndex,
+          isScrolled: _isScrolled,
+          onTabSelected: (index) {
+            setState(() => _activePageIndex = index);
+            _scrollToTop();
+          },
+          onRegisterTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const AuthPage(initialIsLogin: false),
+            ),
+          ),
+          onLoginTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const AuthPage(initialIsLogin: true),
+            ),
+          ),
+          showAuthActions: true,
+        ),
+        bottomNavigationBar: isMobile
+            ? MobileBottomNavBar(
+                activeIndex: _activePageIndex,
+                onTabSelected: (index) {
+                  setState(() => _activePageIndex = index);
+                  _scrollToTop();
+                },
+              )
+            : null,
+        body: SingleChildScrollView(
+          controller: _scrollController,
+          child: Column(
+            children: [
+              AnimatedSwitcher(
+                duration: MediaQuery.disableAnimationsOf(context)
+                    ? Duration.zero
+                    : const Duration(milliseconds: 320),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
+                transitionBuilder: (Widget child, Animation<double> animation) {
+                  final slide = Tween<Offset>(
+                    begin: const Offset(0, 0.025),
+                    end: Offset.zero,
+                  ).animate(animation);
+                  return FadeTransition(
+                    opacity: animation,
+                    child: SlideTransition(position: slide, child: child),
+                  );
+                },
+                child: Container(
+                  key: ValueKey<int>(_activePageIndex),
+                  child: _buildActiveContent(),
+                ),
               ),
-            ),
-            GlobalFooter(
-              pesoGreen: PesoTokens.brandGreen,
-              onTabSelected: (index) {
-                setState(() => _activePageIndex = index);
-                _scrollToTop();
-              },
-              onScrollToTop: _scrollToTop,
-              onServiceRequested: (code) =>
-                  PesoPublicServices.showDetails(context, code),
-            ),
-          ],
+              GlobalFooter(
+                pesoGreen: PesoTokens.brandGreen,
+                onTabSelected: (index) {
+                  setState(() => _activePageIndex = index);
+                  _scrollToTop();
+                },
+                onScrollToTop: _scrollToTop,
+                onServiceRequested: (code) =>
+                    PesoPublicServices.showDetails(context, code),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -341,16 +407,26 @@ class _LandingPageState extends State<LandingPage> {
         _ScrollReveal(
           scrollController: _scrollController,
           child: HeroSection(
+            exploreJobsKey: _tourExploreJobs,
+            createAccountKey: _tourCreateAccount,
             onPrimaryTap: () {
+              if (_spotlightKey.currentState?.isShowing ?? false) {
+                _spotlightKey.currentState?.finish();
+              }
               setState(() => _activePageIndex = 1);
               _scrollToTop();
             },
-            onSecondaryTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => const AuthPage(initialIsLogin: false),
-              ),
-            ),
+            onSecondaryTap: () {
+              if (_spotlightKey.currentState?.isShowing ?? false) {
+                _spotlightKey.currentState?.finish();
+              }
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const AuthPage(initialIsLogin: false),
+                ),
+              );
+            },
           ),
         ),
         _ScrollReveal(
@@ -840,7 +916,9 @@ class _LandingPageState extends State<LandingPage> {
     final isMobile = width < PesoTokens.breakpointCompact;
     final List<String> images = PesoImageAssets.gallery;
     final useManagedGallery = _managedGallery.isNotEmpty;
-    final imageCount = useManagedGallery ? _managedGallery.length : images.length;
+    final imageCount = useManagedGallery
+        ? _managedGallery.length
+        : images.length;
 
     return Container(
       color: Colors.white,
@@ -890,8 +968,15 @@ class _LandingPageState extends State<LandingPage> {
                   return AnimatedEntrance(
                     delay: 200 + (index * 100),
                     child: useManagedGallery
-                        ? _buildManagedGalleryImageCard(_managedGallery[index], cardWidth)
-                        : _buildGalleryImageCard(images[index], index, cardWidth),
+                        ? _buildManagedGalleryImageCard(
+                            _managedGallery[index],
+                            cardWidth,
+                          )
+                        : _buildGalleryImageCard(
+                            images[index],
+                            index,
+                            cardWidth,
+                          ),
                   );
                 }),
               );
@@ -964,7 +1049,10 @@ class _LandingPageState extends State<LandingPage> {
     );
   }
 
-  Widget _buildManagedGalleryImageCard(Map<String, dynamic> item, double width) {
+  Widget _buildManagedGalleryImageCard(
+    Map<String, dynamic> item,
+    double width,
+  ) {
     final title = item['title']?.toString().trim() ?? 'PESO activity';
     final caption = item['caption']?.toString().trim() ?? '';
     final url = item['imageUrl']?.toString() ?? '';
@@ -992,11 +1080,19 @@ class _LandingPageState extends State<LandingPage> {
               ),
             ),
             const SizedBox(height: 8),
-            Text(title, style: PesoTokens.bodySmall.copyWith(fontWeight: FontWeight.w800)),
+            Text(
+              title,
+              style: PesoTokens.bodySmall.copyWith(fontWeight: FontWeight.w800),
+            ),
             if (caption.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 4),
-                child: Text(caption, style: PesoTokens.bodySmall.copyWith(color: PesoTokens.textMuted)),
+                child: Text(
+                  caption,
+                  style: PesoTokens.bodySmall.copyWith(
+                    color: PesoTokens.textMuted,
+                  ),
+                ),
               ),
           ],
         ),
@@ -1041,32 +1137,34 @@ class _LandingPageState extends State<LandingPage> {
               if (_managedPartners.isEmpty)
                 for (final partner in PesoImageAssets.partnerLogos)
                   Container(
-                  width: isMobile ? 140 : 168,
-                  height: 104,
-                  padding: const EdgeInsets.all(PesoTokens.spacingMD),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(PesoTokens.radiusCard),
-                    border: Border.all(color: PesoTokens.brandGreenLight),
-                    boxShadow: PesoTokens.shadowSM,
-                  ),
-                  child: Tooltip(
-                    message: partner.name,
-                    child: Image.asset(
-                      partner.asset,
-                      fit: BoxFit.contain,
-                      errorBuilder: (_, _, _) => Center(
-                        child: Text(
-                          partner.name,
-                          textAlign: TextAlign.center,
-                          style: PesoTokens.bodySmall.copyWith(
-                            color: PesoTokens.textMuted,
+                    width: isMobile ? 140 : 168,
+                    height: 104,
+                    padding: const EdgeInsets.all(PesoTokens.spacingMD),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(
+                        PesoTokens.radiusCard,
+                      ),
+                      border: Border.all(color: PesoTokens.brandGreenLight),
+                      boxShadow: PesoTokens.shadowSM,
+                    ),
+                    child: Tooltip(
+                      message: partner.name,
+                      child: Image.asset(
+                        partner.asset,
+                        fit: BoxFit.contain,
+                        errorBuilder: (_, _, _) => Center(
+                          child: Text(
+                            partner.name,
+                            textAlign: TextAlign.center,
+                            style: PesoTokens.bodySmall.copyWith(
+                              color: PesoTokens.textMuted,
+                            ),
                           ),
                         ),
                       ),
                     ),
                   ),
-                ),
               if (_managedPartners.isNotEmpty)
                 for (final partner in _managedPartners)
                   _buildManagedPartnerCard(partner, isMobile),
@@ -1081,8 +1179,8 @@ class _LandingPageState extends State<LandingPage> {
     final name = partner['name']?.toString().trim() ?? 'Employer';
     final imageUrl = partner['logoUrl']?.toString() ?? '';
     final website = Uri.tryParse(partner['websiteUrl']?.toString() ?? '');
-    final canOpenWebsite = website != null &&
-        website.scheme == 'https' && website.host.isNotEmpty;
+    final canOpenWebsite =
+        website != null && website.scheme == 'https' && website.host.isNotEmpty;
     return Container(
       width: isMobile ? 140 : 168,
       height: 104,
@@ -1106,7 +1204,9 @@ class _LandingPageState extends State<LandingPage> {
               child: Text(
                 name,
                 textAlign: TextAlign.center,
-                style: PesoTokens.bodySmall.copyWith(color: PesoTokens.textMuted),
+                style: PesoTokens.bodySmall.copyWith(
+                  color: PesoTokens.textMuted,
+                ),
               ),
             ),
           ),
@@ -1336,8 +1436,12 @@ class _LandingPageState extends State<LandingPage> {
   // ==========================================
 
   Widget _buildHowItWorks() {
-    return JobKonekTutorial(onExploreJobs: _openJobSearch);
+    return JobKonekTutorial(
+      headingKey: _tourHowItWorks,
+      onExploreJobs: _openJobSearch,
+    );
   }
+
   Widget _buildFaq() {
     const questions = <({String question, String answer})>[
       (
@@ -1362,7 +1466,8 @@ class _LandingPageState extends State<LandingPage> {
       ),
     ];
 
-    final isMobile = MediaQuery.sizeOf(context).width < PesoTokens.breakpointCompact;
+    final isMobile =
+        MediaQuery.sizeOf(context).width < PesoTokens.breakpointCompact;
     return Container(
       key: const Key('jobkonek-faq'),
       width: double.infinity,
@@ -1377,11 +1482,16 @@ class _LandingPageState extends State<LandingPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Frequently Asked Questions', style: PesoTokens.headlineLarge),
+              Text(
+                'Frequently Asked Questions',
+                style: PesoTokens.headlineLarge,
+              ),
               const SizedBox(height: PesoTokens.spacingSM),
               Text(
                 'Quick answers to help you use PESO JobKonek.',
-                style: PesoTokens.bodyLarge.copyWith(color: PesoTokens.textMuted),
+                style: PesoTokens.bodyLarge.copyWith(
+                  color: PesoTokens.textMuted,
+                ),
               ),
               const SizedBox(height: PesoTokens.spacingLG),
               for (var index = 0; index < questions.length; index++)
@@ -1395,15 +1505,26 @@ class _LandingPageState extends State<LandingPage> {
                     side: const BorderSide(color: PesoTokens.brandGreenLight),
                   ),
                   child: ExpansionTile(
-                    tilePadding: const EdgeInsets.symmetric(horizontal: PesoTokens.spacingLG),
-                    childrenPadding: const EdgeInsets.fromLTRB(
-                      PesoTokens.spacingLG, 0, PesoTokens.spacingLG, PesoTokens.spacingLG,
+                    tilePadding: const EdgeInsets.symmetric(
+                      horizontal: PesoTokens.spacingLG,
                     ),
-                    title: Text(questions[index].question, style: PesoTokens.labelLarge),
+                    childrenPadding: const EdgeInsets.fromLTRB(
+                      PesoTokens.spacingLG,
+                      0,
+                      PesoTokens.spacingLG,
+                      PesoTokens.spacingLG,
+                    ),
+                    title: Text(
+                      questions[index].question,
+                      style: PesoTokens.labelLarge,
+                    ),
                     children: [
                       Align(
                         alignment: Alignment.centerLeft,
-                        child: Text(questions[index].answer, style: PesoTokens.bodyMedium.copyWith(height: 1.5)),
+                        child: Text(
+                          questions[index].answer,
+                          style: PesoTokens.bodyMedium.copyWith(height: 1.5),
+                        ),
                       ),
                     ],
                   ),
