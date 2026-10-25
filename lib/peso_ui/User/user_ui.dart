@@ -8,6 +8,7 @@ import '../../peso_services/app_toast.dart';
 
 import '../Landingpage/landingpage_ui.dart';
 import '../../peso_services/auth_service.dart';
+import '../../peso_services/onboarding_prompt_lifecycle.dart';
 import '../../peso_logic/peso_ai_engine.dart';
 import '../../peso_logic/onboarding_ai_evidence.dart';
 import '../../peso_logic/job_interest_recommendations.dart';
@@ -17,6 +18,7 @@ import '../../peso_services/peso_api_client.dart';
 import '../../peso_services/applicant_draft_service.dart';
 
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 
 import '../../peso_models/job_posting.dart';
 import '../Reusable_Designs/peso_images.dart';
@@ -100,6 +102,28 @@ class _UserProfileState extends State<UserProfile> {
   Map<String, dynamic> _accountDocuments = <String, dynamic>{};
   bool _onboardingModalShown = false;
   bool _welcomeFinished = true;
+  String? _dashboardSessionUid;
+  StreamSubscription<User?>? _authStateSubscription;
+  final OnboardingDialogHandle<String> _onboardingDialog =
+      OnboardingDialogHandle<String>();
+
+  // A mounted Flutter State can outlive an authentication change. Missing
+  // document reminders belong only to the exact active Firebase applicant.
+  bool _sameSignedInApplicant(String? uid) {
+    final currentUid = Firebase.apps.isNotEmpty
+        ? FirebaseAuth.instance.currentUser?.uid
+        : null;
+    return uid == _dashboardSessionUid &&
+        OnboardingPromptGuard.sameApplicant(
+          mounted: mounted,
+          loggingOut: _isLoggingOut,
+          dashboardUid: _dashboardSessionUid,
+          currentUid: currentUid,
+        );
+  }
+
+  void _dismissRequiredOnboarding() => _onboardingDialog.dismiss();
+
   Uint8List? _profilePhotoBytes;
   String? _loadedPhotoId;
   Map<String, dynamic> _aiProfileData = <String, dynamic>{};
@@ -154,6 +178,17 @@ class _UserProfileState extends State<UserProfile> {
   @override
   void initState() {
     super.initState();
+    if (Firebase.apps.isNotEmpty) {
+      _dashboardSessionUid = FirebaseAuth.instance.currentUser?.uid;
+      _authStateSubscription = FirebaseAuth.instance.authStateChanges().listen((
+        user,
+      ) {
+        if (!mounted) return;
+        if (user == null || user.uid != _dashboardSessionUid) {
+          _dismissRequiredOnboarding();
+        }
+      });
+    }
     _initializeAIProfileData();
     _resumeData = Map<String, dynamic>.from(widget.initialResumeData);
     _pesoFormData = Map<String, dynamic>.from(widget.initialPesoFormData);
@@ -196,6 +231,8 @@ class _UserProfileState extends State<UserProfile> {
   Future<void> _logoutAndReturnToLanding() async {
     if (_isLoggingOut || !mounted) return;
     setState(() => _isLoggingOut = true);
+    // Pending profile requests and dialogs must stop at the logout boundary.
+    _dismissRequiredOnboarding();
     try {
       await AuthService.signOut();
     } catch (_) {
@@ -913,10 +950,20 @@ class _UserProfileState extends State<UserProfile> {
   }
 
   Future<void> _showRequiredOnboarding() async {
-    if (!mounted ||
-        !_welcomeFinished ||
-        _onboardingModalShown ||
-        _accountDocuments.isEmpty) {
+    final uid = _dashboardSessionUid;
+    final currentUid = Firebase.apps.isNotEmpty
+        ? FirebaseAuth.instance.currentUser?.uid
+        : null;
+    if (!OnboardingPromptGuard.canPrompt(
+      mounted: mounted,
+      loggingOut: _isLoggingOut,
+      dashboardUid: uid,
+      currentUid: currentUid,
+      dashboardRouteIsCurrent: ModalRoute.of(context)?.isCurrent == true,
+      welcomeFinished: _welcomeFinished,
+      alreadyShown: _onboardingModalShown,
+      documentsLoaded: _accountDocuments.isNotEmpty,
+    )) {
       return;
     }
     final resumeMissing = _accountDocuments['resumeSubmitted'] != true;
@@ -925,9 +972,8 @@ class _UserProfileState extends State<UserProfile> {
       return;
     }
     _onboardingModalShown = true;
-    final choice = await showDialog<String>(
+    final choice = await _onboardingDialog.show(
       context: context,
-      barrierDismissible: false,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Finish your PESO JobKonek onboarding'),
         content: ConstrainedBox(
@@ -963,7 +1009,7 @@ class _UserProfileState extends State<UserProfile> {
         ],
       ),
     );
-    if (!mounted) return;
+    if (!_sameSignedInApplicant(uid)) return;
     if (choice == 'continue') {
       if (resumeMissing) {
         await _chooseResumePath();
@@ -1074,9 +1120,10 @@ class _UserProfileState extends State<UserProfile> {
   }
 
   Future<void> _loadAccountProfile() async {
+    final requestUid = _dashboardSessionUid;
     try {
       final data = await AuthService.getCurrentUserProfile();
-      if (!mounted || data.isEmpty) return;
+      if (data.isEmpty || !_sameSignedInApplicant(requestUid)) return;
 
       final preferences = data['preferences'] is Map
           ? Map<String, dynamic>.from(data['preferences'] as Map)
@@ -1105,6 +1152,9 @@ class _UserProfileState extends State<UserProfile> {
       } catch (error) {
         debugPrint('[PROFILE] Could not load saved documents: $error');
       }
+      // A queued network response can resolve after Firebase signs out.
+      // Never apply the former applicant's documents to a closing dashboard.
+      if (!_sameSignedInApplicant(requestUid)) return;
 
       setState(() {
         _resumeData = resumeData.isNotEmpty ? resumeData : _resumeData;
@@ -1179,9 +1229,12 @@ class _UserProfileState extends State<UserProfile> {
       unawaited(_refreshCareerRecommendations());
       if (_accountDocuments.isNotEmpty &&
           !_onboardingModalShown &&
-          _welcomeFinished) {
+          _welcomeFinished &&
+          _sameSignedInApplicant(requestUid)) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) unawaited(_showRequiredOnboarding());
+          if (_sameSignedInApplicant(requestUid)) {
+            unawaited(_showRequiredOnboarding());
+          }
         });
       }
       final photoId = data['photoArtifactId']?.toString() ?? '';
@@ -1604,6 +1657,7 @@ class _UserProfileState extends State<UserProfile> {
 
   @override
   void dispose() {
+    _authStateSubscription?.cancel();
     _jobExpiryTimer?.cancel();
     _jobSearchDebounce?.cancel();
     _jobSearchController.dispose();
