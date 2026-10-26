@@ -70,8 +70,8 @@ class GlobalFooter extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final compact = MediaQuery.sizeOf(context).width < 760;
-    final veryCompact = MediaQuery.sizeOf(context).width < 520;
+    final compact = MediaQuery.sizeOf(context).width < 1080;
+    final veryCompact = MediaQuery.sizeOf(context).width < 560;
     final brand = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -287,12 +287,18 @@ class GlobalFooter extends StatelessWidget {
               decoration: BoxDecoration(
                 color: const Color(0xFFB8E4C9).withValues(alpha: 0.14),
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: const Color(0xFFB8E4C9).withValues(alpha: 0.65)),
+                border: Border.all(
+                  color: const Color(0xFFB8E4C9).withValues(alpha: 0.65),
+                ),
               ),
               child: const Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.account_balance_outlined, color: Color(0xFFB8E4C9), size: 18),
+                  Icon(
+                    Icons.account_balance_outlined,
+                    color: Color(0xFFB8E4C9),
+                    size: 18,
+                  ),
                   SizedBox(width: 8),
                   Flexible(
                     child: Text(
@@ -321,17 +327,50 @@ class GlobalFooter extends StatelessWidget {
   );
 
   Widget _buildFooterContact(IconData icon, String text) {
+    final isEmail =
+        icon == Icons.email &&
+        text.trim().toLowerCase() == 'peso.rod@gmail.com';
+    final contact = Row(
+      children: [
+        Icon(icon, color: Colors.white70, size: 20),
+        const SizedBox(width: 15),
+        Expanded(
+          child: Text(
+            text,
+            style: TextStyle(
+              color: Colors.white70,
+              decoration: isEmail
+                  ? TextDecoration.underline
+                  : TextDecoration.none,
+              decorationColor: Colors.white70,
+            ),
+          ),
+        ),
+      ],
+    );
     return Padding(
       padding: const EdgeInsets.only(bottom: 15),
-      child: Row(
-        children: [
-          Icon(icon, color: Colors.white70, size: 20),
-          const SizedBox(width: 15),
-          Expanded(
-            child: Text(text, style: const TextStyle(color: Colors.white70)),
-          ),
-        ],
-      ),
+      child: isEmail
+          ? Tooltip(
+              message: 'Email PESO Montalban',
+              child: Semantics(
+                link: true,
+                label: 'Email PESO Montalban at $text',
+                child: InkWell(
+                  key: const Key('footer-email-link'),
+                  mouseCursor: SystemMouseCursors.click,
+                  borderRadius: BorderRadius.circular(4),
+                  onTap: () async {
+                    await launchUrl(
+                      Uri(scheme: 'mailto', path: text.trim()),
+                      mode: LaunchMode.externalApplication,
+                    );
+                  },
+                  child: contact,
+                ),
+              ),
+            )
+          : contact,
     );
   }
 }

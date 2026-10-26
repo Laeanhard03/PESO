@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import * as htmlToImage from "html-to-image";
 import { jsPDF } from "jspdf";
 import { sendToFlutter } from './flutterBridge.js';
+import { validateResumePhoto } from './resumePhotoValidation.js';
 import { applicantCareerEntries, educationChoices, experienceChoices, skillsChoices, validateApplicantEssentials } from './applicantEssentials.js';
 
 // Registration values inherited from the Flutter shell (URL query string).
@@ -91,6 +92,9 @@ export default function ResumeApp() {
   const [fitScale, setFitScale] = useState(1);
   const [canvasHeight, setCanvasHeight] = useState(1123);
   const [photo, setPhoto] = useState(null);
+  const [isPhotoChecking, setIsPhotoChecking] = useState(false);
+  const [photoValidation, setPhotoValidation] = useState({ status: 'idle', message: '' });
+  const photoValidationGenerationRef = useRef(0);
   const [isProcessing, setIsProcessing] = useState(false);
   const [careerEducation, setCareerEducation] = useState('');
   const [experienceStatus, setExperienceStatus] = useState('');
@@ -178,7 +182,30 @@ export default function ResumeApp() {
       setCareerSkills(draft.applicantEssentials?.skills || '');
       if (typeof draft.photoDataUri === 'string' &&
           draft.photoDataUri.startsWith('data:image/') &&
-          draft.photoDataUri.length < 3000000) setPhoto(draft.photoDataUri);
+          draft.photoDataUri.length < 3000000) {
+        const photoRequestId = ++photoValidationGenerationRef.current;
+        setIsPhotoChecking(true);
+        setPhotoValidation({ status: 'checking', message: 'Checking your saved profile photo…' });
+        fetch(draft.photoDataUri).then(response => response.blob()).then(blob => {
+          const type = blob.type || 'image/jpeg';
+          const extension = type === 'image/png' ? 'png' : 'jpg';
+          return validateResumePhoto(new File([blob], 'resume-photo.' + extension, { type }));
+        }).then(result => {
+          if (photoRequestId !== photoValidationGenerationRef.current) return;
+          if (result.valid) {
+            setPhoto(draft.photoDataUri);
+            setPhotoValidation({ status: 'success', message: 'Saved profile photo verified.' });
+          } else {
+            setPhotoValidation({ status: 'error', message: 'Your saved photo could not be verified. Please upload a clear photo of one person.' });
+          }
+        }).catch(() => {
+          if (photoRequestId === photoValidationGenerationRef.current) {
+            setPhotoValidation({ status: 'error', message: 'Your saved photo could not be verified. Please upload a valid JPG or PNG.' });
+          }
+        }).finally(() => {
+          if (photoRequestId === photoValidationGenerationRef.current) setIsPhotoChecking(false);
+        });
+      }
     };
     const goOnline = () => {
       if (ownerUidRef.current && lastDraftRef.current) {
@@ -245,18 +272,41 @@ export default function ResumeApp() {
     };
   }, []);
 
-  const handlePhotoUpload = (e) => {
-    const file = e.target.files[0];
+  const handlePhotoUpload = async (e) => {
+    const input = e.currentTarget;
+    const file = input.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith('image/') || file.size > 2000000) {
-      alert('Select a JPG or PNG under 2 MB.');
-      return;
+    const requestId = ++photoValidationGenerationRef.current;
+    setIsPhotoChecking(true);
+    setPhotoValidation({ status: 'checking', message: 'Checking that this is a clear photo of one person…' });
+    try {
+      const result = await validateResumePhoto(file);
+      if (requestId !== photoValidationGenerationRef.current) return;
+      if (!result.valid) {
+        setPhotoValidation({ status: 'error', message: result.message });
+        return;
+      }
+      const dataUri = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error('The photo could not be read.'));
+        reader.onload = () => typeof reader.result === 'string'
+          ? resolve(reader.result)
+          : reject(new Error('The photo could not be read.'));
+        reader.readAsDataURL(file);
+      });
+      if (requestId !== photoValidationGenerationRef.current) return;
+      setPhoto(dataUri);
+      setPhotoValidation({ status: 'success', message: 'Photo verified and added to your resume.' });
+      // The embedded draft autosaver listens for document input/change events.
+      document.dispatchEvent(new Event('input', { bubbles: true }));
+    } catch {
+      if (requestId === photoValidationGenerationRef.current) {
+        setPhotoValidation({ status: 'error', message: 'The photo could not be verified. Your previous photo was kept; please try again.' });
+      }
+    } finally {
+      input.value = '';
+      if (requestId === photoValidationGenerationRef.current) setIsPhotoChecking(false);
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') setPhoto(reader.result);
-    };
-    reader.readAsDataURL(file);
   };
 
   // Generate the PDF, extract editable resume content, and return both to Flutter.
@@ -586,15 +636,16 @@ export default function ResumeApp() {
 
           <button
             onClick={() => fileInputRef.current.click()}
-            className="px-3 py-1.5 bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-xs font-semibold rounded-md border border-neutral-300"
+            disabled={isPhotoChecking || isProcessing}
+            className="px-3 py-1.5 bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-xs font-semibold rounded-md border border-neutral-300 disabled:opacity-50 disabled:cursor-wait"
           >
-            Change Photo
+            {isPhotoChecking ? 'Checking photo…' : 'Change Photo'}
           </button>
           <input
             type="file"
             ref={fileInputRef}
             onChange={handlePhotoUpload}
-            accept="image/*"
+            accept="image/jpeg,image/png"
             className="hidden"
           />
 
@@ -613,6 +664,19 @@ export default function ResumeApp() {
             )}
           </button>
         </div>
+        <p className="mt-2 w-full text-xs text-slate-500">
+          Use a JPG or PNG under 2 MB with one clear face. Photo checks run locally in your browser.
+        </p>
+        {photoValidation.message && (
+          <p
+            data-testid="resume-photo-validation"
+            role={photoValidation.status === 'error' ? 'alert' : 'status'}
+            aria-live="polite"
+            className={'mt-2 w-full text-xs ' + (photoValidation.status === 'error' ? 'text-rose-700' : photoValidation.status === 'success' ? 'text-emerald-700' : 'text-slate-600')}
+          >
+            {photoValidation.message}
+          </p>
+        )}
       </header>
 
       {/* Required applicant-owned background, separate from editable sample

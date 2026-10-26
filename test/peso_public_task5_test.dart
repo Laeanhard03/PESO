@@ -110,6 +110,78 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets(
+    'Footer email is clickable and layout survives zoom-sized widths',
+    (tester) async {
+      for (final width in <double>[1920, 1280, 1024, 768, 560, 520, 390, 320]) {
+        setSize(tester, width, 900);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: GlobalFooter(
+                  pesoGreen: Colors.green,
+                  onTabSelected: (_) {},
+                  onScrollToTop: () {},
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final email = find.byKey(const Key('footer-email-link'));
+        expect(
+          email,
+          findsOneWidget,
+          reason: 'Footer email should be linked at width $width',
+        );
+        expect(tester.widget<InkWell>(email).onTap, isNotNull);
+        expect(
+          tester.takeException(),
+          isNull,
+          reason: 'Footer overflow at width $width',
+        );
+      }
+    },
+  );
+  testWidgets('Footer email launches the expected mailto address', (
+    tester,
+  ) async {
+    setSize(tester, 1280, 900);
+    String? launchedUrl;
+    const channel = MethodChannel('plugins.flutter.io/url_launcher');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          if (call.method == 'launch') {
+            launchedUrl =
+                (call.arguments as Map<dynamic, dynamic>)['url'] as String?;
+            return true;
+          }
+          return false;
+        });
+    addTearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+    });
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: GlobalFooter(
+              pesoGreen: Colors.green,
+              onTabSelected: (_) {},
+              onScrollToTop: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('footer-email-link')));
+    await tester.pumpAndSettle();
+    expect(launchedUrl, 'mailto:peso.rod@gmail.com');
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('PESO photographs are valid bundled image assets', (
     tester,
   ) async {
