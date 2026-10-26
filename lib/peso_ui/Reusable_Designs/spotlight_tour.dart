@@ -275,18 +275,29 @@ class SpotlightTourState extends State<SpotlightTour>
 
           Widget barrier(Rect area) => Positioned.fromRect(
             rect: area,
-            child: ColoredBox(
-              color: shadow,
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () {},
-              ),
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () {},
+              child: const SizedBox.expand(),
             ),
           );
 
           final step = widget.steps[_index];
           return Stack(
             children: [
+              // Paint the dim layer once and clear a rounded hole. Painting
+              // four translucent rectangles separately caused visible seams
+              // where their alpha-composited edges met.
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: CustomPaint(
+                    painter: _SpotlightBackdropPainter(
+                      focus: focus,
+                      color: shadow,
+                    ),
+                  ),
+                ),
+              ),
               if (focus.top > 0)
                 barrier(Rect.fromLTRB(0, 0, size.width, focus.top)),
               if (focus.bottom < size.height)
@@ -343,7 +354,7 @@ class SpotlightTourState extends State<SpotlightTour>
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'GUIDED TOUR  ·  ${_index + 1}/${widget.steps.length}',
+                              'GUIDED TOUR - ${_index + 1}/${widget.steps.length}',
                               style: const TextStyle(
                                 fontSize: 11,
                                 color: PesoTokens.brandGreenDark,
@@ -422,4 +433,30 @@ class SpotlightTourState extends State<SpotlightTour>
 
   @override
   Widget build(BuildContext context) => widget.child;
+}
+
+class _SpotlightBackdropPainter extends CustomPainter {
+  const _SpotlightBackdropPainter({required this.focus, required this.color});
+
+  final Rect focus;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final bounds = Offset.zero & size;
+    canvas.saveLayer(bounds, Paint());
+    canvas.drawRect(bounds, Paint()..color = color);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(focus, const Radius.circular(14)),
+      Paint()
+        ..isAntiAlias = true
+        ..blendMode = BlendMode.clear,
+    );
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _SpotlightBackdropPainter oldDelegate) {
+    return oldDelegate.focus != focus || oldDelegate.color != color;
+  }
 }

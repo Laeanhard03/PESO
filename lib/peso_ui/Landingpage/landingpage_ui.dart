@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -9,9 +10,11 @@ import '../Reusable_Designs/reusable_ui.dart';
 import '../Reusable_Designs/peso_images.dart';
 import '../Reusable_Designs/peso_employer_branding.dart';
 import '../../peso_services/peso_api_client.dart';
+import '../../peso_services/site_consent_preferences.dart';
 import 'peso_public_services.dart';
 import 'jobkonek_tutorial.dart';
 import '../Reusable_Designs/spotlight_tour.dart';
+import 'site_entry_consent.dart';
 
 class LandingPage extends StatefulWidget {
   const LandingPage({super.key});
@@ -50,6 +53,8 @@ class _LandingPageState extends State<LandingPage> {
   Timer? _publicSyncTimer;
   bool _publicJobsLoading = true;
   String? _publicJobsError;
+  bool _showCookieBanner = false;
+  bool _entryConsentFlowBusy = false;
 
   @override
   void initState() {
@@ -63,6 +68,73 @@ class _LandingPageState extends State<LandingPage> {
       unawaited(_refreshFeaturedJobs());
       unawaited(_loadPublicSiteContent());
     });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_runEntryConsentFlow());
+    });
+  }
+
+  Future<void> _runEntryConsentFlow() async {
+    if (!kIsWeb || _entryConsentFlowBusy) return;
+    _entryConsentFlowBusy = true;
+    try {
+      final hasAcknowledgedNotice =
+          await SiteConsentPreferences.hasAcknowledgedNotice();
+      if (!mounted) return;
+      if (!hasAcknowledgedNotice) {
+        final decision = await SiteEntryNoticeDialog.show(context);
+        if (!mounted || decision == null) return;
+        await SiteConsentPreferences.acknowledgeNotice(
+          remember: decision.remember,
+        );
+      }
+      if (!mounted) return;
+      final cookieChoice = await SiteConsentPreferences.readCookieChoice();
+      if (!mounted) return;
+      if (cookieChoice == null) {
+        setState(() => _showCookieBanner = true);
+        return;
+      }
+      _startSpotlightAfterConsent();
+    } finally {
+      _entryConsentFlowBusy = false;
+    }
+  }
+
+  void _startSpotlightAfterConsent() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_spotlightKey.currentState?.start());
+    });
+  }
+
+  Future<void> _saveCookieChoice(String choice) async {
+    await SiteConsentPreferences.saveCookieChoice(choice);
+    if (!mounted) return;
+    setState(() => _showCookieBanner = false);
+    _startSpotlightAfterConsent();
+  }
+
+  Future<void> _showPrivacyDetailsFromCookieBanner() async {
+    final remember = await SiteConsentPreferences.isNoticeRemembered();
+    if (!mounted) return;
+    final decision = await SiteEntryNoticeDialog.show(
+      context,
+      initialRemember: remember,
+    );
+    if (!mounted || decision == null) return;
+    await SiteConsentPreferences.acknowledgeNotice(remember: decision.remember);
+  }
+
+  Future<void> _openPrivacyCookieSettings() async {
+    _spotlightKey.currentState?.dismiss();
+    final remember = await SiteConsentPreferences.isNoticeRemembered();
+    if (!mounted) return;
+    final decision = await SiteEntryNoticeDialog.show(
+      context,
+      initialRemember: remember,
+    );
+    if (!mounted || decision == null) return;
+    await SiteConsentPreferences.acknowledgeNotice(remember: decision.remember);
+    if (mounted) setState(() => _showCookieBanner = true);
   }
 
   String? get _publicCategory => switch (_selectedJobFilter) {
@@ -276,6 +348,7 @@ class _LandingPageState extends State<LandingPage> {
 
     return SpotlightTour(
       key: _spotlightKey,
+      autoStart: false,
       tourId: 'landing-spotlight-v1',
       steps: [
         SpotlightStep(
@@ -299,16 +372,18 @@ class _LandingPageState extends State<LandingPage> {
         key: _scaffoldKey,
         extendBodyBehindAppBar: false,
         backgroundColor: Colors.white,
-        floatingActionButton: FloatingActionButton.extended(
-          key: const Key('landing-start-spotlight'),
-          heroTag: 'landing-spotlight-help',
-          tooltip: 'Replay the guided page tour',
-          backgroundColor: PesoTokens.brandGreenDark,
-          foregroundColor: Colors.white,
-          onPressed: _startSpotlightTour,
-          icon: const Icon(Icons.tips_and_updates_outlined),
-          label: const Text('Guide me'),
-        ),
+        floatingActionButton: _showCookieBanner
+            ? null
+            : FloatingActionButton.extended(
+                key: const Key('landing-start-spotlight'),
+                heroTag: 'landing-spotlight-help',
+                tooltip: 'Replay the guided page tour',
+                backgroundColor: PesoTokens.brandGreenDark,
+                foregroundColor: Colors.white,
+                onPressed: _startSpotlightTour,
+                icon: const Icon(Icons.tips_and_updates_outlined),
+                label: const Text('Guide me'),
+              ),
         appBar: AdaptiveNavBar(
           activeIndex: _activePageIndex,
           isScrolled: _isScrolled,
@@ -330,7 +405,15 @@ class _LandingPageState extends State<LandingPage> {
           ),
           showAuthActions: true,
         ),
-        bottomNavigationBar: isMobile
+        bottomNavigationBar: _showCookieBanner
+            ? CookieConsentBanner(
+                onAcceptAll: () => unawaited(_saveCookieChoice('all-v1')),
+                onEssentialOnly: () =>
+                    unawaited(_saveCookieChoice('essential-v1')),
+                onViewPrivacy: () =>
+                    unawaited(_showPrivacyDetailsFromCookieBanner()),
+              )
+            : isMobile
             ? MobileBottomNavBar(
                 activeIndex: _activePageIndex,
                 onTabSelected: (index) {
@@ -373,6 +456,20 @@ class _LandingPageState extends State<LandingPage> {
                 onScrollToTop: _scrollToTop,
                 onServiceRequested: (code) =>
                     PesoPublicServices.showDetails(context, code),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+                child: Center(
+                  child: TextButton.icon(
+                    key: const Key('privacy-cookie-settings'),
+                    onPressed: () => unawaited(_openPrivacyCookieSettings()),
+                    icon: const Icon(Icons.privacy_tip_outlined, size: 18),
+                    label: const Text('Privacy & cookie settings'),
+                  ),
+                ),
               ),
             ],
           ),
