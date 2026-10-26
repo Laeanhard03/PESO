@@ -3,6 +3,25 @@ import { randomUUID } from 'node:crypto';
 const MAX_GALLERY_ITEMS = 30;
 const MAX_PARTNER_ITEMS = 40;
 
+const BUNDLED_PARTNER_ASSETS = new Set([
+  'asset:lib/assets/peso_partners/JOLLIBEE LOGO.png',
+  'asset:lib/assets/peso_partners/EEI CORPORATION LOGO.png',
+  'asset:lib/assets/peso_partners/SAVEMORE.jpg',
+  'asset:lib/assets/peso_partners/SAGULITIY.jpg',
+  'asset:lib/assets/peso_partners/JRCC.jpg',
+  'asset:lib/assets/peso_partners/SHOPWISE.jpg',
+  'asset:lib/assets/peso_partners/RUDER SPARK.jpg',
+  'asset:lib/assets/peso_partners/OMNICORES.png',
+  'asset:lib/assets/peso_partners/ROBINSON.png',
+  'asset:lib/assets/peso_partners/EXCEL SOURCE.jpg',
+  'asset:lib/assets/peso_partners/SM.png',
+  'asset:lib/assets/peso_partners/joBNET.png',
+  'asset:lib/assets/peso_partners/PUREGOLD.webp',
+  'asset:lib/assets/peso_partners/AVILON.png',
+  'asset:lib/assets/peso_partners/XENTRO MALL.jpg',
+]);
+
+
 function shortText(value, maxLength) {
   return String(value ?? '').trim().slice(0, maxLength);
 }
@@ -58,16 +77,17 @@ export function sanitizeLandingSiteContent(input) {
     }
     const name = shortText(item.name, 120);
     const logoUrl = httpsUrl(item.logoUrl);
+    const bundledLogo = BUNDLED_PARTNER_ASSETS.has(String(item.logoUrl ?? ''));
     const websiteUrl = httpsUrl(item.websiteUrl, { required: false });
     if (!name) throw new TypeError('Every employer partner needs a name.');
-    if (!logoUrl) throw new TypeError('Employer logo URLs must be valid HTTPS URLs.');
+    if (!logoUrl && !bundledLogo) throw new TypeError('Employer logo URLs must be valid HTTPS URLs or a bundled PESO partner logo.');
     if (String(item.websiteUrl ?? '').trim() && !websiteUrl) {
       throw new TypeError('Employer website URLs must be valid HTTPS URLs.');
     }
-    return { id: stableId(item.id), name, logoUrl, websiteUrl };
+    return { id: stableId(item.id), name, logoUrl: bundledLogo ? String(item.logoUrl) : logoUrl, websiteUrl };
   });
 
-  return { gallery, partners, galleryConfigured: input.galleryConfigured === true || gallery.length > 0 };
+  return { gallery, partners, galleryConfigured: input.galleryConfigured === true || gallery.length > 0, partnersConfigured: input.partnersConfigured === true || partners.length > 0 };
 }
 
 export const LANDING_SITE_CONTENT_LIMITS = Object.freeze({

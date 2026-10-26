@@ -1145,6 +1145,7 @@ async function readLandingSiteContent() {
   return {
     gallery: Array.isArray(saved?.gallery) ? saved.gallery : [],
     galleryConfigured: saved?.galleryConfigured === true || (Array.isArray(saved?.gallery) && saved.gallery.length > 0),
+    partnersConfigured: saved?.partnersConfigured === true || (Array.isArray(saved?.partners) && saved.partners.length > 0),
     partners: Array.isArray(saved?.partners) ? saved.partners : [],
     updatedAt: saved?.updatedAt instanceof Date ? saved.updatedAt.toISOString() : null,
   };

@@ -47,6 +47,7 @@ class _LandingPageState extends State<LandingPage> {
   List<Map<String, dynamic>> _managedGallery = const [];
   bool _galleryConfigured = false;
   List<Map<String, dynamic>> _managedPartners = const [];
+  bool _partnersConfigured = false;
   String? _publicNextPageToken;
   bool _publicLoadingMore = false;
   int _publicRequestGeneration = 0;
@@ -189,7 +190,10 @@ class _LandingPageState extends State<LandingPage> {
                           false) &&
                       url != null &&
                       (url.scheme == 'https' && url.host.isNotEmpty ||
-                        (item['imageUrl']?.toString().startsWith('asset:lib/assets/peso_gallery') ?? false));
+                          (item['imageUrl']?.toString().startsWith(
+                                'asset:lib/assets/peso_gallery',
+                              ) ??
+                              false));
                 })
                 .toList()
           : <Map<String, dynamic>>[];
@@ -199,19 +203,26 @@ class _LandingPageState extends State<LandingPage> {
                 .map((item) => Map<String, dynamic>.from(item))
                 .where((item) {
                   final url = Uri.tryParse(item['logoUrl']?.toString() ?? '');
+                  final assetPath = item['logoUrl']?.toString() ?? '';
                   return (item['name']?.toString().trim().isNotEmpty ??
                           false) &&
-                      url != null &&
-                      url.scheme == 'https' &&
-                      url.host.isNotEmpty;
+                      (PesoImageAssets.partnerLogos.any(
+                            (partner) => 'asset:${partner.asset}' == assetPath,
+                          ) ||
+                          (url != null &&
+                              url.scheme == 'https' &&
+                              url.host.isNotEmpty));
                 })
                 .toList()
           : <Map<String, dynamic>>[];
       if (!mounted) return;
       setState(() {
         _managedGallery = gallery;
-        _galleryConfigured = response['galleryConfigured'] == true || gallery.isNotEmpty;
+        _galleryConfigured =
+            response['galleryConfigured'] == true || gallery.isNotEmpty;
         _managedPartners = partners;
+        _partnersConfigured =
+            response['partnersConfigured'] == true || partners.isNotEmpty;
       });
     } catch (_) {
       // Keep the bundled PESO photo archive and partner logos if the API has
@@ -1168,16 +1179,24 @@ class _LandingPageState extends State<LandingPage> {
               child: AspectRatio(
                 aspectRatio: 4 / 3,
                 child: url.startsWith('asset:')
-                    ? Image.asset(url.substring(6), fit: BoxFit.cover, errorBuilder: (_, _, _) => const Icon(Icons.broken_image_outlined))
+                    ? Image.asset(
+                        url.substring(6),
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) =>
+                            const Icon(Icons.broken_image_outlined),
+                      )
                     : Image.network(
-                  url,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, _, _) => Container(
-                    color: PesoTokens.surfaceNeutral,
-                    alignment: Alignment.center,
-                    child: const Icon(Icons.broken_image_outlined, size: 36),
-                  ),
-                ),
+                        url,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) => Container(
+                          color: PesoTokens.surfaceNeutral,
+                          alignment: Alignment.center,
+                          child: const Icon(
+                            Icons.broken_image_outlined,
+                            size: 36,
+                          ),
+                        ),
+                      ),
               ),
             ),
             const SizedBox(height: 8),
@@ -1235,7 +1254,7 @@ class _LandingPageState extends State<LandingPage> {
             runSpacing: PesoTokens.spacingMD,
             alignment: WrapAlignment.center,
             children: [
-              if (_managedPartners.isEmpty)
+              if (!_partnersConfigured && _managedPartners.isEmpty)
                 for (final partner in PesoImageAssets.partnerLogos)
                   Container(
                     width: isMobile ? 140 : 168,
@@ -1266,7 +1285,7 @@ class _LandingPageState extends State<LandingPage> {
                       ),
                     ),
                   ),
-              if (_managedPartners.isNotEmpty)
+              if (_partnersConfigured || _managedPartners.isNotEmpty)
                 for (final partner in _managedPartners)
                   _buildManagedPartnerCard(partner, isMobile),
             ],
@@ -1298,19 +1317,27 @@ class _LandingPageState extends State<LandingPage> {
           onTap: canOpenWebsite
               ? () => launchUrl(website, mode: LaunchMode.externalApplication)
               : null,
-          child: Image.network(
-            imageUrl,
-            fit: BoxFit.contain,
-            errorBuilder: (_, _, _) => Center(
-              child: Text(
-                name,
-                textAlign: TextAlign.center,
-                style: PesoTokens.bodySmall.copyWith(
-                  color: PesoTokens.textMuted,
+          child: imageUrl.startsWith('asset:')
+              ? Image.asset(
+                  imageUrl.substring(6),
+                  fit: BoxFit.contain,
+                  cacheWidth: 340,
+                  errorBuilder: (_, _, _) => Center(child: Text(name)),
+                )
+              : Image.network(
+                  imageUrl,
+                  fit: BoxFit.contain,
+                  cacheWidth: 340,
+                  errorBuilder: (_, _, _) => Center(
+                    child: Text(
+                      name,
+                      textAlign: TextAlign.center,
+                      style: PesoTokens.bodySmall.copyWith(
+                        color: PesoTokens.textMuted,
+                      ),
+                    ),
+                  ),
                 ),
-              ),
-            ),
-          ),
         ),
       ),
     );

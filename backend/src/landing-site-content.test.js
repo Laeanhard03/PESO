@@ -47,7 +47,7 @@ test('rejects missing labels, malformed lists and item counts above the limit', 
 });
 
 test('empty lists intentionally restore the bundled public content', () => {
-  assert.deepEqual(sanitizeLandingSiteContent({ gallery: [], partners: [] }), { gallery: [], partners: [], galleryConfigured: false });
+  assert.deepEqual(sanitizeLandingSiteContent({ gallery: [], partners: [] }), { gallery: [], partners: [], galleryConfigured: false, partnersConfigured: false });
 });
 
 test('bundled gallery photo links are accepted and deleting all can remain empty', () => {
@@ -55,4 +55,23 @@ test('bundled gallery photo links are accepted and deleting all can remain empty
   assert.deepEqual(sanitizeLandingSiteContent({gallery,partners:[]}).gallery[0],gallery[0]);
   assert.equal(sanitizeLandingSiteContent({gallery:[],partners:[],galleryConfigured:true}).galleryConfigured,true);
   assert.throws(() => sanitizeLandingSiteContent({gallery:[{title:'Unsafe',imageUrl:'asset:lib/assets/secret.jpg'}],partners:[]}),/URLs/);
+});
+
+
+test('bundled employer logos support individual edits and deletion without restoring defaults', () => {
+  const logoUrl = 'asset:lib/assets/peso_partners/JOLLIBEE LOGO.png';
+  const entry = { id: 'bundled-partner-0', name: 'Jollibee', logoUrl, websiteUrl: '' };
+  const result = sanitizeLandingSiteContent({ gallery: [], partners: [entry] });
+  assert.deepEqual(result.partners[0], entry);
+  assert.equal(result.partnersConfigured, true);
+  const cleared = sanitizeLandingSiteContent({
+    gallery: [], partners: [], partnersConfigured: true,
+  });
+  assert.equal(cleared.partnersConfigured, true);
+  assert.deepEqual(cleared.partners, []);
+  for (const bad of ['asset:lib/assets/secret.jpg', 'asset:lib/assets/peso_partners/../secrets.png']) {
+    assert.throws(() => sanitizeLandingSiteContent({
+      gallery: [], partners: [{ name: 'Invalid', logoUrl: bad }],
+    }), /HTTPS/);
+  }
 });

@@ -1,319 +1,765 @@
 import 'package:flutter/material.dart';
+
 import '../../peso_services/peso_api_client.dart';
 import '../Reusable_Designs/peso_images.dart';
 
 class AdminLandingContentSection extends StatefulWidget {
-  const AdminLandingContentSection({super.key, this.loadContent, this.saveContent});
+  const AdminLandingContentSection({
+    super.key,
+    this.loadContent,
+    this.saveContent,
+  });
 
-  /// Injectable boundaries keep widget tests deterministic; production defaults
-  /// continue to use the authenticated API client.
+  /// Injectable API boundaries keep widget tests independent of sign-in.
   final Future<Map<String, dynamic>> Function()? loadContent;
-  final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? saveContent;
+  final Future<Map<String, dynamic>> Function(Map<String, dynamic>)?
+  saveContent;
+
   @override
-  State<AdminLandingContentSection> createState() => _AdminLandingContentSectionState();
+  State<AdminLandingContentSection> createState() =>
+      _AdminLandingContentSectionState();
 }
 
-class _AdminLandingContentSectionState extends State<AdminLandingContentSection> {
+class _AdminLandingContentSectionState
+    extends State<AdminLandingContentSection> {
+  static const int _pageSize = 8;
+
   List<_Item> gallery = [];
   List<_Item> partners = [];
+  late final List<_Item> _bundledGallery = [
+    for (var i = 0; i < PesoImageAssets.gallery.length; i++)
+      _Item(
+        'PESO Montalban Photo ${i + 1}',
+        'asset:${PesoImageAssets.gallery[i]}',
+        '',
+        'bundled-$i',
+      ),
+  ];
+  late final List<_Item> _bundledPartners = [
+    for (var i = 0; i < PesoImageAssets.partnerLogos.length; i++)
+      _Item(
+        PesoImageAssets.partnerLogos[i].name,
+        'asset:${PesoImageAssets.partnerLogos[i].asset}',
+        '',
+        'bundled-partner-$i',
+      ),
+  ];
+
   bool loading = true;
   bool saving = false;
-  String? error;
-  int? selectedPhoto;
   bool galleryConfigured = false;
-  late final List<_Item> bundledPreview = _bundledGallery();
+  bool partnersConfigured = false;
+  bool showGallery = true;
+  int galleryPage = 0;
+  int partnerPage = 0;
+  int? selectedPhoto;
+  int? selectedPartner;
+  String? error;
 
   @override
-  void initState() { super.initState(); _load(); }
+  void initState() {
+    super.initState();
+    _load();
+  }
 
   @override
   void dispose() {
-    for (final item in [...gallery, ...partners, ...bundledPreview]) { item.dispose(); }
+    for (final item in [
+      ...gallery,
+      ...partners,
+      ..._bundledGallery,
+      ..._bundledPartners,
+    ]) {
+      item.dispose();
+    }
     super.dispose();
   }
 
   List<_Item> _decode(dynamic value, bool isGallery) => value is List
-      ? value.whereType<Map>().map((row) {
-          final m = Map<String, dynamic>.from(row);
+      ? value.whereType<Map>().map((raw) {
+          final row = Map<String, dynamic>.from(raw);
           return _Item(
-            (isGallery ? m['title'] : m['name'])?.toString() ?? '',
-            (isGallery ? m['imageUrl'] : m['logoUrl'])?.toString() ?? '',
-            (isGallery ? m['caption'] : m['websiteUrl'])?.toString() ?? '',
-            m['id']?.toString() ?? '',
+            (isGallery ? row['title'] : row['name'])?.toString() ?? '',
+            (isGallery ? row['imageUrl'] : row['logoUrl'])?.toString() ?? '',
+            (isGallery ? row['caption'] : row['websiteUrl'])?.toString() ?? '',
+            row['id']?.toString() ?? '',
           );
         }).toList()
       : <_Item>[];
 
+  void _applyContent(Map<String, dynamic> result) {
+    final newGallery = _decode(result['gallery'], true);
+    final newPartners = _decode(result['partners'], false);
+    if (!mounted) {
+      for (final item in [...newGallery, ...newPartners]) {
+        item.dispose();
+      }
+      return;
+    }
+    final previous = [...gallery, ...partners];
+    setState(() {
+      gallery = newGallery;
+      partners = newPartners;
+      galleryConfigured =
+          result['galleryConfigured'] == true || newGallery.isNotEmpty;
+      partnersConfigured =
+          result['partnersConfigured'] == true || newPartners.isNotEmpty;
+      galleryPage = 0;
+      partnerPage = 0;
+      selectedPhoto = null;
+      selectedPartner = null;
+    });
+    // Allow old TextFields to detach from their controllers first.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      for (final item in previous) {
+        item.dispose();
+      }
+    });
+  }
+
   Future<void> _load() async {
-    setState(() { loading = true; error = null; });
+    if (saving) return;
+    setState(() {
+      loading = true;
+      error = null;
+    });
     try {
-      final r = await (widget.loadContent ?? PesoApiClient.adminGetLandingSiteContent)();
-      final g = _decode(r['gallery'], true);
-      final configured = r['galleryConfigured'] == true || g.isNotEmpty;
-      final p = _decode(r['partners'], false);
-      if (!mounted) { for (final i in [...g, ...p]) { i.dispose(); } return; }
-      for (final i in [...gallery, ...partners]) { i.dispose(); }
-      setState(() { gallery = g; partners = p; galleryConfigured = configured; selectedPhoto = null; });
+      final response =
+          await (widget.loadContent ??
+              PesoApiClient.adminGetLandingSiteContent)();
+      _applyContent(response);
     } catch (e) {
       if (mounted) setState(() => error = e.toString());
-    } finally { if (mounted) setState(() => loading = false); }
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
   }
 
-  List<_Item> _bundledGallery() => [
-    for (var i = 0; i < PesoImageAssets.gallery.length; i++)
-      _Item('PESO Montalban Photo ${i + 1}', 'asset:${PesoImageAssets.gallery[i]}', '', 'bundled-$i'),
-  ];
+  void _activate(bool isGallery) {
+    if (isGallery) {
+      if (!galleryConfigured) {
+        gallery = [for (final item in _bundledGallery) item.copy()];
+        galleryConfigured = true;
+      }
+    } else if (!partnersConfigured) {
+      partners = [for (final item in _bundledPartners) item.copy()];
+      partnersConfigured = true;
+    }
+  }
 
-  void _startEditingGallery() {
-    if (galleryConfigured) return;
+  List<_Item> _visibleItems(bool isGallery) => isGallery
+      ? (galleryConfigured ? gallery : _bundledGallery)
+      : (partnersConfigured ? partners : _bundledPartners);
+
+  _Item _newItem(bool isGallery) => _Item(
+    '',
+    '',
+    '',
+    'new-${isGallery ? 'photo-' : 'partner-'}${DateTime.now().microsecondsSinceEpoch}',
+  );
+
+  void _add(bool isGallery) {
+    if (saving) return;
     setState(() {
-      gallery = _bundledGallery();
-      galleryConfigured = true;
+      _activate(isGallery);
+      final rows = isGallery ? gallery : partners;
+      rows.add(_newItem(isGallery));
+      final index = rows.length - 1;
+      if (isGallery) {
+        galleryPage = index ~/ _pageSize;
+        selectedPhoto = index;
+      } else {
+        partnerPage = index ~/ _pageSize;
+        selectedPartner = index;
+      }
     });
   }
 
-  Future<void> _removePhoto(int index) async {
-    final confirmed = await showDialog<bool>(context: context, builder: (dialog) => AlertDialog(
-      title: const Text('Remove selected photo?'),
-      content: const Text('This photo will be removed from the public gallery after you save.'),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')),
-        FilledButton(onPressed: () => Navigator.pop(dialog, true), child: const Text('Remove photo')),
-      ],
-    ));
-    if (confirmed != true || !mounted) return;
-    _startEditingGallery();
+  void _select(bool isGallery, int index) {
+    if (saving) return;
     setState(() {
-      gallery.removeAt(index).dispose();
-      selectedPhoto = gallery.isEmpty ? null : index.clamp(0, gallery.length - 1);
+      _activate(isGallery);
+      if (isGallery) {
+        selectedPhoto = index;
+      } else {
+        selectedPartner = index;
+      }
     });
   }
 
-  Widget _thumbnail(_Item item) {
-    final url = item.url.text.trim();
-    if (url.startsWith('asset:')) {
-      return Image.asset(url.substring(6), fit: BoxFit.cover,
-          errorBuilder: (_, _, _) => const Icon(Icons.broken_image_outlined));
-    }
-    if (url.startsWith('https://')) {
-      return Image.network(url, fit: BoxFit.cover,
-          errorBuilder: (_, _, _) => const Icon(Icons.broken_image_outlined));
-    }
-    return const Icon(Icons.add_photo_alternate_outlined, size: 35);
+  void _changePage(bool isGallery, int nextPage) {
+    setState(() {
+      if (isGallery) {
+        galleryPage = nextPage;
+        selectedPhoto = null;
+      } else {
+        partnerPage = nextPage;
+        selectedPartner = null;
+      }
+    });
   }
 
-  Widget _galleryEditor() {
-    final displayed = galleryConfigured ? gallery : bundledPreview;
-    final selection = selectedPhoto;
-    final active = selection != null && selection >= 0 && selection < displayed.length;
-    return Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(children: [
-          const Expanded(child: Text('Gallery photos', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
-          OutlinedButton.icon(key: const Key('landing-gallery-add'),
-            onPressed: saving || displayed.length >= 30 ? null : () {
-              _startEditingGallery();
-              setState(() { gallery.add(_newItem('photo')); selectedPhoto = gallery.length - 1; });
-            }, icon: const Icon(Icons.add), label: const Text('Add photo')),
-        ]),
-        const SizedBox(height: 6),
-        const Text('Select a photo to edit, replace its URL, or remove it. Changes appear publicly after Save landing content.'),
-        const SizedBox(height: 12),
-        LayoutBuilder(builder: (context, bounds) {
-          final count = bounds.maxWidth > 700 ? 5 : bounds.maxWidth > 420 ? 3 : 2;
-          final w = (bounds.maxWidth - (count - 1) * 10) / count;
-          return Wrap(spacing: 10, runSpacing: 10, children: [
-            for (var n = 0; n < displayed.length; n++)
-              SizedBox(width: w, child: InkWell(
-                key: Key('landing-gallery-select-$n'),
-                onTap: saving ? null : () { _startEditingGallery(); setState(() => selectedPhoto = n); },
-                child: Container(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: selectedPhoto == n ? Theme.of(context).colorScheme.primary : Colors.black12,
-                      width: selectedPhoto == n ? 3 : 1),
-                  ),
-                  child: Column(children: [
-                    ClipRRect(borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
-                      child: SizedBox(height: 95, width: double.infinity, child: _thumbnail(displayed[n]))),
-                    Padding(padding: const EdgeInsets.all(5), child: Text(
-                      displayed[n].name.text.isEmpty ? 'New photo' : displayed[n].name.text,
-                      maxLines: 1, overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 12))),
-                  ]),
-                ),
-              )),
-          ]);
-        }),
-        if (displayed.isEmpty) const Padding(padding: EdgeInsets.all(12), child: Text('No photos selected for the public gallery. Add a photo or restore defaults.')),
-        if (active) ...[
-          const SizedBox(height: 18),
-          const Divider(),
-          Text('Edit photo ${selection + 1}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-          const SizedBox(height: 10),
-          SizedBox(height: 180, width: double.infinity, child: _thumbnail(displayed[selection])),
-          const SizedBox(height: 10),
-          TextField(key: const Key('landing-gallery-title'), controller: displayed[selection].name, maxLength: 120,
-            onChanged: (_) => setState(() {}),
-            decoration: const InputDecoration(labelText: 'Photo title *', border: OutlineInputBorder())),
-          const SizedBox(height: 8),
-          TextField(key: const Key('landing-gallery-image-url'), controller: displayed[selection].url,
-            keyboardType: TextInputType.url,
-            onChanged: (_) { _startEditingGallery(); setState(() {}); },
-            decoration: const InputDecoration(labelText: 'Replace image (public HTTPS URL)', hintText: 'https://...', border: OutlineInputBorder())),
-          const SizedBox(height: 8),
-          TextField(key: const Key('landing-gallery-caption'), controller: displayed[selection].detail,
-            maxLength: 240, maxLines: 2, onChanged: (_) => setState(() {}),
-            decoration: const InputDecoration(labelText: 'Caption (optional)', border: OutlineInputBorder())),
-          const SizedBox(height: 8),
-          OutlinedButton.icon(key: Key('landing-gallery-remove-$selection'),
-            onPressed: saving ? null : () => _removePhoto(selection),
-            icon: const Icon(Icons.delete_outline), label: const Text('Delete selected photo')),
+  Future<void> _remove(bool isGallery, int index) async {
+    final itemName = isGallery ? 'photo' : 'partner';
+    final remove = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: Text('Remove selected $itemName?'),
+        content: Text(
+          'This $itemName will be removed from the public page after you save.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialog, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialog, true),
+            child: Text('Remove $itemName'),
+          ),
         ],
-      ],
-    )));
+      ),
+    );
+    if (remove != true || !mounted) return;
+    late final _Item removed;
+    setState(() {
+      _activate(isGallery);
+      final rows = isGallery ? gallery : partners;
+      removed = rows.removeAt(index);
+      final next = rows.isEmpty ? null : index.clamp(0, rows.length - 1);
+      if (isGallery) {
+        selectedPhoto = next;
+        galleryPage = next == null ? 0 : next ~/ _pageSize;
+      } else {
+        selectedPartner = next;
+        partnerPage = next == null ? 0 : next ~/ _pageSize;
+      }
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => removed.dispose());
   }
 
-  _Item _newItem(String kind) => _Item('', '', '', 'new-$kind-${DateTime.now().microsecondsSinceEpoch}');
-
-  Map<String, dynamic> _json(_Item item, bool isGallery) => isGallery
-      ? {'id': item.id, 'title': item.name.text.trim(), 'imageUrl': item.url.text.trim(), 'caption': item.detail.text.trim()}
-      : {'id': item.id, 'name': item.name.text.trim(), 'logoUrl': item.url.text.trim(), 'websiteUrl': item.detail.text.trim()};
+  bool _validImageUrl(String value, bool isGallery) {
+    final raw = value.trim();
+    if (raw.startsWith('asset:')) {
+      final path = raw.substring(6);
+      return isGallery
+          ? PesoImageAssets.gallery.contains(path)
+          : PesoImageAssets.partnerLogos.any((p) => p.asset == path);
+    }
+    final parsed = Uri.tryParse(raw);
+    return parsed != null &&
+        parsed.scheme == 'https' &&
+        parsed.host.isNotEmpty &&
+        parsed.userInfo.isEmpty;
+  }
 
   bool _valid() {
-    for (final i in gallery) {
-      final u = Uri.tryParse(i.url.text.trim());
-      if (i.name.text.trim().isEmpty || !(i.url.text.startsWith('asset:lib/assets/peso_gallery') || (u != null && u.scheme == 'https' && u.host.isNotEmpty))) {
-        setState(() => error = 'Each gallery photo needs a title and a valid public HTTPS image URL.');
+    for (final item in gallery) {
+      if (item.name.text.trim().isEmpty ||
+          !_validImageUrl(item.url.text, true)) {
+        setState(
+          () => error =
+              'Each gallery photo needs a title and a valid HTTPS image URL.',
+        );
         return false;
       }
     }
-    for (final i in partners) {
-      final u = Uri.tryParse(i.url.text.trim());
-      final site = i.detail.text.trim();
-      final w = site.isEmpty ? null : Uri.tryParse(site);
-      if (i.name.text.trim().isEmpty || u == null || u.scheme != 'https' || u.host.isEmpty ||
-          (site.isNotEmpty && (w == null || w.scheme != 'https' || w.host.isEmpty))) {
-        setState(() => error = 'Each partner needs a name, HTTPS logo URL, and (if supplied) an HTTPS website.');
+    for (final item in partners) {
+      final website = item.detail.text.trim();
+      final parsedWebsite = Uri.tryParse(website);
+      if (item.name.text.trim().isEmpty ||
+          !_validImageUrl(item.url.text, false) ||
+          (website.isNotEmpty &&
+              (parsedWebsite == null ||
+                  parsedWebsite.scheme != 'https' ||
+                  parsedWebsite.host.isEmpty ||
+                  parsedWebsite.userInfo.isNotEmpty))) {
+        setState(
+          () => error = 'Each partner needs a name, HTTPS logo URL, and a valid HTTPS website if supplied.',
+        );
         return false;
       }
     }
     return true;
   }
 
+  Map<String, dynamic> _json(_Item item, bool isGallery) => isGallery
+      ? {
+          'id': item.id,
+          'title': item.name.text.trim(),
+          'imageUrl': item.url.text.trim(),
+          'caption': item.detail.text.trim(),
+        }
+      : {
+          'id': item.id,
+          'name': item.name.text.trim(),
+          'logoUrl': item.url.text.trim(),
+          'websiteUrl': item.detail.text.trim(),
+        };
+
   Future<void> _save({bool reset = false}) async {
     if (saving || (!reset && !_valid())) return;
-    setState(() { saving = true; error = null; });
+    setState(() {
+      saving = true;
+      error = null;
+    });
     try {
-      final r = await (widget.saveContent ?? PesoApiClient.adminSaveLandingSiteContent)({
-        'gallery': reset ? [] : (galleryConfigured ? gallery : <_Item>[]).map((i) => _json(i, true)).toList(),
-        'galleryConfigured': !reset && galleryConfigured,
-        'partners': reset ? [] : partners.map((i) => _json(i, false)).toList(),
-      });
-      final g = _decode(r['gallery'], true);
-      final p = _decode(r['partners'], false);
-      if (!mounted) { for (final i in [...g, ...p]) { i.dispose(); } return; }
-      for (final i in [...gallery, ...partners]) { i.dispose(); }
-      setState(() { gallery = g; partners = p; galleryConfigured = r['galleryConfigured'] == true || g.isNotEmpty; selectedPhoto = null; });
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(reset ? 'Bundled content restored.' : 'Landing content saved.')));
-    } catch (e) { if (mounted) setState(() => error = e.toString()); }
-    finally { if (mounted) setState(() => saving = false); }
+      final result =
+          await (widget.saveContent ??
+              PesoApiClient.adminSaveLandingSiteContent)({
+            'gallery': reset || !galleryConfigured
+                ? []
+                : gallery.map((item) => _json(item, true)).toList(),
+            'galleryConfigured': !reset && galleryConfigured,
+            'partners': reset || !partnersConfigured
+                ? []
+                : partners.map((item) => _json(item, false)).toList(),
+            'partnersConfigured': !reset && partnersConfigured,
+          });
+      _applyContent(result);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              reset
+                  ? 'Bundled photos and partner logos restored.'
+                  : 'Public photos and employer logos saved.',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) setState(() => error = e.toString());
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
   }
 
-  Widget _section(String title, bool isGallery) {
-    final rows = isGallery ? gallery : partners;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            Expanded(child: Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
-            OutlinedButton.icon(
-              key: Key(isGallery ? 'landing-gallery-add' : 'landing-partner-add'),
-              onPressed: saving ? null : () => setState(() => rows.add(_newItem(isGallery ? 'photo' : 'partner'))),
-              icon: const Icon(Icons.add), label: Text(isGallery ? 'Add photo' : 'Add partner'),
-            ),
-          ]),
-          Text(isGallery
-              ? 'Use a publicly accessible HTTPS photo URL and optional caption.'
-              : 'Use the correct employer name and official HTTPS logo URL; website is optional.'),
-          if (rows.isEmpty) Padding(
-            padding: const EdgeInsets.all(12),
-            child: Text(isGallery
-                ? 'No custom photos: the bundled PESO gallery remains active.'
-                : 'No custom list: the bundled employer logos remain active.'),
+  Future<void> _reset() async {
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: const Text('Restore bundled content?'),
+        content: const Text(
+          'This clears custom gallery and partner overrides and restores the bundled photos and logos on the public page.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialog, false),
+            child: const Text('Cancel'),
           ),
-          for (var n = 0; n < rows.length; n++) ...[
-            const SizedBox(height: 12),
-            Row(children: [
-              Expanded(child: Text((isGallery ? 'Photo ' : 'Partner ') + (n + 1).toString(), style: const TextStyle(fontWeight: FontWeight.w700))),
-              IconButton(
-                key: Key((isGallery ? 'landing-gallery-remove-' : 'landing-partner-remove-') + n.toString()),
-                tooltip: 'Remove item', onPressed: saving ? null : () => setState(() { rows.removeAt(n).dispose(); }),
-                icon: const Icon(Icons.delete_outline),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialog, true),
+            child: const Text('Restore defaults'),
+          ),
+        ],
+      ),
+    );
+    if (yes == true && mounted) await _save(reset: true);
+  }
+
+  Widget _image(String url, {required bool isGallery, bool large = false}) {
+    final fit = isGallery ? BoxFit.cover : BoxFit.contain;
+    final decodeWidth = large ? 640 : 260;
+    final trimmed = url.trim();
+    if (trimmed.startsWith('asset:')) {
+      return Image.asset(
+        trimmed.substring(6),
+        fit: fit,
+        cacheWidth: decodeWidth,
+        filterQuality: FilterQuality.low,
+        errorBuilder: (_, _, _) =>
+            const Center(child: Icon(Icons.broken_image_outlined)),
+      );
+    }
+    if (_validImageUrl(trimmed, isGallery)) {
+      return Image.network(
+        trimmed,
+        fit: fit,
+        cacheWidth: decodeWidth,
+        filterQuality: FilterQuality.low,
+        errorBuilder: (_, _, _) =>
+            const Center(child: Icon(Icons.broken_image_outlined)),
+      );
+    }
+    return const Center(
+      child: Icon(Icons.add_photo_alternate_outlined, size: 32),
+    );
+  }
+
+  Widget _tile(bool isGallery, _Item item, int index, bool selected) {
+    final keyPrefix = isGallery ? 'gallery' : 'partner';
+    final borderColor = Theme.of(context).colorScheme.primary;
+    return Semantics(
+      button: true,
+      label: 'Select ${isGallery ? 'photo' : 'partner'} ${index + 1}',
+      child: InkWell(
+        key: Key('landing-$keyPrefix-select-$index'),
+        onTap: saving ? null : () => _select(isGallery, index),
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: selected ? borderColor : Theme.of(context).dividerColor,
+              width: selected ? 2.5 : 1,
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ClipRRect(
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(8),
+                ),
+                child: SizedBox(
+                  height: 94,
+                  width: double.infinity,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      ColoredBox(
+                        color: Theme.of(context).colorScheme.surface,
+                        child: _image(item.previewUrl, isGallery: isGallery),
+                      ),
+                      if (selected)
+                        const Align(
+                          alignment: Alignment.topRight,
+                          child: Padding(
+                            padding: EdgeInsets.all(4),
+                            child: Icon(Icons.check_circle, size: 22),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
               ),
-            ]),
-            TextField(controller: rows[n].name, maxLength: 120, decoration: InputDecoration(
-              labelText: isGallery ? 'Photo title *' : 'Employer / partner name *', counterText: ''),
-            ),
-            TextField(controller: rows[n].url, keyboardType: TextInputType.url, decoration: InputDecoration(
-              labelText: isGallery ? 'HTTPS image URL *' : 'HTTPS logo URL *', hintText: 'https://...'),
-            ),
-            TextField(controller: rows[n].detail, maxLength: isGallery ? 240 : 2048,
-              maxLines: isGallery ? 2 : 1, keyboardType: isGallery ? TextInputType.text : TextInputType.url,
-              decoration: InputDecoration(labelText: isGallery ? 'Caption (optional)' : 'Website HTTPS URL (optional)', counterText: ''),
-            ),
-          ],
-        ]),
+              Padding(
+                padding: const EdgeInsets.all(6),
+                child: ValueListenableBuilder<TextEditingValue>(
+                  valueListenable: item.name,
+                  builder: (_, value, _) => Text(
+                    value.text.trim().isEmpty
+                        ? (isGallery ? 'New photo' : 'New partner')
+                        : value.text,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelMedium,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
 
-  Future<void> _reset() async {
-    final yes = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
-      title: const Text('Restore bundled content?'),
-      content: const Text('This clears custom gallery and partner overrides and restores the bundled photos/logos on the public page.'),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
-        FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Restore defaults')),
+  Widget _editor(bool isGallery) {
+    final prefix = isGallery ? 'gallery' : 'partner';
+    final all = _visibleItems(isGallery);
+    final selected = isGallery ? selectedPhoto : selectedPartner;
+    final active = selected != null && selected >= 0 && selected < all.length;
+    final totalPages = (all.length / _pageSize).ceil().clamp(1, 1000);
+    final current = (isGallery ? galleryPage : partnerPage).clamp(
+      0,
+      totalPages - 1,
+    );
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    isGallery ? 'Gallery photos' : 'Employer partners',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                ),
+                OutlinedButton.icon(
+                  key: Key('landing-$prefix-add'),
+                  onPressed: saving || all.length >= (isGallery ? 30 : 40)
+                      ? null
+                      : () => _add(isGallery),
+                  icon: const Icon(Icons.add),
+                  label: Text(isGallery ? 'Add photo' : 'Add partner'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              isGallery
+                  ? 'Select a photo to edit its title, replace its image, or remove it.'
+                  : 'Select an employer logo to change the image, company name, or website.',
+            ),
+            const SizedBox(height: 12),
+            LayoutBuilder(
+              builder: (context, bounds) {
+                final columns = bounds.maxWidth >= 710
+                    ? 4
+                    : bounds.maxWidth >= 450
+                    ? 3
+                    : 2;
+                const gap = 10.0;
+                final tileWidth =
+                    (bounds.maxWidth - gap * (columns - 1)) / columns;
+                return Wrap(
+                  spacing: gap,
+                  runSpacing: gap,
+                  children: [
+                    for (
+                      var index = current * _pageSize;
+                      index < all.length && index < (current + 1) * _pageSize;
+                      index++
+                    )
+                      SizedBox(
+                        width: tileWidth,
+                        child: _tile(
+                          isGallery,
+                          all[index],
+                          index,
+                          selected == index,
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+            if (all.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                child: Text(
+                  isGallery
+                      ? 'No gallery photos selected. Add a photo or restore bundled defaults.'
+                      : 'No employer logos selected. Add a partner or restore bundled defaults.',
+                ),
+              ),
+            if (totalPages > 1)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    IconButton(
+                      key: Key('landing-$prefix-previous'),
+                      tooltip: 'Previous page',
+                      onPressed: current == 0 || saving
+                          ? null
+                          : () => _changePage(isGallery, current - 1),
+                      icon: const Icon(Icons.chevron_left),
+                    ),
+                    Text('${current + 1} / $totalPages'),
+                    IconButton(
+                      key: Key('landing-$prefix-next'),
+                      tooltip: 'Next page',
+                      onPressed: current >= totalPages - 1 || saving
+                          ? null
+                          : () => _changePage(isGallery, current + 1),
+                      icon: const Icon(Icons.chevron_right),
+                    ),
+                  ],
+                ),
+              ),
+            if (active) ...[
+              const SizedBox(height: 16),
+              const Divider(),
+              _selectedEditor(isGallery, selected, all[selected]),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _selectedEditor(bool isGallery, int index, _Item item) {
+    final prefix = isGallery ? 'gallery' : 'partner';
+    return Column(
+      key: ValueKey('landing-$prefix-editor-${item.id}'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Edit ${isGallery ? 'photo' : 'partner'} ${index + 1}',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 156,
+          width: double.infinity,
+          child: ColoredBox(
+            color: Theme.of(context).colorScheme.surface,
+            child: _image(item.previewUrl, isGallery: isGallery, large: true),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          key: Key('landing-$prefix-name'),
+          controller: item.name,
+          maxLength: 120,
+          decoration: InputDecoration(
+            labelText: isGallery ? 'Photo title *' : 'Employer name *',
+            border: const OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          key: Key('landing-$prefix-image-url'),
+          controller: item.url,
+          maxLines: 1,
+          keyboardType: TextInputType.url,
+          decoration: InputDecoration(
+            labelText: isGallery
+                ? 'Replace image (public HTTPS URL)'
+                : 'Replace logo (public HTTPS URL)',
+            helperText: 'Paste an HTTPS URL to replace the existing image.',
+            border: const OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            key: Key('landing-$prefix-preview'),
+            onPressed: saving
+                ? null
+                : () => setState(() => item.previewUrl = item.url.text.trim()),
+            icon: const Icon(Icons.visibility_outlined),
+            label: const Text('Preview image'),
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          key: Key(
+            isGallery ? 'landing-gallery-caption' : 'landing-partner-website',
+          ),
+          controller: item.detail,
+          maxLength: isGallery ? 240 : 2048,
+          maxLines: isGallery ? 2 : 1,
+          keyboardType: isGallery ? TextInputType.text : TextInputType.url,
+          decoration: InputDecoration(
+            labelText: isGallery
+                ? 'Caption (optional)'
+                : 'Website HTTPS URL (optional)',
+            border: const OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          key: Key('landing-$prefix-remove-$index'),
+          onPressed: saving ? null : () => _remove(isGallery, index),
+          icon: const Icon(Icons.delete_outline),
+          label: Text(
+            isGallery ? 'Delete selected photo' : 'Delete selected partner',
+          ),
+        ),
       ],
-    ));
-    if (yes == true && mounted) await _save(reset: true);
+    );
   }
 
   @override
   Widget build(BuildContext context) => SingleChildScrollView(
     padding: const EdgeInsets.all(12),
-    child: Center(child: ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 1000),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('Landing Page Content', style: TextStyle(fontSize: 27, fontWeight: FontWeight.w900)),
-        const Text('Edit public gallery photos and employer logos without changing source code. Changes are stored in MongoDB. Choose an existing gallery photo, update its caption, replace it using a public HTTPS image URL, or delete it.'),
-        const SizedBox(height: 16),
-        if (loading) const Center(child: CircularProgressIndicator())
-        else ...[
-          if (error != null) Padding(padding: const EdgeInsets.all(8), child: Text(error!, style: const TextStyle(color: Colors.red))),
-          _galleryEditor(),
-          _section('Employer partners', false),
-          Wrap(spacing: 10, runSpacing: 10, children: [
-            FilledButton.icon(key: const Key('landing-content-save'), onPressed: saving ? null : () => _save(),
-              icon: const Icon(Icons.save_outlined), label: Text(saving ? 'Saving...' : 'Save landing content')),
-            OutlinedButton.icon(onPressed: saving ? null : _reset, icon: const Icon(Icons.restore), label: const Text('Use bundled defaults')),
-            TextButton.icon(onPressed: saving ? null : _load, icon: const Icon(Icons.refresh), label: const Text('Reload saved content')),
-          ]),
-        ],
-      ]),
-    )),
+    child: Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 1000),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Landing Page Content',
+              style: Theme.of(context).textTheme.headlineMedium,
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Manage gallery photos and employer logos. Changes are saved to the public website.',
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                ChoiceChip(
+                  key: const Key('landing-gallery-tab'),
+                  label: const Text('Gallery photos'),
+                  avatar: const Icon(Icons.photo_library_outlined, size: 17),
+                  selected: showGallery,
+                  onSelected: (_) => setState(() => showGallery = true),
+                ),
+                ChoiceChip(
+                  key: const Key('landing-partner-tab'),
+                  label: const Text('Employer partners'),
+                  avatar: const Icon(Icons.business_outlined, size: 17),
+                  selected: !showGallery,
+                  onSelected: (_) => setState(() => showGallery = false),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            if (loading)
+              const Center(child: CircularProgressIndicator())
+            else ...[
+              if (error != null)
+                Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Text(
+                    error!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ),
+              _editor(showGallery),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  FilledButton.icon(
+                    key: const Key('landing-content-save'),
+                    onPressed: saving ? null : _save,
+                    icon: const Icon(Icons.save_outlined),
+                    label: Text(saving ? 'Saving...' : 'Save landing content'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: saving ? null : _reset,
+                    icon: const Icon(Icons.restore),
+                    label: const Text('Use bundled defaults'),
+                  ),
+                  TextButton.icon(
+                    onPressed: saving ? null : _load,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Reload saved content'),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    ),
   );
 }
 
 class _Item {
-  _Item(String title, String urlValue, String note, this.id)
-      : name = TextEditingController(text: title),
-        url = TextEditingController(text: urlValue),
-        detail = TextEditingController(text: note);
+  _Item(String title, String image, String note, this.id)
+    : name = TextEditingController(text: title),
+      url = TextEditingController(text: image),
+      detail = TextEditingController(text: note),
+      previewUrl = image;
+
   final String id;
-  final TextEditingController name, url, detail;
-  void dispose() { name.dispose(); url.dispose(); detail.dispose(); }
+  final TextEditingController name;
+  final TextEditingController url;
+  final TextEditingController detail;
+  String previewUrl;
+
+  _Item copy() => _Item(name.text, url.text, detail.text, id);
+
+  void dispose() {
+    name.dispose();
+    url.dispose();
+    detail.dispose();
+  }
 }
