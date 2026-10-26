@@ -46,9 +46,10 @@ export function sanitizeLandingSiteContent(input) {
     const title = shortText(item.title, 120);
     const imageUrl = httpsUrl(item.imageUrl);
     const caption = shortText(item.caption, 240);
+    const isBundled = /^asset:lib\/assets\/(?:peso_gallery\/[a-z0-9_]+\.jpg|peso_gallery_[a-z0-9_]+\.jpg)$/.test(String(item.imageUrl ?? ''));
     if (!title) throw new TypeError('Every gallery photo needs a title.');
-    if (!imageUrl) throw new TypeError('Gallery image URLs must be valid HTTPS URLs.');
-    return { id: stableId(item.id), title, imageUrl, caption };
+    if (!imageUrl && !isBundled) throw new TypeError('Gallery image URLs must be valid HTTPS URLs or bundled PESO photos.');
+    return { id: stableId(item.id), title, imageUrl: isBundled ? String(item.imageUrl) : imageUrl, caption };
   });
 
   const partners = requireArray(input.partners, 'Employer partners', MAX_PARTNER_ITEMS).map((item) => {
@@ -66,7 +67,7 @@ export function sanitizeLandingSiteContent(input) {
     return { id: stableId(item.id), name, logoUrl, websiteUrl };
   });
 
-  return { gallery, partners };
+  return { gallery, partners, galleryConfigured: input.galleryConfigured === true || gallery.length > 0 };
 }
 
 export const LANDING_SITE_CONTENT_LIMITS = Object.freeze({

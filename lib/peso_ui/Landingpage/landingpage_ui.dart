@@ -45,6 +45,7 @@ class _LandingPageState extends State<LandingPage> {
   List<_LandingJob> _landingJobs = const [];
   List<_LandingJob> _featuredJobs = const [];
   List<Map<String, dynamic>> _managedGallery = const [];
+  bool _galleryConfigured = false;
   List<Map<String, dynamic>> _managedPartners = const [];
   String? _publicNextPageToken;
   bool _publicLoadingMore = false;
@@ -187,8 +188,8 @@ class _LandingPageState extends State<LandingPage> {
                   return (item['title']?.toString().trim().isNotEmpty ??
                           false) &&
                       url != null &&
-                      url.scheme == 'https' &&
-                      url.host.isNotEmpty;
+                      (url.scheme == 'https' && url.host.isNotEmpty ||
+                        (item['imageUrl']?.toString().startsWith('asset:lib/assets/peso_gallery') ?? false));
                 })
                 .toList()
           : <Map<String, dynamic>>[];
@@ -209,6 +210,7 @@ class _LandingPageState extends State<LandingPage> {
       if (!mounted) return;
       setState(() {
         _managedGallery = gallery;
+        _galleryConfigured = response['galleryConfigured'] == true || gallery.isNotEmpty;
         _managedPartners = partners;
       });
     } catch (_) {
@@ -1012,7 +1014,7 @@ class _LandingPageState extends State<LandingPage> {
     final width = MediaQuery.sizeOf(context).width;
     final isMobile = width < PesoTokens.breakpointCompact;
     final List<String> images = PesoImageAssets.gallery;
-    final useManagedGallery = _managedGallery.isNotEmpty;
+    final useManagedGallery = _galleryConfigured || _managedGallery.isNotEmpty;
     final imageCount = useManagedGallery
         ? _managedGallery.length
         : images.length;
@@ -1165,7 +1167,9 @@ class _LandingPageState extends State<LandingPage> {
               borderRadius: BorderRadius.circular(PesoTokens.radiusContainer),
               child: AspectRatio(
                 aspectRatio: 4 / 3,
-                child: Image.network(
+                child: url.startsWith('asset:')
+                    ? Image.asset(url.substring(6), fit: BoxFit.cover, errorBuilder: (_, _, _) => const Icon(Icons.broken_image_outlined))
+                    : Image.network(
                   url,
                   fit: BoxFit.cover,
                   errorBuilder: (_, _, _) => Container(

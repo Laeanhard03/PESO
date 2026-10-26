@@ -47,5 +47,12 @@ test('rejects missing labels, malformed lists and item counts above the limit', 
 });
 
 test('empty lists intentionally restore the bundled public content', () => {
-  assert.deepEqual(sanitizeLandingSiteContent({ gallery: [], partners: [] }), { gallery: [], partners: [] });
+  assert.deepEqual(sanitizeLandingSiteContent({ gallery: [], partners: [] }), { gallery: [], partners: [], galleryConfigured: false });
+});
+
+test('bundled gallery photo links are accepted and deleting all can remain empty', () => {
+  const gallery = [{id:'bundled-0', title:'Recruitment', imageUrl:'asset:lib/assets/peso_gallery/peso_local_recruitment_one.jpg', caption:''}];
+  assert.deepEqual(sanitizeLandingSiteContent({gallery,partners:[]}).gallery[0],gallery[0]);
+  assert.equal(sanitizeLandingSiteContent({gallery:[],partners:[],galleryConfigured:true}).galleryConfigured,true);
+  assert.throws(() => sanitizeLandingSiteContent({gallery:[{title:'Unsafe',imageUrl:'asset:lib/assets/secret.jpg'}],partners:[]}),/URLs/);
 });

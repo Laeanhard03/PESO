@@ -29,11 +29,18 @@ void main() {
 
     await tester.tap(find.byKey(const Key('landing-gallery-add')));
     await tester.pump();
-    expect(find.text('Photo 1'), findsOneWidget);
+    expect(find.byKey(const Key('landing-gallery-select-26')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('landing-gallery-select-0')));
+    await tester.pump();
+    expect(find.byKey(const Key('landing-gallery-image-url')), findsOneWidget);
+    await tester.ensureVisible(find.byKey(const Key('landing-partner-add')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('landing-partner-add')));
     await tester.pump();
     expect(find.text('Partner 1'), findsOneWidget);
 
+    await tester.ensureVisible(find.byKey(const Key('landing-content-save')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('landing-content-save')));
     await tester.pump();
     expect(find.textContaining('Each gallery photo needs a title'), findsOneWidget);

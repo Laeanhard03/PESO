@@ -1144,6 +1144,7 @@ async function readLandingSiteContent() {
   const saved = await state.db.collection('landingSiteContent').findOne({ key: 'home' });
   return {
     gallery: Array.isArray(saved?.gallery) ? saved.gallery : [],
+    galleryConfigured: saved?.galleryConfigured === true || (Array.isArray(saved?.gallery) && saved.gallery.length > 0),
     partners: Array.isArray(saved?.partners) ? saved.partners : [],
     updatedAt: saved?.updatedAt instanceof Date ? saved.updatedAt.toISOString() : null,
   };
