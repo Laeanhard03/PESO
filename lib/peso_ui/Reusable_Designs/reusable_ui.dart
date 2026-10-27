@@ -149,12 +149,30 @@ class GlobalFooter extends StatelessWidget {
                   spacing: spacing,
                   runSpacing: 0,
                   children: [
-                    SizedBox(width: itemWidth, child: _buildFooterLink('Home', 0)),
-                    SizedBox(width: itemWidth, child: _buildFooterLink('Jobs', 1)),
-                    SizedBox(width: itemWidth, child: _buildFooterLink('Gallery', 2)),
-                    SizedBox(width: itemWidth, child: _buildFooterLink('About', 4)),
-                    SizedBox(width: itemWidth, child: _buildServiceLink('SEAP', 'SEAP')),
-                    SizedBox(width: itemWidth, child: _buildServiceLink('GIP', 'GIP')),
+                    SizedBox(
+                      width: itemWidth,
+                      child: _buildFooterLink('Home', 0),
+                    ),
+                    SizedBox(
+                      width: itemWidth,
+                      child: _buildFooterLink('Jobs', 1),
+                    ),
+                    SizedBox(
+                      width: itemWidth,
+                      child: _buildFooterLink('Gallery', 2),
+                    ),
+                    SizedBox(
+                      width: itemWidth,
+                      child: _buildFooterLink('About', 4),
+                    ),
+                    SizedBox(
+                      width: itemWidth,
+                      child: _buildServiceLink('SEAP', 'SEAP'),
+                    ),
+                    SizedBox(
+                      width: itemWidth,
+                      child: _buildServiceLink('GIP', 'GIP'),
+                    ),
                   ],
                 ),
                 _buildOfficialLink(

@@ -656,14 +656,50 @@ export default function App() {
             replacement.style.borderRadius = type === 'radio' ? '50%' : '0';
           } else {
             replacement.textContent = visibleValue;
-            // Keep the official field box fixed. Long values wrap to at most two
-            // compact lines instead of stretching table rows or shifting fields.
+            // Fit each saved value to its original field width and height so long
+            // names wrap at a smaller readable size without moving the official grid.
             const fieldHeight = Math.max(14, source.offsetHeight || 14);
-            const valueLength = String(visibleValue || '').length;
-            const fontSize = valueLength > 100 ? 6.5 : valueLength > 65 ? 7 : valueLength > 35 ? 8 : 10;
-            replacement.style.cssText = 'display:-webkit-box;flex:1;min-width:0;max-width:100%;' +
-              '-webkit-box-orient:vertical;-webkit-line-clamp:2;' +
-              'white-space:normal;overflow:hidden;overflow-wrap:anywhere;word-break:break-word;' +
+            const fieldWidth = Math.max(24, (source.clientWidth || source.offsetWidth || 80) - 4);
+            const measureCanvas = document.createElement('canvas');
+            const measureContext = measureCanvas.getContext('2d');
+            const sourceLines = String(visibleValue || '').split(/\r?\n/);
+            const wrappedLineCount = size => {
+              if (!measureContext) return Math.ceil(String(visibleValue || '').length / 18);
+              measureContext.font = size + 'px Arial';
+              let lines = 0;
+              for (const sourceLine of sourceLines) {
+                if (!sourceLine) { lines += 1; continue; }
+                let current = '';
+                for (const word of sourceLine.split(/\s+/).filter(Boolean)) {
+                  const candidate = current ? current + ' ' + word : word;
+                  if (measureContext.measureText(candidate).width <= fieldWidth) {
+                    current = candidate;
+                    continue;
+                  }
+                  if (measureContext.measureText(word).width <= fieldWidth) {
+                    lines += 1;
+                    current = word;
+                    continue;
+                  }
+                  if (current) { lines += 1; current = ''; }
+                  for (const character of word) {
+                    if (current && measureContext.measureText(current + character).width > fieldWidth) {
+                      lines += 1;
+                      current = '';
+                    }
+                    current += character;
+                  }
+                }
+                lines += 1;
+              }
+              return Math.max(1, lines);
+            };
+            let fontSize = 10;
+            while (fontSize > 3 && wrappedLineCount(fontSize) * fontSize * 1.05 > fieldHeight) {
+              fontSize -= 0.5;
+            }
+            replacement.style.cssText = 'display:block;flex:1;min-width:0;width:100%;max-width:100%;' +
+              'white-space:pre-wrap;overflow:hidden;overflow-wrap:anywhere;word-break:break-word;' +
               'box-sizing:border-box;height:' + fieldHeight + 'px;max-height:' + fieldHeight + 'px;' +
               'font-family:Arial,sans-serif;font-size:' + fontSize + 'px;line-height:1.05;padding:0;';
           }

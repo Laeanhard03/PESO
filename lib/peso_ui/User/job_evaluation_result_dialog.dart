@@ -243,7 +243,8 @@ class _JobEvaluationResultDialogState extends State<JobEvaluationResultDialog> {
                 'If you already meet a listed requirement, update your profile with accurate details. Otherwise, ask PESO or the employer how to obtain it before applying again.',
                 style: TextStyle(fontSize: 12.5, height: 1.4),
               ),
-            ],            if (!positive) ...[
+            ],
+            if (!positive) ...[
               const SizedBox(height: 15),
               const Text(
                 'Jobs we recommend exploring',
