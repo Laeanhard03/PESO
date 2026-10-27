@@ -60,6 +60,8 @@ void main() {
       ),
     );
     expect(find.text('Not a Match Yet'), findsOneWidget);
+    expect(find.text('What to improve before applying'), findsOneWidget);
+    expect(find.textContaining('update your profile with accurate details'), findsOneWidget);
     expect(
       find.textContaining('Employer-listed professional driver license'),
       findsWidgets,

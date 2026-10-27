@@ -188,7 +188,7 @@ void main() {
   });
 
   testWidgets(
-    'Mobile footer quick links align with contact heading in a two-column grid',
+    'Footer quick links use three columns on mobile and preserve the main sections',
     (tester) async {
       setSize(tester, 390, 850);
       await tester.pumpWidget(
@@ -217,11 +217,11 @@ void main() {
       final seap = tester.getTopLeft(find.text('SEAP'));
       final gip = tester.getTopLeft(find.text('GIP'));
 
-      expect(home.dx, closeTo(gallery.dx, 1));
-      expect(home.dx, closeTo(seap.dx, 1));
-      expect(jobs.dx, closeTo(about.dx, 1));
-      expect(jobs.dx, closeTo(gip.dx, 1));
-      expect(jobs.dx, greaterThan(home.dx + 60));
+      expect(home.dx, lessThan(jobs.dx));
+      expect(jobs.dx, lessThan(gallery.dx));
+      expect(home.dx, closeTo(about.dx, 1));
+      expect(jobs.dx, closeTo(seap.dx, 1));
+      expect(gallery.dx, closeTo(gip.dx, 1));
       expect(tester.takeException(), isNull);
     },
   );

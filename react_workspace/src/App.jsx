@@ -656,9 +656,16 @@ export default function App() {
             replacement.style.borderRadius = type === 'radio' ? '50%' : '0';
           } else {
             replacement.textContent = visibleValue;
-            replacement.style.cssText = 'display:block;flex:1;min-width:0;max-width:100%;' +
-              'white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;' +
-              'font-size:11px;line-height:1.25;padding:0;min-height:14px;';
+            // Keep the official field box fixed. Long values wrap to at most two
+            // compact lines instead of stretching table rows or shifting fields.
+            const fieldHeight = Math.max(14, source.offsetHeight || 14);
+            const valueLength = String(visibleValue || '').length;
+            const fontSize = valueLength > 100 ? 6.5 : valueLength > 65 ? 7 : valueLength > 35 ? 8 : 10;
+            replacement.style.cssText = 'display:-webkit-box;flex:1;min-width:0;max-width:100%;' +
+              '-webkit-box-orient:vertical;-webkit-line-clamp:2;' +
+              'white-space:normal;overflow:hidden;overflow-wrap:anywhere;word-break:break-word;' +
+              'box-sizing:border-box;height:' + fieldHeight + 'px;max-height:' + fieldHeight + 'px;' +
+              'font-family:Arial,sans-serif;font-size:' + fontSize + 'px;line-height:1.05;padding:0;';
           }
           target.replaceWith(replacement);
         });

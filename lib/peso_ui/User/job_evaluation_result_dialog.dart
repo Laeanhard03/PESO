@@ -232,7 +232,18 @@ class _JobEvaluationResultDialogState extends State<JobEvaluationResultDialog> {
                     ),
                   ),
             ],
-            if (!positive) ...[
+            if (!positive && gaps.isNotEmpty) ...[
+              const SizedBox(height: 13),
+              const Text(
+                'What to improve before applying',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'If you already meet a listed requirement, update your profile with accurate details. Otherwise, ask PESO or the employer how to obtain it before applying again.',
+                style: TextStyle(fontSize: 12.5, height: 1.4),
+              ),
+            ],            if (!positive) ...[
               const SizedBox(height: 15),
               const Text(
                 'Jobs we recommend exploring',
