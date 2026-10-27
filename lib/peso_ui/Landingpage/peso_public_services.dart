@@ -119,16 +119,6 @@ class PesoPublicServices extends StatefulWidget {
       icon: Icons.storefront_outlined,
     ),
     PesoServiceEntry(
-      code: "ofw-reintegration",
-      title: "Returning OFW Assistance",
-      summary: "Employment and livelihood referral information for returning workers.",
-      details: "The PESO framework includes reintegration services for returning overseas Filipino workers. Referrals and partner agencies vary by locality.",
-      sourceUrl: "https://peis.philjobnet.gov.ph/peso.aspx",
-      sourceLabel: "PEIS: PESO reintegration services",
-      group: "PESO assistance",
-      icon: Icons.flight_land_rounded,
-    ),
-    PesoServiceEntry(
       code: "employer-services",
       title: "Employer Vacancy Support",
       summary: "Assistance for employers with vacancies and labor market information.",

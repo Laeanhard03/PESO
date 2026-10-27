@@ -39,6 +39,11 @@ void main() {
       expect(services.any((s) => s.code == 'SEAP'), isTrue);
       expect(services.any((s) => s.code == 'GIP'), isTrue);
       expect(services.any((s) => s.code == 'SPES'), isTrue);
+      expect(services.any((s) => s.code == 'ofw-reintegration'), isFalse);
+      expect(
+        services.any((s) => s.title.toLowerCase().contains('returning ofw')),
+        isFalse,
+      );
     },
   );
 
@@ -181,6 +186,45 @@ void main() {
     expect(launchedUrl, 'mailto:peso.rod@gmail.com');
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'Mobile footer quick links align with contact heading in a two-column grid',
+    (tester) async {
+      setSize(tester, 390, 850);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: GlobalFooter(
+                pesoGreen: Colors.green,
+                onTabSelected: (_) {},
+                onScrollToTop: () {},
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final quickLinks = tester.getTopLeft(find.text('Quick Links'));
+      final contact = tester.getTopLeft(find.text('Contact Us'));
+      expect(quickLinks.dx, closeTo(contact.dx, 1));
+
+      final home = tester.getTopLeft(find.text('Home'));
+      final jobs = tester.getTopLeft(find.text('Jobs'));
+      final gallery = tester.getTopLeft(find.text('Gallery'));
+      final about = tester.getTopLeft(find.text('About'));
+      final seap = tester.getTopLeft(find.text('SEAP'));
+      final gip = tester.getTopLeft(find.text('GIP'));
+
+      expect(home.dx, closeTo(gallery.dx, 1));
+      expect(home.dx, closeTo(seap.dx, 1));
+      expect(jobs.dx, closeTo(about.dx, 1));
+      expect(jobs.dx, closeTo(gip.dx, 1));
+      expect(jobs.dx, greaterThan(home.dx + 60));
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('PESO photographs are valid bundled image assets', (
     tester,

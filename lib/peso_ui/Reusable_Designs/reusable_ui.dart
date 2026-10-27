@@ -137,16 +137,40 @@ class GlobalFooter extends StatelessWidget {
             fontWeight: FontWeight.bold,
           ),
         ),
-        const SizedBox(height: 25),
-        _buildFooterLink('Home', 0),
-        _buildFooterLink('Jobs', 1),
-        _buildFooterLink('Gallery', 2),
-        _buildFooterLink('About', 4),
-        _buildServiceLink('SEAP', 'SEAP'),
-        _buildServiceLink('GIP', 'GIP'),
-        _buildOfficialLink(
-          'Montalban Local Government',
-          'https://montalban.gov.ph/',
+        const SizedBox(height: 18),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final twoColumns = constraints.maxWidth < 520;
+            const spacing = 14.0;
+            final itemWidth = twoColumns
+                ? (constraints.maxWidth - spacing) / 2
+                : constraints.maxWidth;
+            return Wrap(
+              spacing: spacing,
+              runSpacing: 0,
+              children: [
+                SizedBox(width: itemWidth, child: _buildFooterLink('Home', 0)),
+                SizedBox(width: itemWidth, child: _buildFooterLink('Jobs', 1)),
+                SizedBox(
+                  width: itemWidth,
+                  child: _buildFooterLink('Gallery', 2),
+                ),
+                SizedBox(width: itemWidth, child: _buildFooterLink('About', 4)),
+                SizedBox(
+                  width: itemWidth,
+                  child: _buildServiceLink('SEAP', 'SEAP'),
+                ),
+                SizedBox(
+                  width: itemWidth,
+                  child: _buildServiceLink('GIP', 'GIP'),
+                ),
+                _buildOfficialLink(
+                  'Montalban Local Government',
+                  'https://montalban.gov.ph/',
+                ),
+              ],
+            );
+          },
         ),
       ],
     );
@@ -181,6 +205,7 @@ class GlobalFooter extends StatelessWidget {
         bottom: 40,
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (compact) ...[
             brand,
