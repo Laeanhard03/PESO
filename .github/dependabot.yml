@@ -1,0 +1,76 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    labels:
+      - dependencies
+      - github-actions
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: npm
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+    labels:
+      - dependencies
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: npm
+    directory: /functions
+    schedule:
+      interval: weekly
+      day: monday
+    labels:
+      - dependencies
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: npm
+    directory: /react_workspace
+    schedule:
+      interval: weekly
+      day: monday
+    labels:
+      - dependencies
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: pub
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    labels:
+      - dependencies
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: gomod
+    directory: /mini_ai
+    schedule:
+      interval: weekly
+      day: monday
+    labels:
+      - dependencies
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    labels:
+      - dependencies
+      - containers
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: docker
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+    labels:
+      - dependencies
+      - containers
+    open-pull-requests-limit: 3

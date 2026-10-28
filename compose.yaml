@@ -1,0 +1,81 @@
+services:
+  mongo:
+    image: mongo:7.0
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${PESO_MONGO_ROOT_USER:-peso_local_root}
+      MONGO_INITDB_ROOT_PASSWORD: ${PESO_MONGO_ROOT_PASSWORD:?Set PESO_MONGO_ROOT_PASSWORD in .env.compose}
+      MONGO_INITDB_DATABASE: peso_jobkonek
+      MONGO_APP_USERNAME: ${PESO_MONGO_USER:-peso_local}
+      MONGO_APP_PASSWORD: ${PESO_MONGO_APP_PASSWORD:?Set PESO_MONGO_APP_PASSWORD in .env.compose}
+    ports:
+      - "127.0.0.1:27017:27017"
+    volumes:
+      - peso-mongodb-data:/data/db
+      - ./docker/mongo-init/01-create-app-user.sh:/docker-entrypoint-initdb.d/01-create-app-user.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --username $$MONGO_INITDB_ROOT_USERNAME --password $$MONGO_INITDB_ROOT_PASSWORD --authenticationDatabase admin --eval 'db.adminCommand({ ping: 1 }).ok' | grep -q 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      HOST: 0.0.0.0
+      PORT: "3000"
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-capstone-4th-year-peso-ai}
+      INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:-admin@example.invalid}
+      MONGODB_DB_NAME: peso_jobkonek
+      MONGODB_URI: mongodb://${PESO_MONGO_USER:-peso_local}:${PESO_MONGO_APP_PASSWORD}@mongo:27017/peso_jobkonek?authSource=peso_jobkonek
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/firebase-admin.json
+      CLIENT_ALLOWED_ORIGINS: http://localhost:8080,http://127.0.0.1:8080
+      PUBLIC_API_BASE_URL: http://localhost:8080
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_KEY_ENCRYPTION_SECRET: ${GEMINI_KEY_ENCRYPTION_SECRET:-}
+      FILE_LINK_SECRET: ${FILE_LINK_SECRET:?Set FILE_LINK_SECRET in .env.compose}
+      PESO_EXPORT_SECRET: ${PESO_EXPORT_SECRET:-}
+      PESO_SKIP_AUTOMATIC_JOB_SYNC: "1"
+    depends_on:
+      mongo:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - type: bind
+        source: ${FIREBASE_SERVICE_ACCOUNT_FILE:?Set FIREBASE_SERVICE_ACCOUNT_FILE in .env.compose}
+        target: /run/secrets/firebase-admin.json
+        read_only: true
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>r.json()).then(d=>process.exit(d.mongoDbConnected?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 45s
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8080:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+volumes:
+  peso-mongodb-data:

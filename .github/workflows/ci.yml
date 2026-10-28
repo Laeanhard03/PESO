@@ -1,0 +1,156 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Node API checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci --prefix backend
+      - run: npm run check --prefix backend
+
+  functions:
+    name: Firebase Functions checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+      - run: npm ci --prefix functions
+      - run: npm run lint --prefix functions
+      - run: npm test --prefix functions
+
+  react:
+    name: NSRP and resume form checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: react_workspace/package-lock.json
+      - run: npm ci --prefix react_workspace
+      - run: npm run lint --prefix react_workspace
+      - run: npm test --prefix react_workspace
+      - run: npm run build --prefix react_workspace -- --base=/nsrp/
+
+  flutter:
+    name: Flutter analysis, tests, and production web build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: subosito/flutter-action@4cab68ce0f1c7c924f688bff4792e044f1aeb30c # composite action, pinned
+        with:
+          channel: stable
+          flutter-version: 3.47.1
+          cache: true
+      - run: flutter pub get
+      - run: bash scripts/ci_flutter_analyze.sh
+      - run: flutter test --no-pub
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: react_workspace/package-lock.json
+      - run: npm ci --prefix react_workspace
+      - run: npm run build --prefix react_workspace -- --base=/nsrp/
+      - run: flutter build web --release --dart-define=PESO_NSRP_WORKSPACE_URL=/nsrp/
+      - name: Assemble and verify the same-origin production web output
+        run: |
+          mkdir -p build/web/nsrp
+          cp -R react_workspace/dist/. build/web/nsrp/
+          test -s build/web/index.html
+          test -s build/web/nsrp/index.html
+
+  mini-ai:
+    name: Go inference tests and vet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@90ad2b35f69faf97585ad74d28fa006d2739b7af # v7
+        with:
+          go-version-file: mini_ai/go.mod
+          cache: true
+          cache-dependency-path: mini_ai/go.mod
+      - run: go test ./...
+        working-directory: mini_ai
+      - run: go vet ./...
+        working-directory: mini_ai
+
+  dependency-audit:
+    name: Block high and critical npm advisories
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: Audit production API dependencies
+        run: npm audit --omit=dev --audit-level=high --prefix backend
+      - name: Audit Firebase Functions dependencies
+        run: npm audit --audit-level=high --prefix functions
+      - name: Audit NSRP and resume dependencies
+        run: npm audit --audit-level=high --prefix react_workspace
+  secret-scan:
+    name: Git history secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+          GITLEAKS_ENABLE_COMMENTS: "false"
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+  containers:
+    name: Docker Compose build and smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Prepare non-secret local-only fixtures
+        run: |
+          printf '{}' > backend/service-account.json
+          cp docker-compose.env.example .env.compose
+          sed -i \
+            -e 's/^PESO_MONGO_ROOT_PASSWORD=.*/PESO_MONGO_ROOT_PASSWORD=CiRootPassword0123456789AbCdEfGhIjKlMn/' \
+            -e 's/^PESO_MONGO_APP_PASSWORD=.*/PESO_MONGO_APP_PASSWORD=CiAppPassword0123456789AbCdEfGhIjKlMn/' \
+            -e 's/^FILE_LINK_SECRET=.*/FILE_LINK_SECRET=CiFileLinkSecret0123456789AbCdEfGhIjKlMn/' \
+            -e 's/^PESO_EXPORT_SECRET=.*/PESO_EXPORT_SECRET=CiExportSecret0123456789AbCdEfGhIjKlMn/' \
+            .env.compose
+      - name: Validate Compose configuration
+        run: docker compose --env-file .env.compose config -q
+      - name: Build and start the full local stack
+        run: docker compose --env-file .env.compose up --build -d --wait --wait-timeout 300
+      - name: Smoke-test Flutter, NSRP, and API routes
+        run: |
+          curl --fail --silent --show-error http://127.0.0.1:8080/ > /dev/null
+          curl --fail --silent --show-error http://127.0.0.1:8080/nsrp/ > /dev/null
+          curl --fail --silent --show-error http://127.0.0.1:8080/api/health
+      - name: Show container logs if a prior step failed
+        if: failure()
+        run: docker compose --env-file .env.compose logs --no-color
+      - name: Stop the stack and remove CI-only data
+        if: always()
+        run: docker compose --env-file .env.compose down -v

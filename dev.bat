@@ -29,7 +29,6 @@ if not exist "lib\peso_logic\secrets.json" (
 )
 :: --------------------------------------------
 
-git config --global --add safe.directory "*"
 
 cmd /c flutter --version >nul 2>&1
 if %errorlevel% equ 0 goto FLUTTER_READY

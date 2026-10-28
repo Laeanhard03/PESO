@@ -7,6 +7,9 @@ Flutter + React prototype for the PESO Montalban JobKonek flow. **Firebase Authe
 - SYSTEM_STATUS.md tracks source features, local test evidence, and what's still required for online production.
 - GEMINI_GATEWAY_SETUP.md contains setup notes for the earlier Firebase Function Gemini gateway; the current local desktop data path is documented in backend/MONGODB_BACKEND_SETUP.md.
 - ONBOARDING_DATA_SYNC.md and PATCH_README.md document the data-sync integration.
+- docs/DEVELOPMENT_SETUP.md documents clean-clone setup, package-manager checks, and CI.
+- docs/SECURITY_POSTURE.md explains Firebase client-key handling, server-side credentials, and access-control boundaries.
+- compose.yaml and Dockerfiles provide a loopback-only local stack; see docs/DEVELOPMENT_SETUP.md.
 
 ## Application data and AI backend
 

@@ -1,0 +1,8 @@
+title = "PESO JobKonek secret scan"
+
+[allowlist]
+description = "Exact public client identifiers only: Firebase web API key and historical Supabase anon key with role=anon. Never allowlist server secrets."
+regexes = [
+  '''AIzaSyC5ueua2eWxi8VlCBJcAzTLlVgikXr5iDs''',
+  '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVhdHJpZ2doY3hvZ3RodGFmeGtuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzNTEzOTUsImV4cCI6MjEwMzkyNzM5NX0\.-6O7eUrBAsHH8p_oekNwEXkZrGKHgqAP4QvgeMfHMO0''',
+]
