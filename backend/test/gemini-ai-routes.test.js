@@ -261,8 +261,12 @@ test('applicant source or education edits invalidate the cached AI match without
 
 test('quota response from the provider is passed through with retry guidance after one fallback-model retry', async () => {
   calls.length = 0;
+  const originalProvider = state.geminiProviderOverride;
+  const previousModel = process.env.GEMINI_MODEL;
   const previousFallback = process.env.GEMINI_FALLBACK_MODEL;
-  process.env.GEMINI_FALLBACK_MODEL = 'gemini-fallback-test';
+  // Quota state is model-wide; isolate this simulated 429 from later route tests.
+  process.env.GEMINI_MODEL = 'gemini-quota-isolation-test';
+  process.env.GEMINI_FALLBACK_MODEL = 'gemini-fallback-isolation-test';
   try {
     state.geminiProviderOverride = async ({ operation }) => {
       calls.push({ operation });
@@ -281,6 +285,9 @@ test('quota response from the provider is passed through with retry guidance aft
     assert.equal(calls.length, 2);
     assert.equal(JSON.stringify(result.body).includes('fake provider quota error'), false);
   } finally {
+    state.geminiProviderOverride = originalProvider;
+    if (previousModel === undefined) delete process.env.GEMINI_MODEL;
+    else process.env.GEMINI_MODEL = previousModel;
     if (previousFallback === undefined) delete process.env.GEMINI_FALLBACK_MODEL;
     else process.env.GEMINI_FALLBACK_MODEL = previousFallback;
   }
@@ -297,31 +304,36 @@ test('key-management routes remain unreachable to anonymous and ordinary users',
 
 test('resume absorption preview returns the extracted profile without persisting it', async () => {
   calls.length = 0;
+  const originalProvider = state.geminiProviderOverride;
   state.geminiProviderOverride = async ({ operation, payload }) => {
     calls.push({ operation, payload });
     if (operation === 'profile_extraction') return { profile: { skills: ['reading'] } };
     throw new Error('Unexpected fake Gemini operation.');
   };
-  const users = state.db.collection('users');
-  const before = await users.findOne({ uid: 'gemini-integration-user' });
-  const result = await request('/api/ai/profile', {
-    method: 'POST',
-    body: { rawText: 'Preview this resume only.', persist: false },
-  });
-  assert.equal(result.status, 200);
-  assert.equal(result.body.ok, true);
-  assert.equal(result.body.saved, false);
-  // The preview still inherits the registered account identity for the form.
-  assert.equal(result.body.profile.fullName, 'Gemini Integration User');
-  assert.equal(result.body.profile.email, 'user@example.test');
-  assert.deepEqual(result.body.profile.skills, ['reading']);
-  // The stored profile must be untouched by a preview request.
-  const after = await users.findOne({ uid: 'gemini-integration-user' });
-  assert.deepEqual(after.aiProfile, before.aiProfile);
-  assert.equal(after.aiProfile.fullName, 'Example Applicant');
-  assert.equal(after.profileCompleted, before.profileCompleted);
-  // The extraction schema advertises phoneNumber so the app can inherit it.
-  assert.equal(calls[0].payload.parts[0].text.includes('phoneNumber'), true);
+  try {
+    const users = state.db.collection('users');
+    const before = await users.findOne({ uid: 'gemini-integration-user' });
+    const result = await request('/api/ai/profile', {
+      method: 'POST',
+      body: { rawText: 'Preview this resume only.', persist: false },
+    });
+    assert.equal(result.status, 200);
+    assert.equal(result.body.ok, true);
+    assert.equal(result.body.saved, false);
+    // The preview still inherits the registered account identity for the form.
+    assert.equal(result.body.profile.fullName, 'Gemini Integration User');
+    assert.equal(result.body.profile.email, 'user@example.test');
+    assert.deepEqual(result.body.profile.skills, ['reading']);
+    // The stored profile must be untouched by a preview request.
+    const after = await users.findOne({ uid: 'gemini-integration-user' });
+    assert.deepEqual(after.aiProfile, before.aiProfile);
+    assert.equal(after.aiProfile.fullName, 'Example Applicant');
+    assert.equal(after.profileCompleted, before.profileCompleted);
+    // The extraction schema advertises phoneNumber so the app can inherit it.
+    assert.equal(calls[0].payload.parts[0].text.includes('phoneNumber'), true);
+  } finally {
+    state.geminiProviderOverride = originalProvider;
+  }
 });
 
 
