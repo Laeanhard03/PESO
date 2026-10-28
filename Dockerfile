@@ -28,7 +28,7 @@ RUN flutter pub get \
     && test -s build/web/index.html \
     && test -s build/web/nsrp/index.html
 
-FROM nginx:1.28-alpine AS web
+FROM nginx:1.31-alpine AS web
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=web-build /workspace/build/web /usr/share/nginx/html
 EXPOSE 8080
