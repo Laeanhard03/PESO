@@ -1,4 +1,4 @@
-FROM node:22-bookworm AS web-build
+FROM node:25-bookworm AS web-build
 
 ARG FLUTTER_VERSION=3.47.1
 ARG FLUTTER_COMMIT=6655482ec06e547f90abf8ae7590466f4415978d
