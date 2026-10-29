@@ -1381,7 +1381,7 @@ class _AdminUserManagementSectionState
                                     ),
                                     IconButton(
                                       tooltip: deleteProtected
-                                            ? 'You cannot delete your own account'
+                                            ? 'Open My Profile to delete your own account'
                                             : deletionPending
                                             ? 'Retry pending Firebase/document cleanup'
                                             : !profileStoreReady

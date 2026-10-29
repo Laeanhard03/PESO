@@ -72,6 +72,8 @@ void main() {
     expect(tabs, contains(AdminTab.jobs));
     expect(tabs, contains(AdminTab.applications));
     expect(tabs, contains(AdminTab.siteContent));
+    expect(tabs, contains(AdminTab.settings));
+    expect(tabs, contains(AdminTab.profile));
     expect(kNavItems.every((item) => item.label.isNotEmpty), isTrue);
     expect(kNavItems.every((item) => item.title.isNotEmpty), isTrue);
   });

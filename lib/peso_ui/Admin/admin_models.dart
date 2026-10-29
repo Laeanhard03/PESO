@@ -92,6 +92,8 @@ enum AdminTab {
   geminiKeys,
   platform,
   siteContent,
+  settings,
+  profile,
 }
 
 class NavItem {
@@ -153,5 +155,19 @@ const List<NavItem> kNavItems = [
     Icons.photo_library_outlined,
     'Landing Page Content',
     'Manage public PESO gallery photos and employer-partner logos without changing code.',
+  ),
+  NavItem(
+    AdminTab.settings,
+    'Settings',
+    Icons.settings_outlined,
+    'Admin Settings',
+    'Review account security, session information and workspace settings.',
+  ),
+  NavItem(
+    AdminTab.profile,
+    'My Profile',
+    Icons.person_outline,
+    'Administrator Profile',
+    'Review your administrator identity and manage your own account.',
   ),
 ];

@@ -16,6 +16,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../Landingpage/landingpage_ui.dart';
 import '../../peso_services/peso_api_client.dart';
 import 'admin_user_management_section.dart';
+import 'admin_account_pages.dart';
 import 'admin_applicant_document_viewer.dart';
 import 'job_applications_section.dart';
 import 'job_management_section.dart';
@@ -853,6 +854,40 @@ class _AdminDashboardState extends State<AdminDashboard> {
     );
   }
 
+  Future<void> _deleteCurrentAdminAccount() async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) {
+      throw const PesoApiException(
+        statusCode: 401,
+        code: 'unauthenticated',
+        message: 'Sign in again before deleting this account.',
+      );
+    }
+
+    final result = await PesoApiClient.deleteMyAccount();
+    if (result['firebaseAuthAccountDeleted'] != true) {
+      throw const PesoApiException(
+        statusCode: 503,
+        code: 'firebase_auth_delete_failed',
+        message: 'Firebase could not confirm account deletion. Your PESO access is revoked; retry the deletion after Firebase Admin permissions are restored.',
+      );
+    }
+
+    // Once Firebase confirms deletion, always leave the Admin workspace even
+    // when document cleanup is pending; another administrator can retry it.
+    if (mounted) setState(() => _isLoggingOut = true);
+    try {
+      await FirebaseAuth.instance.signOut();
+    } catch (error) {
+      debugPrint('[ADMIN_PROFILE] Local sign-out after deletion: $error');
+    }
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const LandingPage()),
+      (_) => false,
+    );
+  }
+
   Future<void> _logout() async {
     if (_isLoggingOut || !mounted) return;
     setState(() => _isLoggingOut = true);
@@ -980,6 +1015,11 @@ class _AdminDashboardState extends State<AdminDashboard> {
                               onHelpTap: () => unawaited(
                                 _adminTourKey.currentState?.start(replay: true),
                               ),
+                              onSettingsTap: () => setState(
+                                () => _activeTab = AdminTab.settings,
+                              ),
+                              onProfileTap: () =>
+                                  setState(() => _activeTab = AdminTab.profile),
                               menuKey: isWide ? null : _adminMenuTourKey,
                               onMenuTap: isWide
                                   ? null
@@ -1117,6 +1157,31 @@ class _AdminDashboardState extends State<AdminDashboard> {
         return PlatformAnalyticsSection(applicants: _applicants);
       case AdminTab.siteContent:
         return const AdminLandingContentSection();
+      case AdminTab.settings:
+        final settingsUser = FirebaseAuth.instance.currentUser;
+        return AdminSettingsSection(
+          email: settingsUser?.email ?? '',
+          emailVerified: settingsUser?.emailVerified ?? false,
+          signInProvider: settingsUser?.providerData.isNotEmpty == true
+              ? settingsUser!.providerData.first.providerId
+              : 'unknown',
+          onOpenProfile: () => setState(() => _activeTab = AdminTab.profile),
+          onSignOut: _logout,
+        );
+      case AdminTab.profile:
+        final profileUser = FirebaseAuth.instance.currentUser;
+        return AdminProfileSection(
+          displayName: profileUser?.displayName?.trim().isNotEmpty == true
+              ? profileUser!.displayName!.trim()
+              : 'PESO Administrator',
+          email: profileUser?.email ?? '',
+          uid: profileUser?.uid ?? '',
+          emailVerified: profileUser?.emailVerified ?? false,
+          signInProvider: profileUser?.providerData.isNotEmpty == true
+              ? profileUser!.providerData.first.providerId
+              : 'unknown',
+          onDeleteAccount: _deleteCurrentAdminAccount,
+        );
     }
   }
 
@@ -1380,12 +1445,16 @@ class _TopBar extends StatelessWidget {
   final String subtitle;
   final VoidCallback? onMenuTap;
   final VoidCallback? onHelpTap;
+  final VoidCallback? onSettingsTap;
+  final VoidCallback? onProfileTap;
   final GlobalKey? menuKey;
   const _TopBar({
     required this.title,
     required this.subtitle,
     this.onMenuTap,
     this.onHelpTap,
+    this.onSettingsTap,
+    this.onProfileTap,
     this.menuKey,
   });
 
@@ -1457,16 +1526,40 @@ class _TopBar extends StatelessWidget {
             icon: const Icon(Icons.tips_and_updates_outlined),
             color: _C.primary,
           ),
-          _iconBtn(Icons.settings_outlined, _C.slate600, _C.slate100),
+          _iconBtn(
+            Icons.settings_outlined,
+            _C.slate600,
+            _C.slate100,
+            tooltip: 'Admin settings',
+            onTap: onSettingsTap,
+          ),
           const SizedBox(width: 10),
-          _iconBtn(Icons.person_outline, _C.primary, const Color(0xFFDBEAFE)),
+          _iconBtn(
+            Icons.person_outline,
+            _C.primary,
+            const Color(0xFFDBEAFE),
+            tooltip: 'My administrator profile',
+            onTap: onProfileTap,
+          ),
         ],
       ),
     );
   }
 
-  Widget _iconBtn(IconData icon, Color color, Color bg) {
-    return _PulseTapIcon(icon: icon, color: color, bg: bg);
+  Widget _iconBtn(
+    IconData icon,
+    Color color,
+    Color bg, {
+    required String tooltip,
+    required VoidCallback? onTap,
+  }) {
+    return _PulseTapIcon(
+      icon: icon,
+      color: color,
+      bg: bg,
+      tooltip: tooltip,
+      onTap: onTap,
+    );
   }
 }
 
@@ -1474,10 +1567,14 @@ class _PulseTapIcon extends StatefulWidget {
   final IconData icon;
   final Color color;
   final Color bg;
+  final String tooltip;
+  final VoidCallback? onTap;
   const _PulseTapIcon({
     required this.icon,
     required this.color,
     required this.bg,
+    required this.tooltip,
+    required this.onTap,
   });
 
   @override
@@ -1493,14 +1590,18 @@ class _PulseTapIconState extends State<_PulseTapIcon> {
       onTapDown: (_) => setState(() => _scale = 0.88),
       onTapUp: (_) => setState(() => _scale = 1.0),
       onTapCancel: () => setState(() => _scale = 1.0),
-      child: AnimatedScale(
-        scale: _scale,
-        duration: const Duration(milliseconds: 120),
-        child: Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(color: widget.bg, shape: BoxShape.circle),
-          child: Icon(widget.icon, size: 18, color: widget.color),
+      onTap: widget.onTap,
+      child: Tooltip(
+        message: widget.tooltip,
+        child: AnimatedScale(
+          scale: _scale,
+          duration: const Duration(milliseconds: 120),
+          child: Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(color: widget.bg, shape: BoxShape.circle),
+            child: Icon(widget.icon, size: 18, color: widget.color),
+          ),
         ),
       ),
     );

@@ -839,4 +839,12 @@ class PesoApiClient {
     '/api/admin/users/${Uri.encodeComponent(uid)}',
     timeout: const Duration(seconds: 60),
   );
+
+  /// Deletes the currently signed-in administrator through the dedicated
+  /// self-service endpoint, including retry access for its own pending deletion.
+  static Future<Map<String, dynamic>> deleteMyAccount() => _request(
+    'DELETE',
+    '/api/account/me',
+    timeout: const Duration(seconds: 60),
+  );
 }

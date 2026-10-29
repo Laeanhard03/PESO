@@ -423,6 +423,64 @@ async function requireAuth(req, res, next) {
   return next();
 }
 
+async function requireSelfDeletionAuth(req, res, next) {
+  const header = req.get('authorization') || '';
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  if (!match) return res.status(401).json({ ok: false, error: 'missing_bearer_token' });
+  let decoded;
+  try {
+    decoded = state.tokenVerifierOverride
+      ? await state.tokenVerifierOverride(match[1])
+      : await verifyFirebaseIdToken(match[1], PROJECT_ID);
+  } catch (error) {
+    if (error?.message === 'firebase_keys_unavailable' || error?.message === 'firebase_keys_invalid') {
+      return res.status(503).json({ ok: false, error: 'firebase_token_verification_unavailable' });
+    }
+    return res.status(401).json({ ok: false, error: 'invalid_or_expired_token', message: 'Sign in again and retry the request.' });
+  }
+  req.user = {
+    uid: decoded.uid || decoded.sub,
+    email: decoded.email || '',
+    name: decoded.name || decoded.displayName || '',
+    picture: decoded.picture || decoded.photoURL || decoded.photoUrl || '',
+    phoneNumber: decoded.phone_number || decoded.phoneNumber || '',
+    emailVerified: decoded.email_verified === true || decoded.emailVerified === true,
+    signInProvider: decoded.firebase?.sign_in_provider || decoded.signInProvider || '',
+    authType: 'firebase',
+    admin: false,
+    role: 'job_seeker',
+  };
+  if (!req.user.uid) return res.status(401).json({ ok: false, error: 'invalid_or_expired_token' });
+  if (!req.user.emailVerified) {
+    return res.status(403).json({ ok: false, error: 'email_verification_required', message: 'Verify your email address before using PESO JobKonek.' });
+  }
+  if (!state.mongoConnected || !state.db) return serviceUnavailable(res, 'mongodb');
+  try {
+    let profile = await usersCollection().findOne({ uid: req.user.uid });
+    if (!profile) {
+      await bootstrapAdminProfile(req.user);
+      profile = await usersCollection().findOne({ uid: req.user.uid });
+    }
+    const activeAdmin = profile?.role === 'admin' &&
+      profile.disabled !== true && profile.deleted !== true && profile.deletionPending !== true;
+    const ownPendingDeletion = profile?.deletionPending === true &&
+      profile?.deletionRequestedBy === req.user.uid && profile.deleted !== true;
+    const ownCompletedDeletion = profile?.deleted === true && profile?.deletedBy === req.user.uid;
+    if (!activeAdmin && !ownPendingDeletion && !ownCompletedDeletion) {
+      return res.status(403).json({
+        ok: false,
+        error: 'admin_required',
+        message: 'Self-service deletion is available only to your active administrator account or its own pending deletion retry.',
+      });
+    }
+    req.user.role = String(profile.role || 'job_seeker');
+    req.user.admin = req.user.role === 'admin';
+    return next();
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function requireVerifiedResidency(req, res, next) {
   if (req.user?.role === 'admin') return next();
   try {
@@ -2281,6 +2339,136 @@ app.patch('/api/admin/users/:uid/status', requireAuth, requireAdmin, requireMong
       firebaseAuthAccountChanged: false, user: accountFromProfile(await usersCollection().findOne({ uid })) });
   } catch (error) { return next(error); }
 });
+async function performAccountDeletion(uid, requestedBy, { selfDeletion = false } = {}) {
+  let target = await usersCollection().findOne({ uid });
+  if (!target) return { statusCode: 404, body: { ok: false, error: 'user_not_found' } };
+
+  // Revoke PESO access and scrub personal data before contacting Firebase.
+  // Keep a tombstone so a failed Firebase delete can be retried safely.
+  if (target.deleted !== true) {
+    await usersCollection().updateOne({ uid }, {
+      $set: {
+        email: '',
+        displayName: 'Account deletion pending',
+        role: 'job_seeker',
+        disabled: true,
+        deletionPending: true,
+        deletionRequestedAt: target.deletionRequestedAt || new Date(),
+        deletionRequestedBy: target.deletionRequestedBy || requestedBy,
+        updatedAt: new Date(),
+      },
+      $unset: {
+        firstName: '', lastName: '', phoneNumber: '', photoURL: '', location: '',
+        educationLevel: '', employmentStatus: '', professionalTitle: '', bio: '', skills: '',
+        aiProfile: '', resumeData: '', pesoFormData: '', onboardingText: '', preferences: '',
+        assessmentOutcomes: '', resumeFileName: '', matchedJobs: '', matchedJobsCount: '',
+        yearsExperience: '', providerIds: '', emailVerified: '', phoneVerified: '',
+        profileCompleted: '', lastLoginAt: '',
+      },
+    });
+  }
+
+  let firebaseAuthAccountDeleted = false;
+  try {
+    await getFirebaseAdminAuth().deleteUser(uid);
+    firebaseAuthAccountDeleted = true;
+  } catch (error) {
+    if (error?.code === 'auth/user-not-found') {
+      firebaseAuthAccountDeleted = true;
+    } else {
+      const safeCode = String(error?.code || error?.name || 'unknown').slice(0, 80);
+      console.warn('[Admin delete] Firebase Auth deletion failed (' + safeCode + ').');
+    }
+  }
+
+  if (!firebaseAuthAccountDeleted) {
+    return {
+      statusCode: 503,
+      body: {
+        ok: false,
+        uid,
+        error: 'firebase_auth_delete_failed',
+        message: 'PESO access is revoked and personal profile fields are scrubbed, but Firebase account deletion could not be confirmed. Correct Firebase Admin permissions, then retry this pending deletion.',
+        cleanupComplete: false,
+        applicationAccessRevoked: true,
+        firebaseAuthAccountDeleted: false,
+      },
+    };
+  }
+
+  let cleanupComplete = true;
+  try {
+    const files = await state.bucket.find({ 'metadata.ownerUid': uid }).toArray();
+    for (const file of files) {
+      try { await state.bucket.delete(file._id); }
+      catch { cleanupComplete = false; }
+    }
+  } catch {
+    cleanupComplete = false;
+  }
+
+  if (!cleanupComplete) {
+    return {
+      // A self-deleting admin must sign out once Firebase confirms deletion.
+      // Keep the pending tombstone for another admin to retry document cleanup.
+      statusCode: selfDeletion ? 200 : 503,
+      body: {
+        ok: selfDeletion,
+        uid,
+        error: 'account_cleanup_pending',
+        message: 'The Firebase account is deleted and PESO access is revoked, but some stored documents still need cleanup. The pending record remains available to another administrator for retry.',
+        cleanupComplete: false,
+        applicationAccessRevoked: true,
+        firebaseAuthAccountDeleted: true,
+      },
+    };
+  }
+
+  await usersCollection().updateOne({ uid }, {
+    $set: {
+      email: '',
+      displayName: 'Deleted PESO account',
+      role: 'job_seeker',
+      disabled: true,
+      deleted: true,
+      firebaseAuthAccountDeleted: true,
+      firebaseAuthDeletedAt: new Date(),
+      deletedAt: new Date(),
+      deletedBy: requestedBy,
+      updatedAt: new Date(),
+    },
+    $unset: {
+      firstName: '', lastName: '', phoneNumber: '', photoURL: '', location: '',
+      educationLevel: '', employmentStatus: '', professionalTitle: '', bio: '', skills: '',
+      aiProfile: '', resumeData: '', pesoFormData: '', onboardingText: '', preferences: '',
+      assessmentOutcomes: '', resumeFileName: '', matchedJobs: '', matchedJobsCount: '',
+      yearsExperience: '', providerIds: '', emailVerified: '', phoneVerified: '',
+      profileCompleted: '', lastLoginAt: '', deletionPending: '',
+      deletionRequestedAt: '', deletionRequestedBy: '',
+    },
+  });
+
+  return {
+    statusCode: 200,
+    body: {
+      ok: true,
+      uid,
+      cleanupComplete: true,
+      applicationAccessRevoked: true,
+      firebaseAuthAccountDeleted: true,
+    },
+  };
+}
+
+app.delete('/api/account/me', requireSelfDeletionAuth, requireMongo, async (req, res, next) => {
+  try {
+    const result = await performAccountDeletion(req.user.uid, req.user.uid, { selfDeletion: true });
+    return res.status(result.statusCode).json(result.body);
+  } catch (error) {
+    return next(error);
+  }
+});
+
 app.delete('/api/admin/users/:uid', requireAuth, requireAdmin, requireMongo, async (req, res, next) => {
   try {
     const uid = String(req.params.uid || '').trim();
@@ -2309,11 +2497,6 @@ app.delete('/api/admin/users/:uid', requireAuth, requireAdmin, requireMongo, asy
         });
       }
 
-      const authEmail = String(authUser?.email || '').trim().toLowerCase();
-      if (authEmail === BOOTSTRAP_ADMIN_EMAIL) {
-        return res.status(403).json({ ok: false, error: 'protected_admin_account' });
-      }
-
       const now = new Date();
       await usersCollection().updateOne({ uid }, {
         $setOnInsert: {
@@ -2332,140 +2515,8 @@ app.delete('/api/admin/users/:uid', requireAuth, requireAdmin, requireMongo, asy
       target = await usersCollection().findOne({ uid });
     }
 
-    const profileEmail = String(target?.email || '').trim().toLowerCase();
-    if (profileEmail === BOOTSTRAP_ADMIN_EMAIL) {
-      return res.status(403).json({ ok: false, error: 'protected_admin_account' });
-    }
-
-    // Other administrators can be removed by a different authorized admin.
-    // Verify the real Firebase identity before deleting an admin profile so a
-    // stale Mongo email cannot bypass protection for the bootstrap administrator.
-    if (target?.role === 'admin') {
-      let authUser;
-      try {
-        authUser = await getFirebaseAdminAuth().getUser(uid);
-      } catch (error) {
-        if (error?.code !== 'auth/user-not-found') {
-          logSafeError('[Admin delete] Could not verify administrator identity', error);
-          return res.status(503).json({
-            ok: false,
-            error: 'firebase_admin_unavailable',
-            message: 'Cannot verify this administrator against the protected bootstrap account. Configure Firebase Admin credentials and retry.',
-            cleanupComplete: false,
-            applicationAccessRevoked: false,
-            firebaseAuthAccountDeleted: false,
-          });
-        }
-      }
-      if (String(authUser?.email || '').trim().toLowerCase() === BOOTSTRAP_ADMIN_EMAIL) {
-        return res.status(403).json({ ok: false, error: 'protected_admin_account' });
-      }
-    }
-
-    // Immediately block API access and scrub private fields, but keep a visible
-    // pending record until Firebase Auth and private-document cleanup both finish.
-    if (target?.deleted !== true) {
-      await usersCollection().updateOne({ uid }, {
-        $set: {
-          email: '',
-          displayName: 'Account deletion pending',
-          role: 'job_seeker',
-          disabled: true,
-          deletionPending: true,
-          deletionRequestedAt: target?.deletionRequestedAt || new Date(),
-          deletionRequestedBy: target?.deletionRequestedBy || req.user.uid,
-          updatedAt: new Date(),
-        },
-        $unset: {
-          firstName: '', lastName: '', phoneNumber: '', photoURL: '', location: '',
-          educationLevel: '', employmentStatus: '', professionalTitle: '', bio: '', skills: '',
-          aiProfile: '', resumeData: '', pesoFormData: '', onboardingText: '', preferences: '',
-          assessmentOutcomes: '', resumeFileName: '', matchedJobs: '', matchedJobsCount: '',
-          yearsExperience: '', providerIds: '', emailVerified: '', phoneVerified: '',
-          profileCompleted: '', lastLoginAt: '',
-        },
-      });
-    }
-
-    let firebaseAuthAccountDeleted = false;
-    try {
-      await getFirebaseAdminAuth().deleteUser(uid);
-      firebaseAuthAccountDeleted = true;
-    } catch (error) {
-      if (error?.code === 'auth/user-not-found') {
-        firebaseAuthAccountDeleted = true;
-      } else {
-        const safeCode = String(error?.code || error?.name || 'unknown').slice(0, 80);
-        console.warn('[Admin delete] Firebase Auth deletion failed (' + safeCode + ').');
-      }
-    }
-
-    if (!firebaseAuthAccountDeleted) {
-      return res.status(503).json({
-        ok: false,
-        uid,
-        error: 'firebase_auth_delete_failed',
-        message: 'PESO access is revoked and personal profile fields are scrubbed, but Firebase account deletion could not be confirmed. Configure Firebase Admin credentials, then retry this pending deletion from Admin.',
-        cleanupComplete: false,
-        applicationAccessRevoked: true,
-        firebaseAuthAccountDeleted: false,
-      });
-    }
-
-    let cleanupComplete = true;
-    try {
-      const files = await state.bucket.find({ 'metadata.ownerUid': uid }).toArray();
-      for (const file of files) {
-        try { await state.bucket.delete(file._id); }
-        catch { cleanupComplete = false; }
-      }
-    } catch {
-      cleanupComplete = false;
-    }
-
-    if (!cleanupComplete) {
-      return res.status(503).json({
-        ok: false,
-        uid,
-        error: 'account_cleanup_pending',
-        message: 'The Firebase account is deleted and PESO access is revoked, but document cleanup is incomplete. Retry this pending deletion from Admin.',
-        cleanupComplete: false,
-        applicationAccessRevoked: true,
-        firebaseAuthAccountDeleted: true,
-      });
-    }
-
-    await usersCollection().updateOne({ uid }, {
-      $set: {
-        email: '',
-        displayName: 'Deleted PESO account',
-        role: 'job_seeker',
-        disabled: true,
-        deleted: true,
-        firebaseAuthAccountDeleted: true,
-        firebaseAuthDeletedAt: new Date(),
-        deletedAt: new Date(),
-        deletedBy: req.user.uid,
-        updatedAt: new Date(),
-      },
-      $unset: {
-        firstName: '', lastName: '', phoneNumber: '', photoURL: '', location: '',
-        educationLevel: '', employmentStatus: '', professionalTitle: '', bio: '', skills: '',
-        aiProfile: '', resumeData: '', pesoFormData: '', onboardingText: '', preferences: '',
-        assessmentOutcomes: '', resumeFileName: '', matchedJobs: '', matchedJobsCount: '',
-        yearsExperience: '', providerIds: '', emailVerified: '', phoneVerified: '',
-        profileCompleted: '', lastLoginAt: '', deletionPending: '',
-        deletionRequestedAt: '', deletionRequestedBy: '',
-      },
-    });
-
-    return res.json({
-      ok: true,
-      uid,
-      cleanupComplete: true,
-      applicationAccessRevoked: true,
-      firebaseAuthAccountDeleted: true,
-    });
+    const result = await performAccountDeletion(uid, req.user.uid);
+    return res.status(result.statusCode).json(result.body);
   } catch (error) { return next(error); }
 });
 
