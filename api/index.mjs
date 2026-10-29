@@ -3,7 +3,35 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import app from '../backend/server.js';
+// Load the Express app lazily so startup failures are reported as a bounded API
+// diagnostic instead of Vercel's opaque FUNCTION_INVOCATION_FAILED response.
+let appPromise = null;
+async function loadExpressApp() {
+  if (!appPromise) {
+    appPromise = import('../backend/server.js')
+      .then((module) => module.default)
+      .catch((error) => {
+        appPromise = null;
+        throw error;
+      });
+  }
+  return appPromise;
+}
+
+function startupDiagnostic(error) {
+  const code = String(error?.code || error?.name || 'unknown').slice(0, 80);
+  let message = String(error?.message || 'API startup failed');
+  message = message
+    .replace(/mongodb(?:\+srv)?:\/\/[^\s"'\x60]+/gi, '[redacted MongoDB URI]')
+    .replace(/AIza[0-9A-Za-z_-]{20,}/g, '[redacted API key]')
+    .replace(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, '[redacted token]')
+    .replace(/(password|secret|api[_ -]?key)\s*[:=]\s*[^,\s]+/gi, '$1=[redacted]')
+    .slice(0, 180);
+  const diagnostic = { code, message };
+  const missing = message.match(/Cannot find (?:package|module) ['"]([^'"]+)['"]/i);
+  if (missing) diagnostic.missingDependency = missing[1].slice(0, 100);
+  return diagnostic;
+}
 
 // Run the existing Express API in the same Vercel project as Flutter and NSRP.
 // Vercel Functions run on Linux and have a writable /tmp directory, unlike the
@@ -27,7 +55,20 @@ function setupGoModel() {
   modelReady = true;
 }
 
-export default function handler(req, res) {
+export default async function handler(req, res) {
+  let app;
+  try {
+    app = await loadExpressApp();
+  } catch (error) {
+    const diagnostic = startupDiagnostic(error);
+    console.error('[PESO API] Express initialization failed (' + diagnostic.code + '): ' + diagnostic.message);
+    return res.status(500).json({
+      ok: false,
+      error: 'api_startup_failed',
+      diagnostic,
+    });
+  }
+
   try {
     setupGoModel();
   } catch (error) {
