@@ -603,6 +603,11 @@ class _AdminUserManagementSectionState
         uid == FirebaseAuth.instance.currentUser?.uid;
   }
 
+  bool _cannotDeleteUser(Map<String, dynamic> user) {
+    final uid = _text(user['uid']);
+    return uid.isEmpty || uid == FirebaseAuth.instance.currentUser?.uid;
+  }
+
   Future<void> _toggleDisabled(Map<String, dynamic> user) async {
     if (_protected(user)) return;
     final uid = _text(user['uid']);
@@ -643,21 +648,25 @@ class _AdminUserManagementSectionState
   }
 
   Future<void> _deleteUser(Map<String, dynamic> user) async {
-    if (_protected(user)) return;
+    if (_cannotDeleteUser(user)) return;
     final uid = _text(user['uid']);
     if (uid.isEmpty || _busyUsers.contains(uid)) return;
+    final isAdministrator =
+        user['role'] == 'admin' || user['customAdmin'] == true;
+    final accountIdentity = _displayName(user) + ' (' + _text(user['email']) + ')';
+    final confirmationMessage = isAdministrator
+        ? 'Are you sure you want to delete this admin account? Their Firebase Authentication account will also be permanently deleted, along with their PESO profile and stored documents for ' +
+            accountIdentity +
+            '. This cannot be undone. If Firebase deletion cannot be verified, PESO access will be revoked and the pending deletion will remain visible for retry.'
+        : 'This permanently removes the Firebase sign-in account, clears its PESO profile, and deletes stored documents for ' +
+            accountIdentity +
+            '. If Firebase deletion cannot be verified, PESO access is revoked and the pending deletion stays visible here for retry. This action cannot be undone.';
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         icon: const Icon(Icons.warning_amber_rounded, color: _red, size: 32),
-        title: const Text('Remove this PESO account?'),
-        content: Text(
-          'This permanently removes the Firebase sign-in account, clears its PESO profile, and deletes stored documents for ' +
-              _displayName(user) +
-              ' (' +
-              _text(user['email']) +
-              '). If Firebase deletion cannot be verified, PESO access is revoked, private profile fields are scrubbed, and the pending deletion stays visible here for retry. This action cannot be undone.',
-        ),
+        title: Text(isAdministrator ? 'Delete this administrator account?' : 'Remove this PESO account?'),
+        content: Text(confirmationMessage),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
@@ -667,7 +676,7 @@ class _AdminUserManagementSectionState
             style: FilledButton.styleFrom(backgroundColor: _red),
             onPressed: () => Navigator.pop(dialogContext, true),
             icon: const Icon(Icons.delete_outline),
-            label: const Text('Delete Firebase account'),
+            label: Text(isAdministrator ? 'Delete admin and Firebase account' : 'Delete Firebase account'),
           ),
         ],
       ),
@@ -1068,6 +1077,8 @@ class _AdminUserManagementSectionState
                           final appData = _getApplicationData(user);
                           final busy = _busyUsers.contains(uid);
                           final protected = _protected(user);
+                          final deleteProtected = uid.isEmpty ||
+                              uid == FirebaseAuth.instance.currentUser?.uid;
                           final profileStoreReady = _profileStoreReady == true;
                           final profileMissing = user['profileMissing'] == true;
                           final deletionPending =
@@ -1369,21 +1380,23 @@ class _AdminUserManagementSectionState
                                       ),
                                     ),
                                     IconButton(
-                                      tooltip: protected
-                                          ? 'Protected administrator account'
-                                          : deletionPending
-                                          ? 'Retry pending Firebase/document cleanup'
-                                          : profileMissing
-                                          ? 'Delete the Firebase-only account'
-                                          : !profileStoreReady
-                                          ? 'Reconnect MongoDB before deleting the account'
-                                          : 'Delete Firebase account and PESO data',
-                                      onPressed:
-                                          busy ||
-                                              protected ||
-                                              !profileStoreReady
-                                          ? null
-                                          : () => _deleteUser(user),
+                                      tooltip: deleteProtected
+                                            ? 'You cannot delete your own account'
+                                            : deletionPending
+                                            ? 'Retry pending Firebase/document cleanup'
+                                            : !profileStoreReady
+                                            ? 'Reconnect MongoDB before deleting the account'
+                                            : isAdministrator
+                                            ? 'Delete administrator and Firebase account'
+                                            : profileMissing
+                                            ? 'Delete the Firebase-only account'
+                                            : 'Delete Firebase account and PESO data',
+                                        onPressed:
+                                            busy ||
+                                                deleteProtected ||
+                                                !profileStoreReady
+                                            ? null
+                                            : () => _deleteUser(user),
                                       icon: Icon(
                                         Icons.delete_outline,
                                         size: 19,

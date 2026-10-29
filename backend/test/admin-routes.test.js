@@ -164,6 +164,10 @@ before(async () => {
       uid: 'user-one', email: 'one@example.test', name: 'Original User',
       email_verified: true, firebase: { sign_in_provider: 'password' },
     };
+    if (token === 'second-admin-token') return {
+      uid: 'second-admin', email: 'second-admin@example.test', name: 'Second Administrator',
+      email_verified: true, firebase: { sign_in_provider: 'google.com' },
+    };
     if (token === 'unverified-admin-token') return {
       uid: 'unverified-admin', email: 'admin@example.invalid', name: 'Unverified Admin',
       email_verified: false, firebase: { sign_in_provider: 'google.com' },
@@ -399,27 +403,83 @@ test('only authenticated MongoDB admins may promote an existing active user', as
   resetFixtures();
 });
 
-test('admin cannot edit, disable, or delete its own account or another admin account', async () => {
-  for (const [method, path, body] of [
-    ['PATCH', '/api/admin/users/admin-uid/profile', { firstName: 'Change' }],
-    ['PATCH', '/api/admin/users/admin-uid/status', { disabled: true }],
-    ['DELETE', '/api/admin/users/admin-uid', undefined],
-  ]) {
-    const response = await request(path, { token: 'admin-token', method, body });
-    assert.equal(response.status, 403);
-  }
+test('admin cannot edit or disable admin accounts, can delete other admins, and cannot delete the bootstrap admin', async () => {
+  resetFixtures();
+  try {
+    // An administrator cannot mutate or delete its own account.
+    for (const [method, path, body] of [
+      ['PATCH', '/api/admin/users/admin-uid/profile', { firstName: 'Change' }],
+      ['PATCH', '/api/admin/users/admin-uid/status', { disabled: true }],
+      ['DELETE', '/api/admin/users/admin-uid', undefined],
+    ]) {
+      const response = await request(path, { token: 'admin-token', method, body });
+      assert.equal(response.status, 403);
+    }
 
-  authUsers.set('other-admin', userRecord('other-admin', {
-    customClaims: { admin: true },
-  }));
-  profiles.set('other-admin', { uid: 'other-admin', role: 'admin' });
-  const response = await request('/api/admin/users/other-admin/status', {
-    token: 'admin-token',
-    method: 'PATCH',
-    body: { disabled: true },
-  });
-  assert.equal(response.status, 403);
-  assert.equal(authUsers.get('other-admin').disabled, false);
+    authUsers.set('other-admin', userRecord('other-admin', {
+      email: 'other-admin@example.test',
+      customClaims: { admin: true },
+    }));
+    profiles.set('other-admin', {
+      uid: 'other-admin', role: 'admin', email: 'other-admin@example.test',
+      displayName: 'Other Administrator',
+    });
+    authUsers.set('second-admin', userRecord('second-admin', {
+      email: 'second-admin@example.test',
+      customClaims: { admin: true },
+    }));
+    profiles.set('second-admin', {
+      uid: 'second-admin', role: 'admin', email: 'second-admin@example.test',
+      displayName: 'Second Administrator',
+    });
+
+    // The configured bootstrap administrator stays protected even from another admin.
+    const protectedBootstrap = await request('/api/admin/users/admin-uid', {
+      token: 'second-admin-token', method: 'DELETE',
+    });
+    assert.equal(protectedBootstrap.status, 403);
+    assert.equal((await protectedBootstrap.json()).error, 'protected_admin_account');
+    assert.equal(authUsers.has('admin-uid'), true);
+
+    // Admin accounts remain protected from profile edits and disable/enable operations.
+    const edit = await request('/api/admin/users/other-admin/profile', {
+      token: 'admin-token', method: 'PATCH', body: { firstName: 'Change' },
+    });
+    assert.equal(edit.status, 403);
+    const disable = await request('/api/admin/users/other-admin/status', {
+      token: 'admin-token', method: 'PATCH', body: { disabled: true },
+    });
+    assert.equal(disable.status, 403);
+    assert.equal(authUsers.get('other-admin').disabled, false);
+
+    // Deletion is allowed only for another admin and removes the Firebase identity too.
+    const deleted = await request('/api/admin/users/other-admin', {
+      token: 'admin-token', method: 'DELETE',
+    });
+    assert.equal(deleted.status, 200);
+    const result = await deleted.json();
+    assert.equal(result.cleanupComplete, true);
+    assert.equal(result.firebaseAuthAccountDeleted, true);
+    assert.equal(authUsers.has('other-admin'), false);
+    assert.equal(profiles.get('other-admin').deleted, true);
+    assert.equal(profiles.get('other-admin').firebaseAuthAccountDeleted, true);
+
+    // A Firebase-only admin (custom claim, no Mongo profile) is also deletable,
+    // unless it is the configured bootstrap identity.
+    authUsers.set('orphan-admin', userRecord('orphan-admin', {
+      email: 'orphan-admin@example.test',
+      customClaims: { admin: true },
+    }));
+    const orphanDeleted = await request('/api/admin/users/orphan-admin', {
+      token: 'admin-token', method: 'DELETE',
+    });
+    assert.equal(orphanDeleted.status, 200);
+    assert.equal((await orphanDeleted.json()).firebaseAuthAccountDeleted, true);
+    assert.equal(authUsers.has('orphan-admin'), false);
+    assert.equal(profiles.get('orphan-admin').deleted, true);
+  } finally {
+    resetFixtures();
+  }
 });
 
 test('admin can disable or enable a regular Auth account through the trusted API', async () => {

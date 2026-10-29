@@ -99,7 +99,7 @@ jobs:
         working-directory: mini_ai
 
   dependency-audit:
-    name: Block high and critical npm advisories
+    name: Block moderate and higher npm advisories
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -107,11 +107,11 @@ jobs:
         with:
           node-version: 22
       - name: Audit production API dependencies
-        run: npm audit --omit=dev --audit-level=high --prefix backend
+        run: npm audit --omit=dev --audit-level=moderate --prefix backend
       - name: Audit Firebase Functions dependencies
-        run: npm audit --audit-level=high --prefix functions
+        run: npm audit --audit-level=moderate --prefix functions
       - name: Audit NSRP and resume dependencies
-        run: npm audit --audit-level=high --prefix react_workspace
+        run: npm audit --audit-level=moderate --prefix react_workspace
   secret-scan:
     name: Git history secret scan
     runs-on: ubuntu-latest

@@ -35,7 +35,7 @@ Do not run npm install in the repository root: there is no root Node application
 
 The analyzer gate fails on Dart errors and warnings. The current project has an existing backlog of informational lints; these are reported separately so they do not hide real errors or prevent all CI checks from running. Reduce that backlog gradually in focused changes rather than mixing hundreds of formatting edits into feature work.
 
-The dependency-audit job fails on high or critical npm advisories while allowing the currently verified moderate Firebase Admin UUID dependency chain to be tracked and upgraded with compatibility tests. Current React dependencies audit cleanly; the remaining backend/Functions advisories require a Firebase Admin major upgrade, so the workflow does not force that breaking change.
+The dependency-audit job now fails on moderate, high, or critical npm advisories across the backend, Firebase Functions, and React workspace. Firebase Admin 14.5.0 and Firebase Functions 7.4.0 are pinned in the respective lockfiles; the full npm audit currently reports zero vulnerabilities for all three workspaces. The backend requires Node.js 22 or newer to match the current Firebase Admin SDK.
 
 GitHub Actions runs these checks for pushes and pull requests targeting main. Dependency updates are proposed by Dependabot for each tracked package manager and for GitHub Actions. Review and test each update before merging; dependency automation does not silently update the production deployment.
 

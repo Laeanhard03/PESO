@@ -2310,7 +2310,7 @@ app.delete('/api/admin/users/:uid', requireAuth, requireAdmin, requireMongo, asy
       }
 
       const authEmail = String(authUser?.email || '').trim().toLowerCase();
-      if (authEmail === BOOTSTRAP_ADMIN_EMAIL || authUser?.customClaims?.admin === true) {
+      if (authEmail === BOOTSTRAP_ADMIN_EMAIL) {
         return res.status(403).json({ ok: false, error: 'protected_admin_account' });
       }
 
@@ -2332,9 +2332,34 @@ app.delete('/api/admin/users/:uid', requireAuth, requireAdmin, requireMongo, asy
       target = await usersCollection().findOne({ uid });
     }
 
-    if (target?.role === 'admin' ||
-      String(target?.email || '').trim().toLowerCase() === BOOTSTRAP_ADMIN_EMAIL) {
+    const profileEmail = String(target?.email || '').trim().toLowerCase();
+    if (profileEmail === BOOTSTRAP_ADMIN_EMAIL) {
       return res.status(403).json({ ok: false, error: 'protected_admin_account' });
+    }
+
+    // Other administrators can be removed by a different authorized admin.
+    // Verify the real Firebase identity before deleting an admin profile so a
+    // stale Mongo email cannot bypass protection for the bootstrap administrator.
+    if (target?.role === 'admin') {
+      let authUser;
+      try {
+        authUser = await getFirebaseAdminAuth().getUser(uid);
+      } catch (error) {
+        if (error?.code !== 'auth/user-not-found') {
+          logSafeError('[Admin delete] Could not verify administrator identity', error);
+          return res.status(503).json({
+            ok: false,
+            error: 'firebase_admin_unavailable',
+            message: 'Cannot verify this administrator against the protected bootstrap account. Configure Firebase Admin credentials and retry.',
+            cleanupComplete: false,
+            applicationAccessRevoked: false,
+            firebaseAuthAccountDeleted: false,
+          });
+        }
+      }
+      if (String(authUser?.email || '').trim().toLowerCase() === BOOTSTRAP_ADMIN_EMAIL) {
+        return res.status(403).json({ ok: false, error: 'protected_admin_account' });
+      }
     }
 
     // Immediately block API access and scrub private fields, but keep a visible

@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Server-side API for PESO JobKonek profiles, Gemini extraction, and MongoDB GridFS documents.",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "start": "node server.js",
@@ -18,7 +18,7 @@
     "@napi-rs/canvas": "1.0.11",
     "dotenv": "^16.6.1",
     "express": "^5.1.0",
-    "firebase-admin": "^13.5.0",
+    "firebase-admin": "14.5.0",
     "mongodb": "^6.20.0",
     "nodemailer": "^10.2.1",
     "pdfjs-dist": "4.10.38",
