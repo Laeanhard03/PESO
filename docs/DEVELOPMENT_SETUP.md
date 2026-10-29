@@ -17,7 +17,7 @@ This guide is for a fresh clone. It uses the committed lockfiles and does not re
     npm ci --prefix functions
     npm ci --prefix react_workspace
 
-Do not run npm install in the repository root: there is no root Node application or root package manifest. Each Node service owns its own package.json and package-lock.json. The Go mini_ai module currently uses only the Go standard library, so go.mod is sufficient and a go.sum is not required.
+The root package.json intentionally has no dependencies; it pins Vercel serverless functions to Node.js 22.x so Firebase Admin 14.5.0 and jwks-rsa 4.x run on a supported Node runtime. Do not add root dependencies. Each Node service owns its own package.json and package-lock.json. The Go mini_ai module currently uses only the Go standard library, so go.mod is sufficient and a go.sum is not required.
 
 ## Run checks
 
