@@ -884,31 +884,49 @@ class _LandingPageState extends State<LandingPage> {
         else
           LayoutBuilder(
             builder: (context, constraints) {
-              final cardWidth = constraints.maxWidth >= 1000
-                  ? (constraints.maxWidth - PesoTokens.spacingLG * 2) / 3
+              final columns = constraints.maxWidth >= 1000
+                  ? 3
                   : constraints.maxWidth >= 650
-                  ? (constraints.maxWidth - PesoTokens.spacingLG) / 2
-                  : constraints.maxWidth;
-              return Wrap(
-                spacing: PesoTokens.spacingLG,
-                runSpacing: PesoTokens.spacingLG,
-                children: jobs
-                    .map(
-                      (job) => SizedBox(
-                        width: cardWidth,
-                        child: _LandingJobCard(
-                          job: job,
-                          onApply: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) =>
-                                  const AuthPage(initialIsLogin: true),
+                  ? 2
+                  : 1;
+              final rowCount = (jobs.length + columns - 1) ~/ columns;
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: List.generate(rowCount, (rowIndex) {
+                  final rowStart = rowIndex * columns;
+                  final rowJobs = jobs.skip(rowStart).take(columns).toList();
+                  return Padding(
+                    padding: EdgeInsets.only(
+                      top: rowIndex == 0 ? 0 : PesoTokens.spacingLG,
+                    ),
+                    child: IntrinsicHeight(
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          for (var column = 0; column < columns; column++) ...[
+                            if (column > 0)
+                              const SizedBox(width: PesoTokens.spacingLG),
+                            Expanded(
+                              child: column < rowJobs.length
+                                  ? _LandingJobCard(
+                                      job: rowJobs[column],
+                                      onApply: () => Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => const AuthPage(
+                                            initialIsLogin: true,
+                                          ),
+                                        ),
+                                      ),
+                                    )
+                                  : const SizedBox.shrink(),
                             ),
-                          ),
-                        ),
+                          ],
+                        ],
                       ),
-                    )
-                    .toList(),
+                    ),
+                  );
+                }),
               );
             },
           ),
@@ -2263,204 +2281,228 @@ class _LandingJobCard extends StatelessWidget {
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          if (job.imageUrl.isNotEmpty) ...[
-            ClipRRect(
-              borderRadius: BorderRadius.circular(PesoTokens.radiusMD),
-              child: AspectRatio(
-                aspectRatio: 16 / 9,
-                child: Image.network(
-                  job.imageUrl,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) =>
-                      const ColoredBox(
-                        color: PesoTokens.surfaceNeutral,
-                        child: Center(child: Icon(Icons.work_outline_rounded)),
-                      ),
-                ),
-              ),
-            ),
-            const SizedBox(height: PesoTokens.spacingMD),
-          ],
-          Row(
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                width: logoWidth,
-                height: 46,
-                padding: const EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  color: Colors.white,
+              if (job.imageUrl.isNotEmpty) ...[
+                ClipRRect(
                   borderRadius: BorderRadius.circular(PesoTokens.radiusMD),
-                  border: Border.all(color: const Color(0xFFE6ECE8)),
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(PesoTokens.radiusSM),
-                  child: PesoEmployerLogo(
-                    company: job.company,
-                    logoUrl: job.logoUrl,
-                    size: 24,
+                  child: AspectRatio(
+                    aspectRatio: 16 / 9,
+                    child: Image.network(
+                      job.imageUrl,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) =>
+                          const ColoredBox(
+                            color: PesoTokens.surfaceNeutral,
+                            child: Center(
+                              child: Icon(Icons.work_outline_rounded),
+                            ),
+                          ),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: PesoTokens.spacingMD),
-              Expanded(
-                child: Text(
-                  job.company,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: PesoTokens.labelLarge.copyWith(
-                    color: PesoTokens.textSecondary,
+                const SizedBox(height: PesoTokens.spacingMD),
+              ],
+              Row(
+                children: [
+                  Container(
+                    width: logoWidth,
+                    height: 46,
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(PesoTokens.radiusMD),
+                      border: Border.all(color: const Color(0xFFE6ECE8)),
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(PesoTokens.radiusSM),
+                      child: PesoEmployerLogo(
+                        company: job.company,
+                        logoUrl: job.logoUrl,
+                        size: 24,
+                      ),
+                    ),
                   ),
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: PesoTokens.spacingSM,
-                  vertical: PesoTokens.space1,
-                ),
-                decoration: BoxDecoration(
-                  color: PesoTokens.brandGreenPale,
-                  borderRadius: BorderRadius.circular(PesoTokens.radiusFull),
-                ),
-                child: Text(
-                  job.type,
-                  style: PesoTokens.labelSmall.copyWith(
-                    color: PesoTokens.brandGreenDark,
+                  const SizedBox(width: PesoTokens.spacingMD),
+                  Expanded(
+                    child: Text(
+                      job.company,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: PesoTokens.labelLarge.copyWith(
+                        color: PesoTokens.textSecondary,
+                      ),
+                    ),
                   ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: PesoTokens.spacingLG),
-          Text(
-            job.title,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: PesoTokens.headlineSmall.copyWith(fontSize: 21),
-          ),
-          const SizedBox(height: PesoTokens.spacingSM),
-          Row(
-            children: [
-              const Icon(
-                Icons.location_on_outlined,
-                size: 17,
-                color: PesoTokens.textMuted,
-              ),
-              const SizedBox(width: PesoTokens.spacingXS),
-              Expanded(
-                child: Text(
-                  job.location,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: PesoTokens.bodySmall.copyWith(
-                    color: PesoTokens.textMuted,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: PesoTokens.spacingLG),
-          Row(
-            children: [
-              const Icon(
-                Icons.groups_outlined,
-                size: 17,
-                color: PesoTokens.textMuted,
-              ),
-              const SizedBox(width: PesoTokens.spacingXS),
-              Text(
-                job.vacancies == null || job.vacancies! < 1
-                    ? 'Vacancy count not specified'
-                    : '${job.vacancies} ${job.vacancies == 1 ? 'vacancy' : 'vacancies'}',
-                style: PesoTokens.bodySmall.copyWith(
-                  color: PesoTokens.textMuted,
-                ),
-              ),
-            ],
-          ),
-          if (job.description.trim().isNotEmpty) ...[
-            const SizedBox(height: PesoTokens.spacingMD),
-            Text(
-              'ROLE DESCRIPTION',
-              style: PesoTokens.labelSmall.copyWith(
-                letterSpacing: 0.7,
-                color: PesoTokens.textMuted,
-              ),
-            ),
-            const SizedBox(height: PesoTokens.space1),
-            Text(
-              job.description.trim(),
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-              style: PesoTokens.bodySmall.copyWith(
-                color: PesoTokens.textSecondary,
-                height: 1.4,
-              ),
-            ),
-          ],
-          if (job.requirements.isNotEmpty) ...[
-            const SizedBox(height: PesoTokens.spacingMD),
-            Text(
-              'KEY REQUIREMENTS',
-              style: PesoTokens.labelSmall.copyWith(
-                letterSpacing: 0.7,
-                color: PesoTokens.textMuted,
-              ),
-            ),
-            const SizedBox(height: PesoTokens.space1),
-            for (final requirement in job.requirements.take(3))
-              Padding(
-                padding: const EdgeInsets.only(bottom: 3),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('• '),
-                    Expanded(
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 112),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: PesoTokens.spacingSM,
+                        vertical: PesoTokens.space1,
+                      ),
+                      decoration: BoxDecoration(
+                        color: PesoTokens.brandGreenPale,
+                        borderRadius: BorderRadius.circular(
+                          PesoTokens.radiusFull,
+                        ),
+                      ),
                       child: Text(
-                        requirement,
-                        maxLines: 2,
+                        job.type,
+                        maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: PesoTokens.bodySmall.copyWith(
-                          color: PesoTokens.textSecondary,
+                        style: PesoTokens.labelSmall.copyWith(
+                          color: PesoTokens.brandGreenDark,
                         ),
                       ),
                     ),
-                  ],
-                ),
-              ),
-          ],
-          const SizedBox(height: PesoTokens.spacingLG),
-          Wrap(
-            spacing: PesoTokens.spacingSM,
-            runSpacing: PesoTokens.spacingSM,
-            children: job.tags
-                .map(
-                  (tag) => Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: PesoTokens.spacingSM,
-                      vertical: PesoTokens.space1,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(
-                        PesoTokens.radiusFull,
-                      ),
-                      border: Border.all(color: const Color(0xFFDCE5E0)),
-                    ),
-                    child: Text(tag, style: PesoTokens.labelSmall),
                   ),
-                )
-                .toList(),
+                ],
+              ),
+              const SizedBox(height: PesoTokens.spacingLG),
+              Text(
+                job.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: PesoTokens.headlineSmall.copyWith(fontSize: 21),
+              ),
+              const SizedBox(height: PesoTokens.spacingSM),
+              Row(
+                children: [
+                  const Icon(
+                    Icons.location_on_outlined,
+                    size: 17,
+                    color: PesoTokens.textMuted,
+                  ),
+                  const SizedBox(width: PesoTokens.spacingXS),
+                  Expanded(
+                    child: Text(
+                      job.location,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: PesoTokens.bodySmall.copyWith(
+                        color: PesoTokens.textMuted,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: PesoTokens.spacingLG),
+              Row(
+                children: [
+                  const Icon(
+                    Icons.groups_outlined,
+                    size: 17,
+                    color: PesoTokens.textMuted,
+                  ),
+                  const SizedBox(width: PesoTokens.spacingXS),
+                  Expanded(
+                    child: Text(
+                      job.vacancies == null || job.vacancies! < 1
+                          ? 'Vacancy count not specified'
+                          : '${job.vacancies} ${job.vacancies == 1 ? 'vacancy' : 'vacancies'}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: PesoTokens.bodySmall.copyWith(
+                        color: PesoTokens.textMuted,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              if (job.description.trim().isNotEmpty) ...[
+                const SizedBox(height: PesoTokens.spacingMD),
+                Text(
+                  'ROLE DESCRIPTION',
+                  style: PesoTokens.labelSmall.copyWith(
+                    letterSpacing: 0.7,
+                    color: PesoTokens.textMuted,
+                  ),
+                ),
+                const SizedBox(height: PesoTokens.space1),
+                Text(
+                  job.description.trim(),
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: PesoTokens.bodySmall.copyWith(
+                    color: PesoTokens.textSecondary,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+              if (job.requirements.isNotEmpty) ...[
+                const SizedBox(height: PesoTokens.spacingMD),
+                Text(
+                  'KEY REQUIREMENTS',
+                  style: PesoTokens.labelSmall.copyWith(
+                    letterSpacing: 0.7,
+                    color: PesoTokens.textMuted,
+                  ),
+                ),
+                const SizedBox(height: PesoTokens.space1),
+                for (final requirement in job.requirements.take(3))
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 3),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('• '),
+                        Expanded(
+                          child: Text(
+                            requirement,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: PesoTokens.bodySmall.copyWith(
+                              color: PesoTokens.textSecondary,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+              if (job.tags.isNotEmpty) ...[
+                const SizedBox(height: PesoTokens.spacingLG),
+                Wrap(
+                  spacing: PesoTokens.spacingSM,
+                  runSpacing: PesoTokens.spacingSM,
+                  children: job.tags
+                      .map(
+                        (tag) => Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: PesoTokens.spacingSM,
+                            vertical: PesoTokens.space1,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(
+                              PesoTokens.radiusFull,
+                            ),
+                            border: Border.all(color: const Color(0xFFDCE5E0)),
+                          ),
+                          child: Text(tag, style: PesoTokens.labelSmall),
+                        ),
+                      )
+                      .toList(),
+                ),
+              ],
+            ],
           ),
-          const SizedBox(height: PesoTokens.spacingMD),
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton.icon(
-              onPressed: onApply,
-              icon: const Icon(Icons.arrow_forward_rounded, size: 18),
-              label: const Text('View and apply'),
-              style: TextButton.styleFrom(
-                foregroundColor: PesoTokens.brandGreen,
+          Padding(
+            padding: const EdgeInsets.only(top: PesoTokens.spacingMD),
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: onApply,
+                icon: const Icon(Icons.arrow_forward_rounded, size: 18),
+                label: const Text('View and apply'),
+                style: TextButton.styleFrom(
+                  foregroundColor: PesoTokens.brandGreen,
+                ),
               ),
             ),
           ),

@@ -103,13 +103,17 @@ test('only green-highlighted NSRP fields block form completion; supplemental car
   assert.match(source, /if \(officialMissing\.length\) \{/);
   assert.doesNotMatch(source, /Please complete your name, an email or mobile number, city and one preferred occupation/);
 });
-test('NSRP PDF pagination keeps certification intact and numbers physical pages', async () => {
+test('NSRP PDF export keeps exactly two original A4 sheets and numbers them physically', async () => {
   const source = await readFile(new URL('./App.jsx', import.meta.url), 'utf8');
-  assert.match(source, /const careerSummaryIndex = pageTwoChildren\.findIndex/);
-  assert.match(source, /startsWith\('APPLICANT CAREER INFORMATION'\)/);
-  assert.match(source, /pageSpecs\.push\(\{ id: 'peso-page-2', start: 0, end: careerSummaryIndex/s);
-  assert.match(source, /pageSpecs\.push\(\{ id: 'peso-page-2', start: careerSummaryIndex, end: pageTwoChildren\.length/s);
-  assert.ok(source.includes('pdf.text(`Page ${pageNumber} of ${pdfPageCount}`'), 'Expected page footer to use the final physical page count.');
+  const styles = await readFile(new URL('./index.css', import.meta.url), 'utf8');
+  assert.match(source, /const pageSpecs = \[\s*\{\s*id: 'peso-page-1'\s*\},\s*\{\s*id: 'peso-page-2', compact: true\s*\},\s*\];/s);
+  assert.match(source, /if \(spec\.compact\) printPage\.classList\.add\('nsrp-print-compact'\)/);
+  assert.match(source, /const fitScale = Math\.min\(/);
+  assert.match(source, /pdfPageCount !== 2/);
+  assert.doesNotMatch(source, /careerSummaryIndex|sliceHeight/);
+  assert.match(styles, /\.nsrp-print-compact \.h-10/);
+  assert.match(styles, /\.nsrp-print-compact \.text-xs/);
+  assert.match(source, /Page \$\{pageNumber\} of \$\{pdfPageCount\}/);
 });
 test('NSRP instructions identify green-highlighted fields as required', async () => {
   const source = await readFile(new URL('./App.jsx', import.meta.url), 'utf8');
