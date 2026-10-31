@@ -191,7 +191,6 @@ let tests = fs.readFileSync(testPath, 'utf8').replace(/\r\n/g, '\n');
 const oldTestPattern = /test\('NSRP PDF pagination keeps certification intact and numbers physical pages', async \(\) => \{\n[\s\S]*?\n\}\);/g;
 const testMatches = tests.match(oldTestPattern) || [];
 if (testMatches.length === 1) {
-  const dollar = String.fromCharCode(36);
   const newTest = [
     "test('NSRP PDF export keeps exactly two original A4 sheets and numbers them physically', async () => {",
     "  const source = await readFile(new URL('./App.jsx', import.meta.url), 'utf8');",
@@ -203,7 +202,7 @@ if (testMatches.length === 1) {
     "  assert.doesNotMatch(source, /careerSummaryIndex|sliceHeight/);",
     "  assert.match(styles, /\\.nsrp-print-compact \\.h-10/);",
     "  assert.match(styles, /\\.nsrp-print-compact \\.text-xs/);",
-    "  assert.ok(source.includes('Page ' + dollar + '{pageNumber} of ' + dollar + '{pdfPageCount}'));",
+    "  assert.ok(source.includes('Page ${pageNumber} of ${pdfPageCount}'));",
     "});",
   ].join('\n');
   tests = tests.replace(oldTestPattern, newTest);
