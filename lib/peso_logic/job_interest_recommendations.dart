@@ -191,32 +191,35 @@ List<Map<String, dynamic>> rankJobOpportunities(
         'suggestedForInterest':
             (hasInterest ||
                 verifiedSkills > 0 ||
+                modelScore != null ||
                 careerFieldToExplore ||
                 trainingPathway ||
                 transferableCareer) &&
             !notice,
         if ((hasInterest ||
                 verifiedSkills > 0 ||
+                modelScore != null ||
                 careerFieldToExplore ||
                 trainingPathway ||
                 transferableCareer) &&
             !notice)
           'suggestionReason': matchedFamilies.isNotEmpty
-              ? 'Your interests: ${matchedFamilies.join(', ')}'
+              ? 'This job is related to the work you want to do.'
               : directMatch
-              ? 'Your preferred occupation'
+              ? 'This job is similar to the work you want.'
               : verifiedSkills > 0
-              ? 'Related to the work or skills saved in your NSRP/resume'
+              ? 'You listed skills that may help with this job. Check the details.'
               : trainingPathway
-              ? 'The title mentions trainee, helper or apprenticeship; confirm entry requirements with PESO'
+              ? 'The job title says trainee or helper. Ask PESO what you need.'
               : transferableCareer
-              ? 'Skills from your NSRP/resume may transfer to this field; qualifications still need review'
-              : 'Related career field to explore; employer qualifications need verification',
+              ? 'Skills you listed may help with this job. Ask PESO what it needs.'
+              : 'This job may interest you. Check the details before applying.',
         if (trainingPathway && !notice) 'trainingPathway': true,
         if (transferableCareer && !notice) 'transferableCareer': true,
         if (careerFieldToExplore && !notice) 'careerFieldToExplore': true,
         if (hasKnownGap && !notice) 'roleRequirementsToReview': true,
-        if (modelScore != null && !notice) 'match': modelScore.round(),
+        // The model score affects ordering, but is not a hiring percentage.
+        // Job cards show a plain explanation instead of a numeric "match".
       },
     ));
   }
