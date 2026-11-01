@@ -34,21 +34,22 @@ Map<String, dynamic> report({
   },
 };
 void main() {
-  testWidgets('explains supported career overlap without promising employment', (
-    tester,
-  ) async {
-    final data = report();
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(body: JobEvaluationResultDialog(report: data)),
-      ),
-    );
-    expect(find.text('Your skills may fit this job'), findsOneWidget);
-    expect(find.textContaining('PESO or the employer'), findsOneWidget);
-    expect(find.text('See more details'), findsOneWidget);
-    expect(find.text('Continue application to PESO'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
+  testWidgets(
+    'explains supported career overlap without promising employment',
+    (tester) async {
+      final data = report();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: JobEvaluationResultDialog(report: data)),
+        ),
+      );
+      expect(find.text('Your skills may fit this job'), findsOneWidget);
+      expect(find.textContaining('PESO or the employer'), findsOneWidget);
+      expect(find.text('See more details'), findsOneWidget);
+      expect(find.text('Continue application to PESO'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets(
     'high similarity without verified employer criteria is a review, not a match',
@@ -83,10 +84,7 @@ void main() {
     );
     expect(find.text('Check these job requirements'), findsOneWidget);
     expect(find.text('What you can do next'), findsOneWidget);
-    expect(
-      find.textContaining('add them to your profile'),
-      findsOneWidget,
-    );
+    expect(find.textContaining('add them to your profile'), findsOneWidget);
     expect(
       find.textContaining('Employer-listed professional driver license'),
       findsWidgets,
@@ -145,7 +143,10 @@ void main() {
     });
     await tester.pumpAndSettle();
     expect(find.text('Office Assistant'), findsOneWidget);
-    expect(find.textContaining('Ask PESO what you need to apply.'), findsOneWidget);
+    expect(
+      find.textContaining('Ask PESO what you need to apply.'),
+      findsOneWidget,
+    );
     expect(find.textContaining('AI helped write this note'), findsOneWidget);
     await tester.ensureVisible(
       find.byKey(const Key('recommended-role-office123')),
@@ -161,34 +162,30 @@ void main() {
     const Size(390, 844),
     const Size(1024, 768),
   ]) {
-    testWidgets(
-      'job check is readable on ${size.width} px at larger text',
-      (tester) async {
-        tester.view.physicalSize = size;
-        tester.view.devicePixelRatio = 1;
-        addTearDown(() {
-          tester.view.resetPhysicalSize();
-          tester.view.resetDevicePixelRatio();
-        });
-        final data = report(explicit: false);
-        await tester.pumpWidget(
-          MaterialApp(
-            builder: (context, child) => MediaQuery(
-              data: MediaQuery.of(context).copyWith(
-                textScaler: TextScaler.linear(1.5),
-              ),
-              child: child!,
-            ),
-            home: Scaffold(
-              body: JobEvaluationResultDialog(report: data),
-            ),
+    testWidgets('job check is readable on ${size.width} px at larger text', (
+      tester,
+    ) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+      final data = report(explicit: false);
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: TextScaler.linear(1.5)),
+            child: child!,
           ),
-        );
-        expect(find.text('Let’s check this job'), findsOneWidget);
-        expect(find.textContaining('still apply'), findsOneWidget);
-        expect(tester.takeException(), isNull);
-      },
-    );
+          home: Scaffold(body: JobEvaluationResultDialog(report: data)),
+        ),
+      );
+      expect(find.text('Let’s check this job'), findsOneWidget);
+      expect(find.textContaining('still apply'), findsWidgets);
+      expect(tester.takeException(), isNull);
+    });
   }
 
   testWidgets(
