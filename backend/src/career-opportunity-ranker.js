@@ -23,12 +23,15 @@ const portableSkills = Object.freeze([
 function hasPhrase(text, phrase) {
   const content = ' ' + safeText(text) + ' ';
   const token = ' ' + safeText(phrase) + ' ';
-  const index = content.indexOf(token);
-  if (index < 0) return false;
-  // Negated qualifications are not evidence. Incomplete source facts must not
-  // silently become transferable skills from the text surrounding a keyword.
-  const before = content.slice(Math.max(0, index - 55), index);
-  return !/(?:\b(?:no|not|without|never|lacks?|untrained in)\s*|\bno\s+(?:prior\s+)?(?:experience|background|training)\s+(?:in|with)\s*)$/.test(before);
+  // Review every occurrence, not only the first. A person may say they lacked
+  // a skill before taking training; a later, positive statement can still count.
+  for (let index = content.indexOf(token); index >= 0;
+       index = content.indexOf(token, index + token.length)) {
+    const before = content.slice(Math.max(0, index - 65), index);
+    const deniesSkill = /\b(?:no|not|without|never|lacks?|lack of|untrained in)(?:\s+(?:prior|any|formal|relevant|previous|professional|real|work|worked|skilled|skills?|experience|background|training|in|with|of))*\s*$/.test(before);
+    if (!deniesSkill) return true;
+  }
+  return false;
 }
 const isStarterRole = title =>
   /(?:^|\s)(?:trainee|apprentice|intern|internship|helper)(?:\s|$)/.test(safeText(title));
