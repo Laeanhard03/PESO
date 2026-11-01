@@ -43,12 +43,12 @@ role requirements and applicant-outcome evaluation.
 
 ## Repeated job-seeker experience checks (development branch)
 
-The matching development branch includes an automated test that plays **14
+The matching development branch includes an automated test that plays **20
 fictional job-seeker profiles** through **12 simulated openings**, repeated
-**20 times** (280 profile runs; 3,360 role checks). Applicants include
+**20 times** (400 profile runs; 4,800 role checks). Applicants include
 people with no work history, apprentices, retail/food/office beginners,
 technical workers changing careers, people with an explicit skills gap,
-and people with unrelated skills.
+Tagalog/Taglish skill descriptions, and people with unrelated skills.
 
 The tests check that the same facts produce the same results, protected
 personal details do not affect ranking, beginners can explore relevant
