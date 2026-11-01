@@ -104,11 +104,16 @@ class UserJobFeedTab extends StatelessWidget {
     final screenWidth = MediaQuery.sizeOf(context).width;
     final compact = screenWidth < pesoCompactBreakpoint;
     final medium = screenWidth < pesoExpandedBreakpoint;
-    final normalizedCompanies = companyOptions.map((name) => name.trim())
-        .where((name) => name.isNotEmpty).toSet().toList()
-      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    final normalizedCompanies =
+        companyOptions
+            .map((name) => name.trim())
+            .where((name) => name.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
     final selectedCompany = normalizedCompanies.contains(this.selectedCompany)
-        ? this.selectedCompany : '';
+        ? this.selectedCompany
+        : '';
     final suggestedCount = availableJobs
         .where((job) => job['suggestedForInterest'] == true)
         .length;
@@ -427,12 +432,20 @@ class UserJobFeedTab extends StatelessWidget {
                     ),
                   ),
                   ChoiceChip(
-                    label: Text(localizedJobHeading('SEAP Program', selectedLanguage)),
+                    label: Text(
+                      localizedJobHeading('SEAP Program', selectedLanguage),
+                    ),
                     selected: selectedCategory == PesoJobCategories.seap,
-                    onSelected: (_) => onCategoryChanged(PesoJobCategories.seap),
+                    onSelected: (_) =>
+                        onCategoryChanged(PesoJobCategories.seap),
                   ),
                   ChoiceChip(
-                    label: Text(localizedJobHeading('Government Internship Program (GIP)', selectedLanguage)),
+                    label: Text(
+                      localizedJobHeading(
+                        'Government Internship Program (GIP)',
+                        selectedLanguage,
+                      ),
+                    ),
                     selected: selectedCategory == PesoJobCategories.gip,
                     onSelected: (_) => onCategoryChanged(PesoJobCategories.gip),
                   ),
@@ -445,19 +458,34 @@ class UserJobFeedTab extends StatelessWidget {
                   runSpacing: 6,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    Text('Company:', style: TextStyle(color: textLight, fontWeight: FontWeight.w700)),
+                    Text(
+                      'Company:',
+                      style: TextStyle(
+                        color: textLight,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                     ConstrainedBox(
-                      constraints: BoxConstraints(maxWidth: compact ? 265 : 320),
+                      constraints: BoxConstraints(
+                        maxWidth: compact ? 265 : 320,
+                      ),
                       child: DropdownButton<String>(
                         key: const Key('user-job-company-filter'),
                         isExpanded: true,
                         value: selectedCompany,
                         items: [
-                          const DropdownMenuItem(value: '', child: Text('All companies')),
+                          const DropdownMenuItem(
+                            value: '',
+                            child: Text('All companies'),
+                          ),
                           for (final company in normalizedCompanies)
                             DropdownMenuItem(
                               value: company,
-                              child: Text(company, maxLines: 1, overflow: TextOverflow.ellipsis),
+                              child: Text(
+                                company,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
                         ],
                         onChanged: (company) => onCompanyChanged(company ?? ''),
@@ -732,7 +760,13 @@ class UserJobFeedTab extends StatelessWidget {
                                                           ),
                                                           Text(
                                                             matchScore > 0
-                                                                ? '$matchScore% Match'
+                                                                ? 'Field similarity $matchScore/100'
+                                                                : job['roleRequirementsToReview'] ==
+                                                                      true
+                                                                ? 'Check requirements'
+                                                                : job['careerFieldToExplore'] ==
+                                                                      true
+                                                                ? 'Explore career field'
                                                                 : job['suggestedForInterest'] ==
                                                                       true
                                                                 ? localizedJobHeading(

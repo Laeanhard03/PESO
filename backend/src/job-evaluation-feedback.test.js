@@ -32,11 +32,17 @@ test('unknown mandatory criteria and missing profile do not become false disqual
     ...qualified, confidence: 'low', assessmentBasis: 'occupation_category_clues_only',
     roleCriteriaCount: 0,
   }, 'Medical Specialist');
-  assert.equal(partial.status, 'match');
-  assert.match(partial.explanation, /exact qualifications/i);
+  assert.equal(partial.status, 'needs_review');
+  assert.match(partial.explanation, /verified employer requirements/i);
+  assert.doesNotMatch(partial.headline, /Congratulations|Not a Match/i);
   const unknown = fallbackJobFeedback({score: 6, matchedOccupationFields: [],
     occupationFieldsToExplore: [], missingMandatory: []}, 'Unfamiliar Role');
-  assert.equal(unknown.status, 'no_match');
+  assert.equal(unknown.status, 'needs_review');
+  const uncertainWithHighScore = fallbackJobFeedback({
+    ...qualified, score: 100, confidence: 'low', roleCriteriaCount: 0,
+    assessmentBasis: 'occupation_category_clues_only',
+  }, 'Warehouseman');
+  assert.equal(uncertainWithHighScore.status, 'needs_review');
 });
 test('unrelated career fields yield clear gentle feedback and preserve PESO applications', () => {
   const f = fallbackJobFeedback({

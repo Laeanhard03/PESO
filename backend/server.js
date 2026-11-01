@@ -965,7 +965,7 @@ app.post('/api/ai/job-feedback', requireAuth, requireMongo, async (req, res, nex
 
     const feedback = fallbackJobFeedback(recorded, job.title);
     let recommendations = [];
-    if (feedback.status === 'no_match') {
+    if (feedback.status === 'no_match' || feedback.status === 'needs_review') {
       try {
         const others = allJobs.filter(row => String(row._id) !== id &&
           row.aiListingKind !== 'notice' && isJobPostingVisible(row));

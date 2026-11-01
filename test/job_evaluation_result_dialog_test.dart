@@ -50,6 +50,28 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets(
+    'high similarity without verified employer criteria is a review, not a match',
+    (tester) async {
+      final data = report(explicit: false);
+      (data['modelMatch'] as Map<String, dynamic>)['score'] = 100;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: JobEvaluationResultDialog(report: data)),
+        ),
+      );
+      expect(find.text('Career Fit Needs Review'), findsOneWidget);
+      expect(
+        find.textContaining('enough verified information'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Congratulations'), findsNothing);
+      expect(find.text('Not a Match Yet'), findsNothing);
+      expect(find.text('Continue application to PESO'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('a missing employer criterion prevents any congratulations', (
     tester,
   ) async {
@@ -103,11 +125,11 @@ void main() {
     await tester.tap(find.text('Evaluate now'));
     await tester.pump();
     expect(find.byKey(const Key('job-evaluation-popup')), findsOneWidget);
-    expect(find.text('Not a Match Yet'), findsOneWidget);
+    expect(find.text('Career Fit Needs Review'), findsOneWidget);
     completion.complete(<String, dynamic>{
       'ok': true,
       'feedback': <String, dynamic>{
-        'status': 'no_match',
+        'status': 'needs_review',
         'headline': 'Other paths may fit your experience',
         'explanation': 'This occupational area differs from your existing profile. Explore these other jobs or apply through PESO.',
         'explanationSource': 'gemini',

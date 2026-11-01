@@ -96,6 +96,53 @@ test('Go real model process returns versioned inference', async () => {
   assert.ok(report.results[0].score >= 0 && report.results[0].score <= 100);
 });
 
+test('Go scoring covers every posted role beyond the 30-result executable limit', async () => {
+  const jobs = Array.from({ length: 64 }, (_, index) => ({
+    _id: 'qa-role-' + index,
+    title: 'QA Sales Role ' + index,
+    status: 'active',
+    category: 'walk_in_application',
+  }));
+  const batchSizes = [];
+  const response = await runGoModel({ skills: ['sales'], yearsExperience: 1 },
+    jobs, {
+      execImpl: async (_binary, _args, { input }) => {
+        const batch = JSON.parse(input).jobs;
+        batchSizes.push(batch.length);
+        return {
+          stdout: JSON.stringify({
+            ok: true,
+            modelVersion: 'peso-mini-ai-v1',
+            results: batch.map(job => ({
+              jobId: job.id, score: Number(job.id.split('-').at(-1)),
+            })),
+          }),
+        };
+      },
+    });
+  assert.deepEqual([...batchSizes].sort((a,b) => a-b), [4, 30, 30]);
+  assert.equal(response.results.length, 64);
+  assert.equal(new Set(response.results.map(row => row.jobId)).size, 64);
+  assert.equal(response.results[0].score, 63);
+  assert.equal(response.results.at(-1).score, 0);
+});
+
+test('a missing or duplicated batch result cannot silently hide an opening', async () => {
+  const jobs = [{ _id: 'job-1', title: 'Cashier' }, { _id: 'job-2', title: 'Clerk' }];
+  await assert.rejects(
+    runGoModel({ skills: [] }, jobs, {
+      execImpl: async () => ({
+        stdout: JSON.stringify({
+          ok: true,
+          modelVersion: 'peso-mini-ai-v1',
+          results: [{ jobId: 'job-1', score: 89 }, { jobId: 'job-1', score: 81 }],
+        }),
+      }),
+    }),
+    /invalid_go_model_response/,
+  );
+});
+
 test('source evidence normalization, uncertain years, and partial review', () => {
   const reviewed = verifyGeminiFacts({
     skills: ['MS-Excel', 'Welding', 'Graphic Design'],
@@ -247,7 +294,7 @@ test('long public employer requirements reach Go intact while applicant skills r
     requirements: [line], unattributedRequirements: [line],
   }], { execImpl: async (_executable, _args, options) => {
     received = JSON.parse(options.input);
-    return { stdout: JSON.stringify({ ok: true, results: [] }) };
+    return { stdout: JSON.stringify({ ok: true, modelVersion: 'peso-mini-ai-v1', results: [{ jobId: 'fictional-composite', score: 0 }] }) };
   } });
   assert.equal(received.jobs[0].requirements[0], line);
   assert.equal(received.jobs[0].unattributedRequirements[0], line);

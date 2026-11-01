@@ -307,15 +307,57 @@ export async function runGoModel(applicant, jobs, { executable, model, execImpl 
     packaged?.executable || defaultBinary;
   const modelPath = model || process.env.PESO_GO_AI_MODEL ||
     packaged?.model || defaultModel;
-  const input = JSON.stringify({ applicant, jobs: jobs.map(safeJob) });
-  // Pass JSON via stdin, never as a command argument or shell interpolation.
-  const { stdout } = await execImpl(binaryPath, ['predict', '-model', modelPath], {
-    input, timeout: 8500, maxBuffer: 2 * 1024 * 1024,
-    windowsHide: true, shell: false,
-  });
-  const output = JSON.parse(stdout);
-  if (!output?.ok || !Array.isArray(output.results)) throw new Error('invalid_go_model_response');
-  return output;
+  // The packaged Go CLI intentionally returns no more than 30 ranked results
+  // per invocation. Cover every eligible role by evaluating bounded batches;
+  // never silently hide potentially relevant roles beyond the first 30.
+  // A small worker pool keeps serverless memory/process pressure bounded.
+  const batchSize = 30;
+  const batches = [];
+  for (let offset = 0; offset < jobs.length; offset += batchSize) {
+    batches.push(jobs.slice(offset, offset + batchSize).map(safeJob));
+  }
+  if (batches.length === 0) throw new Error('no_jobs_to_evaluate');
+  const responses = new Array(batches.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < batches.length) {
+      const index = next++;
+      const batch = batches[index];
+      // Pass only bounded JSON via stdin, never as shell arguments.
+      const { stdout } = await execImpl(binaryPath, ['predict', '-model', modelPath], {
+        input: JSON.stringify({ applicant, jobs: batch }),
+        timeout: 8500, maxBuffer: 2 * 1024 * 1024,
+        windowsHide: true, shell: false,
+      });
+      const response = JSON.parse(stdout);
+      if (!response?.ok || !Array.isArray(response.results) ||
+          response.results.length !== batch.length) {
+        throw new Error('invalid_go_model_response');
+      }
+      const expected = new Set(batch.map(job => job.id));
+      const observed = new Set();
+      for (const row of response.results) {
+        const id = String(row?.jobId || '');
+        if (!expected.has(id) || observed.has(id)) {
+          throw new Error('invalid_go_model_response');
+        }
+        observed.add(id);
+      }
+      responses[index] = response;
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(3, batches.length) },
+    () => worker()));
+  const version = responses[0]?.modelVersion;
+  if (responses.some(response => response.modelVersion !== version)) {
+    throw new Error('go_model_version_mismatch');
+  }
+  const results = responses.flatMap(response => response.results);
+  results.sort((a, b) => b.score - a.score);
+  return {
+    ok: true, modelVersion: version, results,
+    disclaimer: responses[0]?.disclaimer,
+  };
 }
 export async function evaluateProfileAgainstJobs({ profile, jobs, runner = runGoModel }) {
   const applicant = normalizeApplicantProfile(profile);

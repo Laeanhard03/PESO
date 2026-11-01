@@ -35,11 +35,21 @@ class _JobEvaluationResultDialogState extends State<JobEvaluationResultDialog> {
     final gaps = _lines(model['missingMandatory']);
     final fields = _lines(model['matchedOccupationFields']);
     final score = num.tryParse(model['score'].toString()) ?? 0;
+    final roleCriteriaSupported =
+        model['assessmentBasis'] == 'role_attributed_requirements' &&
+        (num.tryParse(model['roleCriteriaCount'].toString()) ?? 0) > 0;
+    final reliable =
+        roleCriteriaSupported &&
+        (model['confidence'] == 'medium' || model['confidence'] == 'moderate');
     String status, headline, explanation;
     if (report['aiMatchingStatus'] != 'ready' || model.isEmpty) {
       status = 'unavailable';
       headline = 'Evaluation unavailable';
       explanation = 'The AI service could not finish this check. You can retry or still send your application to PESO.';
+    } else if (!reliable) {
+      status = 'needs_review';
+      headline = 'Career Fit Needs Review';
+      explanation = 'Your saved skills may relate to this career field, but the posting or profile does not contain enough verified information to judge qualification. You can still explore and apply through PESO.';
     } else if (fields.isNotEmpty && gaps.isEmpty && score >= 50) {
       status = 'match';
       headline = 'Good Match! Congratulations!';
