@@ -40,9 +40,16 @@ const personas = [
   {name:'applicant with mixed skills',skills:['sales','inventory','food handling']},
   {name:'applicant with nonmatching skills',skills:['abstract painting']},
   {name:'applicant who explicitly lacks a skill',skills:['No customer service']},
+  {name:'Tagalog home cook',skills:['pagluluto']},
+  {name:'Tagalog driver',skills:['pagmamaneho']},
+  {name:'Tagalog sales worker',skills:['pagbebenta']},
+  {name:'Tagalog cashier',skills:['pagtanggap ng bayad']},
+  {name:'Taglish office encoder',skills:['pag encode ng data']},
+  {name:'Tagalog job seeker without cooking experience',skills:['walang karanasan sa pagluluto']},
 ];
 const doRank=persona => enrichCareerOpportunities(persona,jobs,modelRows);
 test('repeated synthetic job seekers keep every role, respect known facts and give consistent results', ()=>{
+  assert.equal(personas.length,20);
   for(let round=0;round<20;round++){
     for(const person of personas){
       const results=doRank({...person, age:round+19, sex:round%2?'X':'Y', address:'Not for matching'});
