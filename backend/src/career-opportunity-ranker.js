@@ -8,17 +8,17 @@ const safeText = value => String(value ?? '').toLowerCase()
   .replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
 
 const portableSkills = Object.freeze([
-  { phrases: ['customer service', 'customer relations', 'client service'], fields: ['sales_retail', 'hospitality_food', 'personal_services', 'office_administration'] },
-  { phrases: ['cash handling', 'cashiering', 'cash register'], fields: ['sales_retail', 'hospitality_food'] },
-  { phrases: ['inventory', 'stock keeping', 'stock handling', 'stock management'], fields: ['logistics_warehouse', 'sales_retail', 'manufacturing_operations'] },
-  { phrases: ['microsoft excel', 'ms excel', 'spreadsheet', 'data entry', 'data encoding'], fields: ['office_administration', 'data_services', 'accounting_finance', 'logistics_warehouse'] },
-  { phrases: ['food preparation', 'food handling', 'food safety', 'cooking'], fields: ['hospitality_food', 'manufacturing_operations'] },
-  { phrases: ['cleaning', 'housekeeping', 'sanitation'], fields: ['facility_services', 'hospitality_food'] },
+  { phrases: ['customer service', 'customer relations', 'client service', 'pag aasikaso ng customer', 'pakikipag usap sa customer'], fields: ['sales_retail', 'hospitality_food', 'personal_services', 'office_administration'] },
+  { phrases: ['cash handling', 'cashiering', 'cash register', 'pagtanggap ng bayad'], fields: ['sales_retail', 'hospitality_food'] },
+  { phrases: ['inventory', 'stock keeping', 'stock handling', 'stock management', 'pagbibilang ng stock', 'pag aayos ng stock'], fields: ['logistics_warehouse', 'sales_retail', 'manufacturing_operations'] },
+  { phrases: ['microsoft excel', 'ms excel', 'spreadsheet', 'data entry', 'data encoding', 'pag encode ng data', 'pagta type ng data'], fields: ['office_administration', 'data_services', 'accounting_finance', 'logistics_warehouse'] },
+  { phrases: ['food preparation', 'food handling', 'food safety', 'cooking', 'paghahanda ng pagkain', 'pagluluto', 'magluto'], fields: ['hospitality_food', 'manufacturing_operations'] },
+  { phrases: ['cleaning', 'housekeeping', 'sanitation', 'paglilinis'], fields: ['facility_services', 'hospitality_food'] },
   { phrases: ['welding', 'fabrication', 'smaw'], fields: ['construction_trades', 'manufacturing_craft'] },
   { phrases: ['electrical wiring', 'electrical repair', 'electrician'], fields: ['electrical_trades', 'technical_services'] },
   { phrases: ['equipment maintenance', 'machine operator'], fields: ['manufacturing_operations', 'technical_services', 'manufacturing_craft'] },
-  { phrases: ['sales', 'retail sales', 'selling'], fields: ['sales_retail', 'hospitality_food'] },
-  { phrases: ['driving', 'driver', 'route planning'], fields: ['driving_transport', 'logistics_warehouse'] },
+  { phrases: ['sales', 'retail sales', 'selling', 'pagbebenta'], fields: ['sales_retail', 'hospitality_food'] },
+  { phrases: ['driving', 'driver', 'route planning', 'pagmamaneho'], fields: ['driving_transport', 'logistics_warehouse'] },
 ]);
 function hasPhrase(text, phrase) {
   const content = ' ' + safeText(text) + ' ';
@@ -28,7 +28,7 @@ function hasPhrase(text, phrase) {
   for (let index = content.indexOf(token); index >= 0;
        index = content.indexOf(token, index + token.length)) {
     const before = content.slice(Math.max(0, index - 65), index);
-    const deniesSkill = /\b(?:no|not|without|never|lacks?|lack of|untrained in)(?:\s+(?:prior|any|formal|relevant|previous|professional|real|work|worked|skilled|skills?|experience|background|training|in|with|of))*\s*$/.test(before);
+    const deniesSkill = /(?:\b(?:no|not|without|never|lacks?|lack of|untrained in)(?:\s+(?:prior|any|formal|relevant|previous|professional|real|work|worked|skilled|skills?|experience|background|training|in|with|of))*|\b(?:hindi|walang|wala|di)(?:\s+(?:pa|marunong|karanasan|sa|ng|may|ako|makapag))*?)\s*$/.test(before);
     if (!deniesSkill) return true;
   }
   return false;
