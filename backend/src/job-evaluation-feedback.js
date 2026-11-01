@@ -86,7 +86,7 @@ export function safeGeminiFeedback(text) {
   const message = String(payload.explanation || '').trim();
   if (message.length < 35 || message.length > 250 ||
       /[\r\n<>]/.test(message) ||
-      /\b(?:guaranteed|definitely eligible|fully qualified|all requirements met|certainly qualified|you are hired|employment guaranteed|you are rejected|you are disqualified|you will be hired|100% eligible|you qualify|your application is approved|you are not eligible|you cannot apply|you should not apply|isco[ -]?08|confidence score|model inference|role attribution)\b/i.test(message)) return '';
+      /\b(?:guaranteed|definitely eligible|fully qualified|all requirements met|certainly qualified|you are hired|employment guaranteed|you are rejected|you are disqualified|you will be hired|100% eligible|you qualify|your application is approved|you are not eligible|you cannot apply|you should not apply|isco[ -]?08|confidence score|model inference|role attribution|occupational category|career fit|role criteria|verified employer requirements)\b/i.test(message)) return '';
   return message;
 }
 
@@ -103,7 +103,7 @@ export function geminiFeedbackPrompt(match, feedback) {
     'Write a kind, direct explanation in two short sentences using everyday English for first-time job seekers. Use words like job, skills, details, and ask PESO.',
     'The Go evidence status is definitive for messaging; you CANNOT change or infer it.',
     'Return only JSON {"explanation":"..."} with 35-250 characters.',
-    'For match: congratulate the applicant for their related skills, not for passing an employer hiring test.',
+    'For match: explain which saved skills may help. Do not congratulate anyone or suggest the employer has approved them.',
     'For no_match: explain only verified skill or requirement gaps without declaring ineligibility.',
     'For needs_review: say more employer or applicant evidence is required. Never imply rejection or acceptance.',
     'Completed result statuses are match, no_match, and needs_review. Do not invent another status.',
