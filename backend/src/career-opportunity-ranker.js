@@ -65,6 +65,8 @@ export function enrichCareerOpportunities(applicant, jobs, rows) {
     const roleSkills = limitedList(row.matchedSkills);
     const gaps = limitedList(row.missingMandatory);
     const starterTitle = isStarterRole(title);
+    const recognizedSkills = bridgeFields.size > 0 || applicantFields.size > 0;
+    const recordedWorkHistory = Number(applicant?.yearsExperience || 0) > 0;
     const direct = directFields.length > 0;
     const transferable = transferSkills.length > 0;
     const verifiedRoleEvidence = row.assessmentBasis === 'role_attributed_requirements' &&
@@ -72,26 +74,31 @@ export function enrichCareerOpportunities(applicant, jobs, rows) {
       ['medium', 'moderate'].includes(row.confidence);
     // A stated, attributable unmet requirement is a warning, not a rejection.
     const needsRequirementReview = gaps.length > 0 && verifiedRoleEvidence;
+    // Keep trainee/helper roles visible for newcomers, but avoid suggesting
+    // unrelated beginner work to people with documented career skills.
+    const starterBoost = !starterTitle ? 0
+      : !recognizedSkills && !recordedWorkHistory ? 24
+      : direct || transferable ? 12 : 0;
     const signals = [];
     if (direct) signals.push('saved_career_field');
     if (transferable) signals.push('transferable_skills');
     if (jobTitleClues.length) signals.push('job_title_skills');
     if (roleSkills.length && verifiedRoleEvidence) signals.push('documented_role_skills');
     if (verifiedRoleEvidence) signals.push('employer_criteria_attributed');
-    if (starterTitle) signals.push('training_or_helper_title');
+    if (starterBoost > 0) signals.push('training_or_helper_title');
     if (needsRequirementReview) signals.push('employer_requirement_review');
     if (!verifiedRoleEvidence) signals.push('requirements_unverified');
     let rank = (direct ? 50 : 0) +
       Math.min(30, transferSkills.length * 14) +
       Math.min(18, jobTitleClues.length * 9) +
       (verifiedRoleEvidence ? (Math.min(18, roleSkills.length * 9) + 6) : 0) +
-      (starterTitle ? (trustedSkills.length === 0 ? 24 : 12) : 0);
+      starterBoost;
     if (needsRequirementReview) rank = Math.max(0, rank - 30);
     rank = Math.min(100, Math.max(0, rank));
     const pathway = needsRequirementReview ? 'review_requirements'
       : direct ? 'related_career_field'
       : transferable ? 'transferable_skills'
-      : starterTitle ? 'training_pathway'
+      : starterTitle && starterBoost > 0 ? 'training_pathway'
       : 'explore';
     return { ...row, opportunityRank: rank, opportunityPathway: pathway,
       opportunitySignals: signals,
