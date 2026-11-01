@@ -75,6 +75,26 @@ test('only jobs with actual shared occupation fields and no missing mandatory ga
   assert.deepEqual(chooseRelatedJobs('current', rows).map(x => x.jobId),
     ['skill1', 'skill2']);
 });
+test('beginners receive cautious trainee alternatives despite low occupation scores', () => {
+  const rows = [
+    { jobId: 'chosen', title: 'Architect', score: 6, matchedOccupationFields: [] },
+    { jobId: 'trainee', title: 'Production Trainee', score: 6, confidence: 'low',
+      opportunityRank: 24, opportunityPathway: 'training_pathway',
+      matchedOccupationFields: [], missingMandatory: [] },
+    { jobId: 'helper', title: 'Kitchen Helper', score: 6, confidence: 'low',
+      opportunityRank: 24, opportunityPathway: 'training_pathway',
+      matchedOccupationFields: [], missingMandatory: [] },
+    { jobId: 'unrelated', title: 'Surgeon', score: 4, opportunityRank: 0,
+      matchedOccupationFields: [], missingMandatory: [] },
+    { jobId: 'licensed', title: 'Driver Helper', score: 60, opportunityRank: 64,
+      opportunityPathway: 'training_pathway',
+      matchedOccupationFields: [], missingMandatory: ['Verify driver license'] },
+  ];
+  const chosen = chooseRelatedJobs('chosen', rows);
+  assert.deepEqual(chosen.map(x => x.jobId), ['helper', 'trainee']);
+  assert.ok(chosen.every(x => x.reason.includes('verify entry requirements')));
+});
+
 test('Gemini explanation operation uses a strict JSON response with short deadline', async () => {
   let requestBody;
   const provider = createGeminiProvider({fetchImpl: async (_url, request) => {

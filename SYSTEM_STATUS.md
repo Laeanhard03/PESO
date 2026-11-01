@@ -76,3 +76,24 @@ A local pass does not establish that Firebase Functions, Gemini, Authentication 
 - Isolated implementation: a neutral `needs_review` feedback outcome for uncertain evidence, explicit verification wording, non-probabilistic badges, discovery inclusion without eligibility claims, and API-side bounded batches to retain the current Go model while evaluating **every** role. No model retraining or production writes.
 - Verified on the development workstation: 244 unique roles returned from one API-level call in about 1.6 s; targeted backend and Flutter regressions passed; full Flutter suite 263 passed. Full backend suite passes with explicit expected test bootstrap admin and Go paths.
 - **Evaluation limitations:** no human-verified employer-qualification labels, real candidate outcome labels, or prospective hiring outcomes; synthetic held-out F1 cannot establish real matching performance. Production changes require dedicated acceptance review and release; branch is not deployed.
+
+## 2026-11-01 ? Continued Mini-AI career-discovery improvement
+
+- Continued the same isolated matching branch after the initial audit; no new trained
+  model artifacts or replacement versions were created.
+- Added a transparent post-model career rank (direct fields, controlled portable
+  skill links, and explicitly advertised trainee/helper titles). The score from
+  the trained Go model stays unchanged; the discovery rank never claims
+  eligibility. A verified mandatory gap remains a warning, not an auto-rejection.
+- Integrated ranking with the authenticated job-recommendations flow, visible
+  job-feed ordering and badges, and alternative-job feedback. Unverified Gemini
+  claims, demographic facts and raw applicant-provided skill text are not
+  introduced as recommendations.
+- Read-only DB evaluation on 326 active records and 244 model-eligible visible
+  roles: 9 beginner training pathways, 95 retail, 110 office, 27 construction,
+  and 87 food-service positions with at least one career-discovery signal.
+  These figures are *candidate exploration signals*, not validated matches
+  and not equivalent to real-world accuracy or confirmed vacancies.
+- The existing model, database, applicant records and production deployment are
+  unchanged. Acceptance on the real signed-in job-seeker screen and expert
+  evaluation of employer requirements remain necessary before production rollout.

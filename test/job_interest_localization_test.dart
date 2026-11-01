@@ -132,6 +132,65 @@ void main() {
     },
   );
 
+  test('AI career discovery promotes newcomer training and skill transfer without percent badges', () {
+    final roles = <Map<String, dynamic>>[
+      {'id': 'engineer', 'title': 'Civil Engineer', 'aiListingKind': 'role'},
+      {'id': 'trainee', 'title': 'Production Trainee', 'aiListingKind': 'role'},
+      {'id': 'waiter', 'title': 'Service Waiter', 'aiListingKind': 'role'},
+    ];
+    final beginner = rankJobOpportunities(
+      roles,
+      preferredOccupations: '',
+      goMatching: {
+        'status': 'ready',
+        'results': [
+          {
+            'jobId': 'engineer',
+            'score': 6,
+            'opportunityRank': 0,
+            'opportunityPathway': 'explore',
+          },
+          {
+            'jobId': 'trainee',
+            'score': 6,
+            'opportunityRank': 24,
+            'opportunityPathway': 'training_pathway',
+          },
+        ],
+      },
+    );
+    expect(beginner.first['id'], 'trainee');
+    expect(beginner.first['trainingPathway'], true);
+    expect(beginner.first.containsKey('match'), false);
+    expect(
+      beginner.first['suggestionReason'],
+      contains('confirm entry requirements'),
+    );
+
+    final skilled = rankJobOpportunities(
+      roles,
+      preferredOccupations: '',
+      goMatching: {
+        'status': 'ready',
+        'results': [
+          {
+            'jobId': 'waiter',
+            'score': 1,
+            'confidence': 'low',
+            'assessmentBasis': 'occupation_category_clues_only',
+            'roleCriteriaCount': 0,
+            'opportunityRank': 14,
+            'opportunityPathway': 'transferable_skills',
+          },
+        ],
+      },
+    );
+    final waiter = skilled.firstWhere((item) => item['id'] == 'waiter');
+    expect(waiter['transferableCareer'], true);
+    expect(waiter['suggestedForInterest'], true);
+    expect(waiter.containsKey('match'), false);
+  });
+
   test('non-matching preferences do not create vacancies or percentages', () {
     final data = <Map<String, dynamic>>[
       {'id': 'j1', 'title': 'Road Construction', 'aiListingKind': 'role'},

@@ -339,7 +339,7 @@ class UserJobFeedTab extends StatelessWidget {
                     searchQuery.isNotEmpty
                         ? 'SEARCH RESULTS'
                         : suggestedCount > 0
-                        ? 'RECOMMENDED FOR YOUR INTERESTS'
+                        ? 'CAREER PATHS TO EXPLORE'
                         : 'EXPLORE OPPORTUNITIES',
                     selectedLanguage,
                   ),
@@ -764,6 +764,12 @@ class UserJobFeedTab extends StatelessWidget {
                                                                 : job['roleRequirementsToReview'] ==
                                                                       true
                                                                 ? 'Check requirements'
+                                                                : job['trainingPathway'] ==
+                                                                      true
+                                                                ? 'Explore training role'
+                                                                : job['transferableCareer'] ==
+                                                                      true
+                                                                ? 'Transferable skills'
                                                                 : job['careerFieldToExplore'] ==
                                                                       true
                                                                 ? 'Explore career field'

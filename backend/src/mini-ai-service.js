@@ -4,6 +4,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { isJobPostingVisible } from './job_postings.js';
+import { enrichCareerOpportunities } from './career-opportunity-ranker.js';
 import {
   verifyOccupationCategories, deriveCategoriesFromVerifiedFacts,
   classifyJobOccupation,
@@ -366,12 +367,18 @@ export async function evaluateProfileAgainstJobs({ profile, jobs, runner = runGo
   try {
     const response = await runner(applicant, available);
     const indexed = new Map(available.map(job => [String(job._id ?? job.id), job]));
-    const results = response.results.filter(row => indexed.has(String(row.jobId))).map(row => ({
+    const modelRows = response.results.filter(row => indexed.has(String(row.jobId))).map(row => ({
       ...row, title: String(indexed.get(String(row.jobId)).title || ''),
       company: String(indexed.get(String(row.jobId)).company || ''),
       category: String(indexed.get(String(row.jobId)).category || ''),
       sourceTitle: String(indexed.get(String(row.jobId)).sourceTitle || ''),
     }));
+    // The trained occupation score stays intact. A separate explainable
+    // discovery rank supports beginners and transferable skills without
+    // inventing requirements or automatic employment eligibility.
+    const results = enrichCareerOpportunities(applicant, available, modelRows)
+      .sort((a, b) => b.opportunityRank - a.opportunityRank ||
+        Number(b.score || 0) - Number(a.score || 0));
     return { ok: true, status: 'ready', modelVersion: response.modelVersion,
       applicant: { skills: applicant.skills, educationLevel: applicant.educationLevel,
         yearsExperience: applicant.yearsExperience, profileIncomplete: applicant.incomplete },

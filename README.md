@@ -11,6 +11,36 @@ Flutter + React prototype for the PESO Montalban JobKonek flow. **Firebase Authe
 - docs/SECURITY_POSTURE.md explains Firebase client-key handling, server-side credentials, and access-control boundaries.
 - compose.yaml and Dockerfiles provide a loopback-only local stack; see docs/DEVELOPMENT_SETUP.md.
 
+## Explainable JobKonek career discovery
+
+JobKonek uses **two complementary stages** rather than treating one AI score
+as an employment decision:
+
+1. The existing Go/ISCO-08 Mini-AI compares independently saved job-relevant
+   NSRP/resume evidence with career categories and, where supported, each
+   employer's attributable requirements. Unattributed vacancy notices must
+   not create mandatory qualifications. Gemini may help with intake/explanations,
+   but cannot invent qualifications or re-score a role.
+2. The authenticated API adds an evidence-aware, transparent **career-discovery
+   rank** using shared career fields, controlled transferable-skill relationships
+   and explicitly named trainee/helper/apprentice roles. Every signal retains a
+   reason, uncertainty, and any requirement gaps. This rank is NOT hiring
+   probability, candidate eligibility, or a substitute for human review.
+   Incomplete profiles may receive cautious training suggestions; all other
+   published openings remain discoverable regardless of ranking.
+
+The UI prioritizes supported career directions and labels uncertain results
+as exploration paths. It never converts the discovery rank into a misleading
+percentage match. The Go inference result is retained separately for audit.
+The full job feed is evaluated in bounded batches rather than truncating to
+the Go CLI's top 30 outputs.
+
+**Evaluation:** Run Node tests in backend, Flutter tests at the root, and
+read-only synthetic-applicant comparisons against active job listings (do not
+create applicants or submit applications). Synthetic agreement is not real-world
+matching accuracy. No model promotion should occur without human-verified
+role requirements and applicant-outcome evaluation.
+
 ## Application data and AI backend
 
 The primary desktop/local development path is the authenticated Node API in

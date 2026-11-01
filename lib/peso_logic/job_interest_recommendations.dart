@@ -139,6 +139,18 @@ List<Map<String, dynamic>> rankJobOpportunities(
         .clamp(0, 5);
     final jobId = job['id']?.toString() ?? '';
     final model = goEvidence[jobId];
+    final rawDiscoveryRank = model?['opportunityRank'];
+    final discoveryRank =
+        rawDiscoveryRank is num &&
+            rawDiscoveryRank >= 0 &&
+            rawDiscoveryRank <= 100
+        ? rawDiscoveryRank.toInt()
+        : 0;
+    final opportunityPathway = model?['opportunityPathway']?.toString() ?? '';
+    final trainingPathway =
+        opportunityPathway == 'training_pathway' && discoveryRank > 0;
+    final transferableCareer =
+        opportunityPathway == 'transferable_skills' && discoveryRank > 0;
     final rawScore = model?['score'];
     final matchedFields = model?['matchedOccupationFields'];
     final recordedGaps = model?['missingMandatory'];
@@ -167,6 +179,7 @@ List<Map<String, dynamic>> rankJobOpportunities(
         (directMatch ? 35 : 0) +
         (verifiedSkills * 8) +
         (careerFieldToExplore ? 10 : 0) +
+        (discoveryRank / 2).round() +
         (modelScore != null ? (modelScore / 4).round() : 0) -
         (notice ? 35 : 0);
 
@@ -176,9 +189,17 @@ List<Map<String, dynamic>> rankJobOpportunities(
       job: <String, dynamic>{
         ...job,
         'suggestedForInterest':
-            (hasInterest || verifiedSkills > 0 || careerFieldToExplore) &&
+            (hasInterest ||
+                verifiedSkills > 0 ||
+                careerFieldToExplore ||
+                trainingPathway ||
+                transferableCareer) &&
             !notice,
-        if ((hasInterest || verifiedSkills > 0 || careerFieldToExplore) &&
+        if ((hasInterest ||
+                verifiedSkills > 0 ||
+                careerFieldToExplore ||
+                trainingPathway ||
+                transferableCareer) &&
             !notice)
           'suggestionReason': matchedFamilies.isNotEmpty
               ? 'Your interests: ${matchedFamilies.join(', ')}'
@@ -186,7 +207,13 @@ List<Map<String, dynamic>> rankJobOpportunities(
               ? 'Your preferred occupation'
               : verifiedSkills > 0
               ? 'Related to the work or skills saved in your NSRP/resume'
+              : trainingPathway
+              ? 'The title mentions trainee, helper or apprenticeship; confirm entry requirements with PESO'
+              : transferableCareer
+              ? 'Skills from your NSRP/resume may transfer to this field; qualifications still need review'
               : 'Related career field to explore; employer qualifications need verification',
+        if (trainingPathway && !notice) 'trainingPathway': true,
+        if (transferableCareer && !notice) 'transferableCareer': true,
         if (careerFieldToExplore && !notice) 'careerFieldToExplore': true,
         if (hasKnownGap && !notice) 'roleRequirementsToReview': true,
         if (modelScore != null && !notice) 'match': modelScore.round(),

@@ -100,13 +100,17 @@ export function geminiFeedbackPrompt(match, feedback) {
 export function chooseRelatedJobs(currentId, results, max = 3) {
   const candidates = (Array.isArray(results) ? results : []).filter(row =>
     row && String(row.jobId || '') !== String(currentId) &&
-    list(row.matchedOccupationFields).length > 0 &&
     list(row.missingMandatory).length === 0 &&
-    row.assessmentBasis !== 'job_details_unverified' &&
-    Number(row.score) >= 45 &&
+    ((Number(row.opportunityRank) > 0 &&
+      ['training_pathway', 'transferable_skills', 'related_career_field']
+        .includes(row.opportunityPathway)) ||
+      (list(row.matchedOccupationFields).length > 0 &&
+        row.assessmentBasis !== 'job_details_unverified' &&
+        Number(row.score) >= 45)) &&
     typeof row.title === 'string' && row.title.trim());
   candidates.sort((a,b) =>
     Number(b.confidence !== 'low') - Number(a.confidence !== 'low') ||
+    Number(b.opportunityRank || 0) - Number(a.opportunityRank || 0) ||
     list(b.matchedOccupationFields).length - list(a.matchedOccupationFields).length ||
     Number(b.score) - Number(a.score) ||
     String(a.title).localeCompare(String(b.title)));
@@ -120,6 +124,10 @@ export function chooseRelatedJobs(currentId, results, max = 3) {
     jobId: String(row.jobId),
     title: String(row.title).slice(0, 160),
     company: String(row.company || '').slice(0, 130),
-    reason: 'Another job related to your saved skills. Check employer requirements.',
+    reason: row.opportunityPathway === 'training_pathway'
+      ? 'The title mentions a trainee or helper route. Ask PESO to verify entry requirements.'
+      : row.opportunityPathway === 'transferable_skills'
+      ? 'Some of your recorded skills may transfer to this field. Check employer requirements.'
+      : 'Another job related to your saved skills. Check employer requirements.',
   }));
 }
