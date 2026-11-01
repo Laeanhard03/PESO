@@ -34,7 +34,7 @@ Map<String, dynamic> report({
   },
 };
 void main() {
-  testWidgets('congratulates on supported career match before Outcomes', (
+  testWidgets('explains supported career overlap without promising employment', (
     tester,
   ) async {
     final data = report();
@@ -43,9 +43,9 @@ void main() {
         home: Scaffold(body: JobEvaluationResultDialog(report: data)),
       ),
     );
-    expect(find.textContaining('Congratulations!'), findsOneWidget);
-    expect(find.textContaining('PESO and the employer'), findsOneWidget);
-    expect(find.text('View full results'), findsOneWidget);
+    expect(find.text('Your skills may fit this job'), findsOneWidget);
+    expect(find.textContaining('PESO or the employer'), findsOneWidget);
+    expect(find.text('See more details'), findsOneWidget);
     expect(find.text('Continue application to PESO'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -60,9 +60,9 @@ void main() {
           home: Scaffold(body: JobEvaluationResultDialog(report: data)),
         ),
       );
-      expect(find.text('Career Fit Needs Review'), findsOneWidget);
+      expect(find.text('Let’s check this job'), findsOneWidget);
       expect(
-        find.textContaining('enough verified information'),
+        find.textContaining('more details from the job post'),
         findsOneWidget,
       );
       expect(find.textContaining('Congratulations'), findsNothing);
@@ -81,10 +81,10 @@ void main() {
         home: Scaffold(body: JobEvaluationResultDialog(report: data)),
       ),
     );
-    expect(find.text('Not a Match Yet'), findsOneWidget);
-    expect(find.text('What to improve before applying'), findsOneWidget);
+    expect(find.text('Check these job requirements'), findsOneWidget);
+    expect(find.text('What you can do next'), findsOneWidget);
     expect(
-      find.textContaining('update your profile with accurate details'),
+      find.textContaining('add them to your profile'),
       findsOneWidget,
     );
     expect(
@@ -125,7 +125,7 @@ void main() {
     await tester.tap(find.text('Evaluate now'));
     await tester.pump();
     expect(find.byKey(const Key('job-evaluation-popup')), findsOneWidget);
-    expect(find.text('Career Fit Needs Review'), findsOneWidget);
+    expect(find.text('Let’s check this job'), findsOneWidget);
     completion.complete(<String, dynamic>{
       'ok': true,
       'feedback': <String, dynamic>{
@@ -139,12 +139,14 @@ void main() {
           'jobId': 'office123',
           'title': 'Office Assistant',
           'company': 'QA Employer',
+          'reason': 'The job title says trainee or helper. Ask PESO what you need to apply.',
         },
       ],
     });
     await tester.pumpAndSettle();
     expect(find.text('Office Assistant'), findsOneWidget);
-    expect(find.textContaining('explanation by Gemini'), findsOneWidget);
+    expect(find.textContaining('Ask PESO what you need to apply.'), findsOneWidget);
+    expect(find.textContaining('AI helped write this note'), findsOneWidget);
     await tester.ensureVisible(
       find.byKey(const Key('recommended-role-office123')),
     );
