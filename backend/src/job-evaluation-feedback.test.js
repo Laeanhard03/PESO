@@ -57,7 +57,7 @@ test('Gemini can only provide brief explanation; invented eligibility assertions
     explanation: 'Congratulations, all requirements met and you are definitely eligible.',
   })), '');
   assert.equal(safeGeminiFeedback('not-json'), '');
-  const accepted = 'Your listed welding skills relate to this occupation. PESO can review the role requirements with you.';
+  const accepted = 'Your welding skills may help with this job. Ask PESO what the employer needs before you apply.';
   assert.equal(safeGeminiFeedback(JSON.stringify({ explanation: accepted })), accepted);
   const prompt = geminiFeedbackPrompt(qualified, fallbackJobFeedback(qualified, 'Welder'));
   assert.ok(prompt.includes('"statusFixedByGoRules":"match"'));
