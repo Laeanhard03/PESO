@@ -46,7 +46,7 @@ void main() {
     },
   );
 
-  test('Go qualification scores appear only from ready, validated results', () {
+  test('Go evidence ranks jobs without displaying a hiring percentage', () {
     final jobs = <Map<String, dynamic>>[
       {'id': 'a', 'title': 'Cashier', 'aiListingKind': 'role'},
       {'id': 'b', 'title': 'Carpenter', 'aiListingKind': 'role'},
@@ -81,7 +81,8 @@ void main() {
         ],
       },
     );
-    expect(ready.first['match'], 72);
+    expect(ready.first.containsKey('match'), isFalse);
+    expect(ready.first['suggestedForInterest'], isTrue);
     expect(ready.last.containsKey('match'), isFalse);
   });
 
@@ -127,7 +128,7 @@ void main() {
       expect(tentative['suggestedForInterest'], true);
       expect(
         tentative['suggestionReason'],
-        contains('employer qualifications need verification'),
+        contains('Check the details before applying'),
       );
     },
   );
@@ -164,7 +165,7 @@ void main() {
     expect(beginner.first.containsKey('match'), false);
     expect(
       beginner.first['suggestionReason'],
-      contains('confirm entry requirements'),
+      contains('Ask PESO what you need'),
     );
 
     final skilled = rankJobOpportunities(
@@ -229,7 +230,7 @@ void main() {
     );
     expect(ranked.map((job) => job['id']).toList(), ['office', 'construction']);
     expect(ranked.first['suggestedForInterest'], true);
-    expect(ranked.first['suggestionReason'], contains('NSRP/resume'));
+    expect(ranked.first['suggestionReason'], contains('You listed skills'));
     expect(
       ranked.every((job) => !job.containsKey('match')),
       true,
