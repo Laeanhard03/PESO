@@ -156,6 +156,41 @@ void main() {
     expect((data['jobFeedback'] as Map)['recommendations'], isNotEmpty);
   });
 
+  for (final size in <Size>[
+    const Size(320, 568),
+    const Size(390, 844),
+    const Size(1024, 768),
+  ]) {
+    testWidgets(
+      'job check is readable on ${size.width} px at larger text',
+      (tester) async {
+        tester.view.physicalSize = size;
+        tester.view.devicePixelRatio = 1;
+        addTearDown(() {
+          tester.view.resetPhysicalSize();
+          tester.view.resetDevicePixelRatio();
+        });
+        final data = report(explicit: false);
+        await tester.pumpWidget(
+          MaterialApp(
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context).copyWith(
+                textScaler: TextScaler.linear(1.5),
+              ),
+              child: child!,
+            ),
+            home: Scaffold(
+              body: JobEvaluationResultDialog(report: data),
+            ),
+          ),
+        );
+        expect(find.text('Let’s check this job'), findsOneWidget);
+        expect(find.textContaining('still apply'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
   testWidgets(
     'report preserves Gemini explanation in Outcomes and is responsive',
     (tester) async {
