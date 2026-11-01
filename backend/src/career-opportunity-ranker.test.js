@@ -90,6 +90,29 @@ test('denials cannot generate transferable skill evidence or expose arbitrary so
   assert.deepEqual(privateText.opportunitySkillClues, ['customer service']);
 });
 
+test('missing skill statements and later confirmed training are handled separately', () => {
+  const roles = [job('food', 'Food Service Crew')];
+  const clues = [evidence('food', ['hospitality_food'])];
+  for (const claim of [
+    'No customer service',
+    'without any customer service',
+    'not skilled in customer service',
+    'no experience with customer service',
+  ]) {
+    const output = score(a([claim]), roles, clues)[0];
+    assert.equal(output.opportunityRank, 0, claim);
+    assert.deepEqual(output.opportunitySkillClues, [], claim);
+  }
+  for (const claim of [
+    'Completed customer service training',
+    'No customer service but later gained customer service experience',
+  ]) {
+    const output = score(a([claim]), roles, clues)[0];
+    assert.ok(output.opportunityRank > 0, claim);
+    assert.equal(output.opportunityPathway, 'transferable_skills');
+  }
+});
+
 test('unverified Gemini-only claimed skill is never promoted into transferable opportunity', () => {
   const applicant = normalizeApplicantProfile({
     aiProfile: { skills: ['Customer Service'] },
