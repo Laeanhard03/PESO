@@ -113,6 +113,36 @@ test('missing skill statements and later confirmed training are handled separate
   }
 });
 
+test('specific Tagalog and Taglish skills help without treating denials as skills', () => {
+  const jobs = [job('food','Food Crew'), job('driving','Delivery Driver'),
+    job('retail','Retail Clerk')];
+  const rows = [
+    evidence('food',['hospitality_food']),
+    evidence('driving',['driving_transport']),
+    evidence('retail',['sales_retail']),
+  ];
+  const findRank = (skill,id) => score(a([skill]),jobs,rows)
+    .find(item => item.jobId === id).opportunityRank;
+  for (const [skill,id] of [
+    ['pagluluto','food'],
+    ['paghahanda ng pagkain','food'],
+    ['pagbebenta','retail'],
+    ['pagmamaneho','driving'],
+    ['pagtanggap ng bayad','retail'],
+    ['pag aasikaso ng customer','retail'],
+  ]) {
+    assert.ok(findRank(skill,id)>0,skill);
+  }
+  for (const [skill,id] of [
+    ['hindi marunong magluto','food'],
+    ['walang karanasan sa pagluluto','food'],
+    ['hindi marunong sa pagbebenta','retail'],
+    ['walang karanasan sa pagmamaneho','driving'],
+  ]) {
+    assert.equal(findRank(skill,id),0,skill);
+  }
+});
+
 test('unverified Gemini-only claimed skill is never promoted into transferable opportunity', () => {
   const applicant = normalizeApplicantProfile({
     aiProfile: { skills: ['Customer Service'] },
