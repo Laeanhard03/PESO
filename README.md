@@ -41,6 +41,31 @@ create applicants or submit applications). Synthetic agreement is not real-world
 matching accuracy. No model promotion should occur without human-verified
 role requirements and applicant-outcome evaluation.
 
+## Repeated job-seeker experience checks (development branch)
+
+The matching development branch includes an automated test that plays **14
+fictional job-seeker profiles** through **12 simulated openings**, repeated
+**20 times** (280 profile runs; 3,360 role checks). Applicants include
+people with no work history, apprentices, retail/food/office beginners,
+technical workers changing careers, people with an explicit skills gap,
+and people with unrelated skills.
+
+The tests check that the same facts produce the same results, protected
+personal details do not affect ranking, beginners can explore relevant
+training roles, unrelated jobs are not falsely promoted, and employers'
+known requirements are not silently treated as met. They also check
+that every job remains available and no misleading hiring percentages,
+promises, or automatic disqualifications appear in the main advice.
+The job-check dialog has phone/tablet/desktop and larger-text tests.
+
+Feedback is intentionally short: **why this job, what to check next, and
+whether the applicant can still apply**. Employers and PESO make
+qualification decisions. The independent live-data audit previously
+processed 244 eligible role records using only synthetic applicants;
+synthetic tests do not establish real hiring outcomes or user
+comprehension. Run the PR #15 checks and perform a signed-in review with
+human readers before production release.
+
 ## Application data and AI backend
 
 The primary desktop/local development path is the authenticated Node API in
