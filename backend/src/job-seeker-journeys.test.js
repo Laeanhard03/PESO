@@ -114,3 +114,16 @@ test('simulated unfamiliar and negated skills cannot create invented fit',()=>{
     assert.equal(rows.filter(r=>r.opportunityRank>0).length,3,name);
   }
 });
+
+test('experienced seekers are not pushed into unrelated trainee work', () => {
+  const welder = doRank(personas.find(p => p.name === 'experienced welder'));
+  for (const id of ['training-a','training-b','training-c']) {
+    const row = welder.find(r => r.jobId === id);
+    assert.equal(row.opportunityRank, 0, id);
+    assert.equal(row.opportunityPathway, 'explore', id);
+    assert.ok(!row.opportunitySignals.includes('training_or_helper_title'));
+  }
+  assert.equal(welder.filter(r => r.opportunityRank > 0).length, 1);
+  const beginner = doRank(personas.find(p => p.name === 'first-time applicant'));
+  assert.equal(beginner.filter(r => r.opportunityPathway === 'training_pathway').length, 3);
+});
