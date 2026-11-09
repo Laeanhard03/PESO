@@ -88,7 +88,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-go@90ad2b35f69faf97585ad74d28fa006d2739b7af # v7
+      - uses: actions/setup-go@802e89cd7394b98352d79117a8b463bbfc2fdacf # v7
         with:
           go-version-file: mini_ai/go.mod
           cache: true
