@@ -131,3 +131,16 @@ A local pass does not establish that Firebase Functions, Gemini, Authentication 
 - **Admin identity:** the local INITIAL_ADMIN_EMAIL matches an existing MongoDB admin account.
 - **Required Render manual values after reducing the Blueprint:** MONGODB_URI (freshly rotated/current production value), FIREBASE_ADMIN_SERVICE_ACCOUNT_B64 (from the validated local service-account file), INITIAL_ADMIN_EMAIL (validated against MongoDB), and GEMINI_KEY_ENCRYPTION_SECRET (validated against both encrypted MongoDB key records).
 - **Vercel access:** the browser is signed into the correct laeanhard03 account and shows the Production variables. The Vercel MCP connector's linked accounts do not own team yey10. A Vercel CLI device-auth flow is waiting for owner approval so the production MONGODB_URI can be retrieved using the supported CLI path. Device code was shown in chat for owner approval; no Vercel environment values have been changed.
+
+
+## Vercel Secret retrieval and MongoDB credential safety (2026-11-12)
+
+- Vercel CLI authenticated as laeanhard03, team yey10; local repo linked to existing project yey10/peso. .vercel/ and .env.local are ignored by Git.
+- Production env audit: 15 Vercel Production environment records were listed. MONGODB_URI, FIREBASE_ADMIN_SERVICE_ACCOUNT_B64, INITIAL_ADMIN_EMAIL, FILE_LINK_SECRET, GEMINI_API_KEY, and GEMINI_KEY_ENCRYPTION_SECRET exist as sensitive Secret-type variables. Vercel's current API returns decrypted=false for the sensitive records, and the CLI reports that 13 Secret values cannot be pulled. No secret values were extracted or printed.
+- Firebase Admin: local service-account JSON exists, parses, has a private key, and matches Firebase project capstone-4th-year-peso-ai.
+- Admin identity: local INITIAL_ADMIN_EMAIL matches an existing MongoDB admin record.
+- Gemini encryption: read-only MongoDB audit passed. geminiKeySettings.managedPoolActivated=true; two enabled geminiApiKeys records are present; both decrypt successfully with local GEMINI_KEY_ENCRYPTION_SECRET. Both are in cooling_down with expired cooldown timestamps. No database documents were modified.
+- MongoDB credential warning: local backend/.env MONGODB_URI connects successfully but is not safe to reuse because backend/MONGODB_BACKEND_SETUP.md says the prior connection string was exposed in chat and must be rotated. No password rotation was recorded in prior project history. Do not copy the local URI into Render.
+- Blueprint reduced to four manual variables: MONGODB_URI, FIREBASE_ADMIN_SERVICE_ACCOUNT_B64, INITIAL_ADMIN_EMAIL, GEMINI_KEY_ENCRYPTION_SECRET. Render generates FILE_LINK_SECRET and PESO_EXPORT_SECRET; no standalone GEMINI_API_KEY is required while the managed key pool remains active.
+- Latest pushed branch commit: a3ffe13 Prepare Render secrets and credential-safe failover. Render Blueprint re-plan succeeded with this commit and still proposes one Free Singapore web service only.
+- Remaining blocker: create or rotate a MongoDB Atlas database user to obtain a fresh URI for the backup. The MongoDB Atlas login page is open in Chrome but not authenticated. No Atlas account changes have been made.
