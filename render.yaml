@@ -7,7 +7,7 @@ services:
     branch: deploy/render-failover
     autoDeployTrigger: commit
     buildCommand: bash scripts/vercel_install_flutter.sh && bash scripts/vercel_build_flutter.sh
-    startCommand: cd backend && npm start
+    startCommand: 'cd backend && CLIENT_ALLOWED_ORIGINS="https://$RENDER_EXTERNAL_HOSTNAME" PUBLIC_API_BASE_URL="https://$RENDER_EXTERNAL_HOSTNAME" npm start'
     healthCheckPath: /healthz
     envVars:
       - key: NODE_ENV
@@ -18,10 +18,6 @@ services:
         value: capstone-4th-year-peso-ai
       - key: MONGODB_DB_NAME
         value: peso_jobkonek
-      - key: CLIENT_ALLOWED_ORIGINS
-        value: https://peso-jobkonek-failover-jlf-2026.onrender.com
-      - key: PUBLIC_API_BASE_URL
-        value: https://peso-jobkonek-failover-jlf-2026.onrender.com
       - key: PESO_FAILOVER_PRIMARY_URL
         value: https://peso-psi.vercel.app
       - key: PESO_FAILOVER_CACHE_MS
