@@ -144,3 +144,13 @@ A local pass does not establish that Firebase Functions, Gemini, Authentication 
 - Blueprint reduced to four manual variables: MONGODB_URI, FIREBASE_ADMIN_SERVICE_ACCOUNT_B64, INITIAL_ADMIN_EMAIL, GEMINI_KEY_ENCRYPTION_SECRET. Render generates FILE_LINK_SECRET and PESO_EXPORT_SECRET; no standalone GEMINI_API_KEY is required while the managed key pool remains active.
 - Latest pushed branch commit: a3ffe13 Prepare Render secrets and credential-safe failover. Render Blueprint re-plan succeeded with this commit and still proposes one Free Singapore web service only.
 - Remaining blocker: create or rotate a MongoDB Atlas database user to obtain a fresh URI for the backup. The MongoDB Atlas login page is open in Chrome but not authenticated. No Atlas account changes have been made.
+
+## 2026-11-12 - Render failover live
+
+- Created and deployed `peso-jobkonek-failover-jlf-2026-tlgb` on Render Singapore Free; service ID `srv-dbqbn6142hec73cvcotg`; Blueprint `exs-dbqanl08v5cc739k9jq0`.
+- Pushed `4687ddb` on `deploy/render-failover`. Fixed production build omission of Vite by adding `--include=dev` to the React workspace `npm ci` command in `scripts/vercel_install_flutter.sh`.
+- Added dedicated Atlas user `peso_render_failover` with `readWrite` on `peso_jobkonek` only; no existing DB users changed. Configured Render's MongoDB, Firebase Admin, admin-email, Gemini encryption, and generated file/export secrets. Added Render hostname to Firebase Auth authorized domains.
+- Added Render Singapore shared egress ranges `74.220.52.0/24` and `74.220.60.0/24` to Atlas. Kept existing `0.0.0.0/0` for Vercel Hobby dynamic egress; network allowlist therefore remains broad and is a known follow-up hardening item.
+- Verified `/healthz` reports database ready; `/api/health` reports MongoDB connected, Firebase token verification ready, Gemini configured, and `adminDevelopmentNotes` enabled. `/` and `/nsrp/` return HTTP 200; unauthenticated `/api/jobs` and `/api/admin/users` return HTTP 401.
+- At verification time Vercel primary returned HTTP 402 while the Render backup returned HTTP 200. Vercel was not modified.
+- React tests 17/17 passed, ESLint passed, production NSRP bundle passed. Render Free cold-start delay remains expected after inactivity.

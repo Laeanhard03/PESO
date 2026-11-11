@@ -156,3 +156,39 @@ The local backend/.env MongoDB URI still connects to the existing peso_jobkonek 
 A read-only audit confirmed the local Firebase Admin service-account JSON is valid for capstone-4th-year-peso-ai; INITIAL_ADMIN_EMAIL matches the existing MongoDB admin account; and the local GEMINI_KEY_ENCRYPTION_SECRET decrypts both existing encrypted Gemini key records. The MongoDB managed key pool is active with two enabled records; both are currently cooling_down with expired cooldown timestamps and can be retried. No database documents were modified by this audit.
 
 The Render Blueprint generates new FILE_LINK_SECRET and PESO_EXPORT_SECRET values, so they do not need to be copied from Vercel. GEMINI_API_KEY is not required for the Render backup while the MongoDB managed-key pool remains active. The remaining manual Render inputs are MONGODB_URI, FIREBASE_ADMIN_SERVICE_ACCOUNT_B64, INITIAL_ADMIN_EMAIL, and GEMINI_KEY_ENCRYPTION_SECRET.
+
+## Render failover deployment update (2026-11-12)
+
+This section supersedes earlier status notes that described the Render failover as planned or not yet deployed. The failover is now deployed and passed its production smoke checks.
+
+- **Live service:** https://peso-jobkonek-failover-jlf-2026-tlgb.onrender.com
+- **Render service:** `peso-jobkonek-failover-jlf-2026-tlgb` (`srv-dbqbn6142hec73cvcotg`)
+- **Blueprint:** `exs-dbqanl08v5cc739k9jq0`
+- **Region / plan:** Singapore / Free
+- **Source:** GitHub `Laeanhard03/PESO`, branch `deploy/render-failover`
+- **Deployed code commit:** `4687ddb` (`Fix Render React build dependency install`)
+- **Health check:** `/healthz`
+
+### Database and credentials
+
+A dedicated Atlas database user, `peso_render_failover`, was created with `readWrite` access scoped to the `peso_jobkonek` database. Existing administrator and `peso_app_user` accounts were not modified. The Render service uses the same existing Atlas cluster and database; no data migration or second database was created.
+
+The service environment is configured with the MongoDB URI, Firebase Admin service-account credential, existing administrator email, Gemini key-encryption secret, and Blueprint-generated file/export secrets. The Render hostname was added to Firebase Authentication's authorized domains.
+
+Render's Singapore shared outbound ranges (`74.220.52.0/24` and `74.220.60.0/24`) were added to the Atlas IP access list. The pre-existing `0.0.0.0/0` rule was deliberately retained because the Vercel Hobby primary still relies on dynamic egress. Consequently, the network allowlist is not yet restrictive; the database account's database-scoped permissions remain the principal access boundary. Revisit this when Vercel can use static/private egress.
+
+### Build correction
+
+The first Render build reached the React bundle step but failed because `NODE_ENV=production` caused npm to omit Vite, which is a build-time devDependency. `scripts/vercel_install_flutter.sh` now runs `npm ci --include=dev --prefix react_workspace`. This preserves the existing package lock and build flow while ensuring build tooling is installed in Render's production build environment.
+
+### Production verification
+
+- Render build and deployment: **successful / live**
+- `/healthz`: HTTP 200; database reports ready
+- `/api/health`: HTTP 200; `mongoDbConnected=true`, `firebaseTokenVerificationReady=true`, `geminiConfigured=true`, and `adminDevelopmentNotes=true`
+- `/` and `/nsrp/`: HTTP 200
+- Unauthenticated `/api/jobs` and `/api/admin/users`: HTTP 401 as expected
+- Vercel primary `https://peso-psi.vercel.app/`: HTTP 402 at verification time; Render backup root: HTTP 200, confirming the fallback can serve while the primary is unavailable
+- React workspace: 17 tests passed; ESLint passed; production NSRP bundle built successfully
+
+The Render Free instance may spin down after inactivity; its first request after sleep can have a cold-start delay. The Vercel primary remains unchanged.
