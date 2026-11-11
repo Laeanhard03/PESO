@@ -25,8 +25,10 @@ flutter config --no-analytics --enable-web
 flutter precache --web
 flutter pub get
 
-# Include NSRP and resume screens in the one Flutter Vercel project.
-npm ci --prefix react_workspace
+# Include NSRP and resume screens in the one Flutter web service.
+# Render sets NODE_ENV=production during builds, which normally omits devDependencies.
+# Vite is a build-time devDependency, so explicitly include it for the React bundle.
+npm ci --include=dev --prefix react_workspace
 
 # The same Vercel project also runs the Express API at /api/*.
 # Its dependencies live in backend/package-lock.json; keep one authoritative lockfile.
