@@ -214,14 +214,15 @@ export default function ResumeApp() {
           formData: lastDraftRef.current });
       }
     };
-    document.addEventListener('input', schedule, true);
-    document.addEventListener('change', schedule, true);
+    // Bubble after React onChange so native select values commit before autosave rerenders.
+    document.addEventListener('input', schedule);
+    document.addEventListener('change', schedule);
     window.addEventListener('message', onMessage);
     window.addEventListener('online', goOnline);
     sendToFlutter({ status: 'ready', kind: 'resume_builder' });
     return () => {
-      document.removeEventListener('input', schedule, true);
-      document.removeEventListener('change', schedule, true);
+      document.removeEventListener('input', schedule);
+      document.removeEventListener('change', schedule);
       window.removeEventListener('message', onMessage);
       window.removeEventListener('online', goOnline);
       if (draftTimerRef.current) clearTimeout(draftTimerRef.current);

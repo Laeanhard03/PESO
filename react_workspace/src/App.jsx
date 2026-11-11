@@ -127,12 +127,13 @@ export default function App() {
           formData: lastDraftRef.current });
       }
     };
-    document.addEventListener('input', schedule, true);
-    document.addEventListener('change', schedule, true);
+    // Run after React's controlled-select handlers to avoid resetting native selections.
+    document.addEventListener('input', schedule);
+    document.addEventListener('change', schedule);
     window.addEventListener('online', goOnline);
     return () => {
-      document.removeEventListener('input', schedule, true);
-      document.removeEventListener('change', schedule, true);
+      document.removeEventListener('input', schedule);
+      document.removeEventListener('change', schedule);
       window.removeEventListener('online', goOnline);
       if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
     };
@@ -231,9 +232,8 @@ export default function App() {
       const groupKey = target?.getAttribute?.('data-nsrp-group');
       if (!key && !requiredKey && !groupKey) return;
       if (key === 'dateOfBirth' || requiredKey === 'dateOfBirth') return; // Controlled date parser owns validity.
-      // These fields are controlled by React. Updating state during a native
-      // select's capture-phase input event resets its DOM value before React's
-      // onChange can commit the user's keyboard/mouse choice.
+      // React-owned career selects update through their own onChange handlers.
+      // This document listener runs later in the bubble phase for other fields.
       if (['education', 'experience', 'skillsStage', 'skills'].includes(key)) return;
 
       const groupHasValue = group => Array.from(document.querySelectorAll(
@@ -259,11 +259,11 @@ export default function App() {
         return remaining.length === previous.length ? previous : remaining;
       });
     };
-    document.addEventListener('input', handleFieldChange, true);
-    document.addEventListener('change', handleFieldChange, true);
+    document.addEventListener('input', handleFieldChange);
+    document.addEventListener('change', handleFieldChange);
     return () => {
-      document.removeEventListener('input', handleFieldChange, true);
-      document.removeEventListener('change', handleFieldChange, true);
+      document.removeEventListener('input', handleFieldChange);
+      document.removeEventListener('change', handleFieldChange);
     };
   }, []);
 
@@ -593,26 +593,20 @@ export default function App() {
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = pdf.internal.pageSize.getHeight();
       let pdfPageCount = 0;
-      const formPageTwo = document.getElementById('peso-page-2');
-      const pageTwoChildren = formPageTwo ? Array.from(formPageTwo.children) : [];
-      const careerSummaryIndex = pageTwoChildren.findIndex((element) =>
-        (element.innerText || '').trim().startsWith('APPLICANT CAREER INFORMATION'),
-      );
-      const pageSpecs = [{ id: 'peso-page-1' }];
-      if (formPageTwo && careerSummaryIndex > 0) {
-        // Keep official data sections intact and begin certification on its own page.
-        pageSpecs.push({ id: 'peso-page-2', start: 0, end: careerSummaryIndex, paddingBottom: '8px' });
-        pageSpecs.push({ id: 'peso-page-2', start: careerSummaryIndex, end: pageTwoChildren.length, paddingTop: '16px' });
-      } else {
-        pageSpecs.push({ id: 'peso-page-2' });
-      }
+      // The official NSRP Form 1 has two original sheets. Keep those as the
+      // only PDF pages; do not split page 2 at the supplemental career summary.
+      const pageSpecs = [
+        { id: 'peso-page-1' },
+        { id: 'peso-page-2', compact: true },
+      ];
       for (const spec of pageSpecs) {
         const page = document.getElementById(spec.id);
-        if (!page) continue;
+        if (!page) throw new Error('Missing NSRP source page: ' + spec.id);
         // A print-only DOM copy expands long text into wrapped, full-height
         // lines. Live editable inputs stay untouched and keep keyboard access.
         const printPage = page.cloneNode(true);
         printPage.removeAttribute('id');
+        if (spec.compact) printPage.classList.add('nsrp-print-compact');
         printPage.style.position = 'absolute';
         // html-to-image needs the print source inside the visible render surface.
         // Keep the clone behind the app while rasterizing, then remove it.
@@ -623,8 +617,8 @@ export default function App() {
         printPage.style.width = page.offsetWidth + 'px';
         printPage.style.height = 'auto';
         printPage.style.transform = 'none';
-        if (spec.paddingBottom) printPage.style.paddingBottom = spec.paddingBottom;
-        if (spec.paddingTop) printPage.style.paddingTop = spec.paddingTop;
+
+
         const originals = Array.from(page.querySelectorAll('input, select, textarea'));
         const copies = Array.from(printPage.querySelectorAll('input, select, textarea'));
         originals.forEach((source, index) => {
@@ -711,12 +705,6 @@ export default function App() {
           const copy = cloneCanvases[index];
           if (copy) copy.getContext('2d')?.drawImage(canvas, 0, 0);
         });
-        if (spec.start != null || spec.end != null) {
-          Array.from(printPage.children).forEach((child, index) => {
-            if ((spec.start != null && index < spec.start) ||
-                (spec.end != null && index >= spec.end)) child.remove();
-          });
-        }
         // Number the physical pages after final pagination is known.
         printPage.querySelectorAll('div').forEach(element => {
           if (element.children.length === 0 &&
@@ -732,26 +720,34 @@ export default function App() {
           const image = await htmlToImage.toCanvas(printPage, {
             backgroundColor: '#ffffff', pixelRatio: 1.25,
           });
-          const sliceHeight = Math.floor(image.width * pdfHeight / pdfWidth);
-          for (let top = 0; top < image.height; top += sliceHeight) {
-            const segmentHeight = Math.min(sliceHeight, image.height - top);
-            const segment = document.createElement('canvas');
-            segment.width = image.width;
-            segment.height = segmentHeight;
-            segment.getContext('2d').drawImage(
-              image, 0, top, image.width, segmentHeight,
-              0, 0, image.width, segmentHeight,
-            );
-            if (pdfPageCount > 0) pdf.addPage();
-            pdf.addImage(segment.toDataURL('image/jpeg', 0.89), 'JPEG',
-              0, 0, pdfWidth, segmentHeight * pdfWidth / image.width);
-            pdfPageCount++;
+          if (!image.width || !image.height) {
+            throw new Error('An NSRP form sheet rendered with empty dimensions.');
           }
+          // One original form sheet maps to one A4 page. Preserve the aspect
+          // ratio and center it instead of slicing small overflow into a blank page.
+          const fitScale = Math.min(
+            pdfWidth / image.width,
+            pdfHeight / image.height,
+          );
+          const renderedWidth = image.width * fitScale;
+          const renderedHeight = image.height * fitScale;
+          const left = (pdfWidth - renderedWidth) / 2;
+          const top = (pdfHeight - renderedHeight) / 2;
+          if (pdfPageCount > 0) pdf.addPage();
+          pdf.addImage(
+            image.toDataURL('image/jpeg', 0.89),
+            'JPEG',
+            left,
+            top,
+            renderedWidth,
+            renderedHeight,
+          );
+          pdfPageCount++;
         } finally {
           printPage.remove();
         }
       }
-      if (pdfPageCount === 0) throw new Error('NSRP pages could not be rendered.');
+      if (pdfPageCount !== 2) throw new Error('NSRP Form 1 must contain exactly 2 pages; rendered ' + pdfPageCount + '.');
       for (let pageNumber = 1; pageNumber <= pdfPageCount; pageNumber++) {
         pdf.setPage(pageNumber);
         pdf.setFont('helvetica', 'bold');

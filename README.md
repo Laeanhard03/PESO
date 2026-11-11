@@ -11,6 +11,61 @@ Flutter + React prototype for the PESO Montalban JobKonek flow. **Firebase Authe
 - docs/SECURITY_POSTURE.md explains Firebase client-key handling, server-side credentials, and access-control boundaries.
 - compose.yaml and Dockerfiles provide a loopback-only local stack; see docs/DEVELOPMENT_SETUP.md.
 
+## Explainable JobKonek career discovery
+
+JobKonek uses **two complementary stages** rather than treating one AI score
+as an employment decision:
+
+1. The existing Go/ISCO-08 Mini-AI compares independently saved job-relevant
+   NSRP/resume evidence with career categories and, where supported, each
+   employer's attributable requirements. Unattributed vacancy notices must
+   not create mandatory qualifications. Gemini may help with intake/explanations,
+   but cannot invent qualifications or re-score a role.
+2. The authenticated API adds an evidence-aware, transparent **career-discovery
+   rank** using shared career fields, controlled transferable-skill relationships
+   and explicitly named trainee/helper/apprentice roles. Every signal retains a
+   reason, uncertainty, and any requirement gaps. This rank is NOT hiring
+   probability, candidate eligibility, or a substitute for human review.
+   Incomplete profiles may receive cautious training suggestions; all other
+   published openings remain discoverable regardless of ranking.
+
+The UI prioritizes supported career directions and labels uncertain results
+as exploration paths. It never converts the discovery rank into a misleading
+percentage match. The Go inference result is retained separately for audit.
+The full job feed is evaluated in bounded batches rather than truncating to
+the Go CLI's top 30 outputs.
+
+**Evaluation:** Run Node tests in backend, Flutter tests at the root, and
+read-only synthetic-applicant comparisons against active job listings (do not
+create applicants or submit applications). Synthetic agreement is not real-world
+matching accuracy. No model promotion should occur without human-verified
+role requirements and applicant-outcome evaluation.
+
+## Repeated job-seeker experience checks (development branch)
+
+The matching development branch includes an automated test that plays **20
+fictional job-seeker profiles** through **12 simulated openings**, repeated
+**20 times** (400 profile runs; 4,800 role checks). Applicants include
+people with no work history, apprentices, retail/food/office beginners,
+technical workers changing careers, people with an explicit skills gap,
+Tagalog/Taglish skill descriptions, and people with unrelated skills.
+
+The tests check that the same facts produce the same results, protected
+personal details do not affect ranking, beginners can explore relevant
+training roles, unrelated jobs are not falsely promoted, and employers'
+known requirements are not silently treated as met. They also check
+that every job remains available and no misleading hiring percentages,
+promises, or automatic disqualifications appear in the main advice.
+The job-check dialog has phone/tablet/desktop and larger-text tests.
+
+Feedback is intentionally short: **why this job, what to check next, and
+whether the applicant can still apply**. Employers and PESO make
+qualification decisions. The independent live-data audit previously
+processed 244 eligible role records using only synthetic applicants;
+synthetic tests do not establish real hiring outcomes or user
+comprehension. Run the PR #15 checks and perform a signed-in review with
+human readers before production release.
+
 ## Application data and AI backend
 
 The primary desktop/local development path is the authenticated Node API in

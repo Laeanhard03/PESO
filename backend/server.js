@@ -980,7 +980,7 @@ app.post('/api/ai/job-feedback', requireAuth, requireMongo, async (req, res, nex
 
     const feedback = fallbackJobFeedback(recorded, job.title);
     let recommendations = [];
-    if (feedback.status === 'no_match') {
+    if (feedback.status === 'no_match' || feedback.status === 'needs_review') {
       try {
         const others = allJobs.filter(row => String(row._id) !== id &&
           row.aiListingKind !== 'notice' && isJobPostingVisible(row));
@@ -3008,14 +3008,20 @@ app.use((error, _req, res, _next) => {
       message: 'The request is too large. Keep each document under 20 MB.',
     });
   }
-  logSafeError('[API] Request failed', error);
   const status = Number(error?.status) >= 400 && Number(error.status) < 600
     ? Number(error.status)
     : 500;
+  // Expose only explicitly marked, bounded application error codes. This keeps
+  // safe 4xx conflicts actionable without leaking arbitrary upstream details.
+  const exposed = error?.expose === true &&
+    /^[a-z][a-z0-9_]{1,80}$/.test(String(error?.code || ''));
+  if (status >= 500 || !exposed) logSafeError('[API] Request failed', error);
   return res.status(status).json({
     ok: false,
-    error: status === 400 ? 'invalid_request' : 'server_error',
-    message: status === 400 ? String(error.message || 'Invalid request.') : 'The API request failed. Check the backend logs.',
+    error: exposed ? String(error.code) : status === 400 ? 'invalid_request' : 'server_error',
+    message: exposed
+      ? String(error.message || 'The request could not be completed.').slice(0, 300)
+      : status === 400 ? String(error.message || 'Invalid request.') : 'The API request failed. Check the backend logs.',
   });
 });
 

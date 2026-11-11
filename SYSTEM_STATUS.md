@@ -154,3 +154,32 @@ A local pass does not establish that Firebase Functions, Gemini, Authentication 
 - Verified `/healthz` reports database ready; `/api/health` reports MongoDB connected, Firebase token verification ready, Gemini configured, and `adminDevelopmentNotes` enabled. `/` and `/nsrp/` return HTTP 200; unauthenticated `/api/jobs` and `/api/admin/users` return HTTP 401.
 - At verification time Vercel primary returned HTTP 402 while the Render backup returned HTTP 200. Vercel was not modified.
 - React tests 17/17 passed, ESLint passed, production NSRP bundle passed. Render Free cold-start delay remains expected after inactivity.
+## 2026-11-01 ? Job-seeker matching robustness audit (isolated review branch)
+
+- Used **read-only** MongoDB access to inspect 326 active job records: 81 hiring notices and 244 currently model-eligible, visible roles (one additional non-notice record is excluded from the current eligible feed). No real applicant record or application was read or modified.
+- Tested five **fictional** candidate profiles against all 244 eligible roles using the shipped Go occupation model, in bounded batches. No-skill entrant: 244 low-confidence outputs and no scores >=50; retail novice: 59 scores >=90; office applicant: 83; trades: 14; food service novice: 58. Scores are career-category similarity, **not qualification accuracy**.
+- Root causes: 132 roles lack safely attributable employer qualifications; low-confidence category similarities sometimes score 100/100; the frontend previously displayed these as `100% Match` and feedback could incorrectly congratulate or discourage seekers. Existing Go inference CLI truncates each invocation to 30, so a single all-jobs call omitted most roles.
+- Isolated implementation: a neutral `needs_review` feedback outcome for uncertain evidence, explicit verification wording, non-probabilistic badges, discovery inclusion without eligibility claims, and API-side bounded batches to retain the current Go model while evaluating **every** role. No model retraining or production writes.
+- Verified on the development workstation: 244 unique roles returned from one API-level call in about 1.6 s; targeted backend and Flutter regressions passed; full Flutter suite 263 passed. Full backend suite passes with explicit expected test bootstrap admin and Go paths.
+- **Evaluation limitations:** no human-verified employer-qualification labels, real candidate outcome labels, or prospective hiring outcomes; synthetic held-out F1 cannot establish real matching performance. Production changes require dedicated acceptance review and release; branch is not deployed.
+
+## 2026-11-01 ? Continued Mini-AI career-discovery improvement
+
+- Continued the same isolated matching branch after the initial audit; no new trained
+  model artifacts or replacement versions were created.
+- Added a transparent post-model career rank (direct fields, controlled portable
+  skill links, and explicitly advertised trainee/helper titles). The score from
+  the trained Go model stays unchanged; the discovery rank never claims
+  eligibility. A verified mandatory gap remains a warning, not an auto-rejection.
+- Integrated ranking with the authenticated job-recommendations flow, visible
+  job-feed ordering and badges, and alternative-job feedback. Unverified Gemini
+  claims, demographic facts and raw applicant-provided skill text are not
+  introduced as recommendations.
+- Read-only DB evaluation on 326 active records and 244 model-eligible visible
+  roles: 9 beginner training pathways, 95 retail, 110 office, 27 construction,
+  and 87 food-service positions with at least one career-discovery signal.
+  These figures are *candidate exploration signals*, not validated matches
+  and not equivalent to real-world accuracy or confirmed vacancies.
+- The existing model, database, applicant records and production deployment are
+  unchanged. Acceptance on the real signed-in job-seeker screen and expert
+  evaluation of employer requirements remain necessary before production rollout.

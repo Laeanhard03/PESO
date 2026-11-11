@@ -22,10 +22,27 @@ class _JobEvaluationResultDialogState extends State<JobEvaluationResultDialog> {
   List<Map<String, dynamic>> _recommendations = <Map<String, dynamic>>[];
   bool _loading = false;
 
+  static const _careerNames = <String, String>{
+    'sales_retail': 'Sales and shop work',
+    'hospitality_food': 'Food and hotel work',
+    'office_administration': 'Office work',
+    'logistics_warehouse': 'Warehouse and delivery work',
+    'manufacturing_operations': 'Factory and production work',
+    'manufacturing_craft': 'Hands-on making and repair',
+    'construction_trades': 'Construction work',
+    'driving_transport': 'Driving and transport',
+    'data_services': 'Computer and data work',
+    'technical_services': 'Repair and technical work',
+    'accounting_finance': 'Accounting and finance work',
+    'electrical_trades': 'Electrical work',
+    'personal_services': 'Customer and personal services',
+  };
+
   static List<String> _lines(Object? raw) => (raw is List ? raw : const [])
       .whereType<String>()
       .where((text) => text.trim().isNotEmpty)
-      .map((text) => text.replaceAll('_', ' '))
+      .map((text) =>
+          _careerNames[text] ?? text.replaceAll('_', ' ').trim())
       .take(5)
       .toList();
 
@@ -35,21 +52,33 @@ class _JobEvaluationResultDialogState extends State<JobEvaluationResultDialog> {
     final gaps = _lines(model['missingMandatory']);
     final fields = _lines(model['matchedOccupationFields']);
     final score = num.tryParse(model['score'].toString()) ?? 0;
+    final roleCriteriaSupported =
+        model['assessmentBasis'] == 'role_attributed_requirements' &&
+        (num.tryParse(model['roleCriteriaCount'].toString()) ?? 0) > 0;
+    final reliable =
+        roleCriteriaSupported &&
+        (model['confidence'] == 'medium' || model['confidence'] == 'moderate');
     String status, headline, explanation;
     if (report['aiMatchingStatus'] != 'ready' || model.isEmpty) {
       status = 'unavailable';
-      headline = 'Evaluation unavailable';
-      explanation = 'The AI service could not finish this check. You can retry or still send your application to PESO.';
+      headline = 'We could not check this job';
+      explanation = 'Please try again. You can still apply or ask PESO for help.';
+    } else if (!reliable) {
+      status = 'needs_review';
+      headline = 'Let’s check this job';
+      explanation = 'This job may be worth exploring. We need more details from the job post or your profile to check it properly. You can still apply or ask PESO for help.';
     } else if (fields.isNotEmpty && gaps.isEmpty && score >= 50) {
       status = 'match';
-      headline = 'Good Match! Congratulations!';
-      explanation = 'Your saved NSRP and résumé details relate to this job. PESO and the employer will still confirm the exact qualifications.';
+      headline = 'Your skills may fit this job';
+      explanation = 'Some skills you listed connect to this job. Check the job details. PESO or the employer will confirm what you need.';
     } else {
       status = 'no_match';
-      headline = 'Not a Match Yet';
+      headline = gaps.isNotEmpty
+          ? 'Check these job requirements'
+          : 'You can explore other jobs too';
       explanation = gaps.isNotEmpty
-          ? 'Your saved details do not yet show some requirements for this job. Here are other jobs to consider. You can still apply through PESO.'
-          : 'Your current skills do not closely match this job category yet. Here are other jobs to consider. You can still apply through PESO.';
+          ? 'Your profile does not yet show some things this job asks for. Check the details below. If you have these skills or documents, update your profile. You can still apply.'
+          : 'Your saved skills do not clearly connect to this job yet. You can explore other openings, update your profile, or still apply.';
     }
     return <String, dynamic>{
       'status': status,
@@ -125,6 +154,15 @@ class _JobEvaluationResultDialogState extends State<JobEvaluationResultDialog> {
   @override
   Widget build(BuildContext context) {
     final status = _feedback['status']?.toString() ?? 'review';
+    final savedHeadline = _feedback['headline']?.toString() ?? '';
+    // Older saved reports may use discouraging or technical titles.
+    final displayHeadline = switch (savedHeadline) {
+      'Career Fit Needs Review' => 'Let’s check this job',
+      'Not a Match Yet' => 'You can explore other jobs too',
+      'Good Match! Congratulations!' => 'Your skills may fit this job',
+      'Evaluation unavailable' => 'We could not check this job',
+      _ => savedHeadline.isEmpty ? 'Job check complete' : savedHeadline,
+    };
     final positive = status == 'match';
     final warning = status == 'no_match';
     final primaryColor = positive
@@ -167,7 +205,7 @@ class _JobEvaluationResultDialogState extends State<JobEvaluationResultDialog> {
           ),
           const SizedBox(height: 12),
           Text(
-            _feedback['headline']?.toString() ?? 'Job evaluation complete',
+            displayHeadline,
             style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 21),
           ),
           const SizedBox(height: 5),
@@ -192,7 +230,7 @@ class _JobEvaluationResultDialogState extends State<JobEvaluationResultDialog> {
             if (_feedback['explanationSource'] == 'gemini') ...[
               const SizedBox(height: 7),
               const Text(
-                'Brief explanation by Gemini using existing evaluation evidence.',
+                'AI helped write this note using your saved job details.',
                 style: TextStyle(fontSize: 11, color: Color(0xFF64766C)),
               ),
             ],
@@ -201,14 +239,14 @@ class _JobEvaluationResultDialogState extends State<JobEvaluationResultDialog> {
               const LinearProgressIndicator(minHeight: 2),
               const SizedBox(height: 6),
               const Text(
-                'Personalizing your explanation and finding related jobs…',
+                'Looking for other jobs you might like…',
                 style: TextStyle(fontSize: 11, color: Color(0xFF64766C)),
               ),
             ],
             if (matches.isNotEmpty) ...[
               const SizedBox(height: 13),
               const Text(
-                'Skills and work areas related to this job',
+                'Work areas related to your skills',
                 style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: 4),
@@ -217,7 +255,7 @@ class _JobEvaluationResultDialogState extends State<JobEvaluationResultDialog> {
             if (gaps.isNotEmpty) ...[
               const SizedBox(height: 13),
               const Text(
-                'Requirements to review with PESO',
+                'Things to check with PESO',
                 style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
               ),
               ...gaps
@@ -235,29 +273,30 @@ class _JobEvaluationResultDialogState extends State<JobEvaluationResultDialog> {
             if (!positive && gaps.isNotEmpty) ...[
               const SizedBox(height: 13),
               const Text(
-                'What to improve before applying',
+                'What you can do next',
                 style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: 4),
               const Text(
-                'If you already meet a listed requirement, update your profile with accurate details. Otherwise, ask PESO or the employer how to obtain it before applying again.',
+                'If you already have these skills or documents, add them to your profile. If not, ask PESO how to get started. You can still apply.',
                 style: TextStyle(fontSize: 12.5, height: 1.4),
               ),
             ],
             if (!positive) ...[
               const SizedBox(height: 15),
               const Text(
-                'Jobs we recommend exploring',
+                'Other jobs you can explore',
                 style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
               ),
               const SizedBox(height: 6),
               if (_recommendations.isEmpty && !_loading)
                 const Text(
-                  'No closely related active job could be confirmed yet. You can still browse all openings or proceed to PESO.',
+                  'No other job suggestions yet. You can still browse all jobs or ask PESO for help.',
                   style: TextStyle(fontSize: 12.5, height: 1.4),
                 ),
               ..._recommendations.map((job) {
                 final id = job['jobId']?.toString() ?? '';
+                final reason = job['reason']?.toString() ?? '';
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 7),
                   child: OutlinedButton(
@@ -298,6 +337,16 @@ class _JobEvaluationResultDialogState extends State<JobEvaluationResultDialog> {
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(fontSize: 11),
                               ),
+                              if (reason.isNotEmpty)
+                                Text(
+                                  reason,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 11.5,
+                                    height: 1.3,
+                                  ),
+                                ),
                             ],
                           ),
                         ),
@@ -309,13 +358,13 @@ class _JobEvaluationResultDialogState extends State<JobEvaluationResultDialog> {
               }),
               const SizedBox(height: 5),
               const Text(
-                'These are suggestions, not guaranteed job qualifications.',
+                'These are ideas, not a hiring decision.',
                 style: TextStyle(fontSize: 11, color: Color(0xFF617269)),
               ),
             ],
             const SizedBox(height: 11),
             const Text(
-              'You can still send your application to PESO for human review, even if your skills do not yet align closely.',
+              'You can still apply. PESO will review your information.',
               style: TextStyle(
                 fontSize: 12,
                 height: 1.4,
@@ -329,7 +378,7 @@ class _JobEvaluationResultDialogState extends State<JobEvaluationResultDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context, 'outcomes'),
-          child: const Text('View full results'),
+          child: const Text('See more details'),
         ),
         FilledButton(
           key: const Key('continue-to-peso'),

@@ -46,7 +46,7 @@ void main() {
     },
   );
 
-  test('Go qualification scores appear only from ready, validated results', () {
+  test('Go evidence ranks jobs without displaying a hiring percentage', () {
     final jobs = <Map<String, dynamic>>[
       {'id': 'a', 'title': 'Cashier', 'aiListingKind': 'role'},
       {'id': 'b', 'title': 'Carpenter', 'aiListingKind': 'role'},
@@ -69,13 +69,127 @@ void main() {
       goMatching: {
         'status': 'ready',
         'results': [
-          {'jobId': 'a', 'score': 72},
+          {
+            'jobId': 'a',
+            'score': 72,
+            'confidence': 'moderate',
+            'assessmentBasis': 'role_attributed_requirements',
+            'roleCriteriaCount': 2,
+            'missingMandatory': [],
+          },
           {'jobId': 'b', 'score': -10},
         ],
       },
     );
-    expect(ready.first['match'], 72);
+    expect(ready.first.containsKey('match'), isFalse);
+    expect(ready.first['suggestedForInterest'], isTrue);
     expect(ready.last.containsKey('match'), isFalse);
+  });
+
+  test(
+    'low-confidence 100/100 is an exploration clue, never a numeric match',
+    () {
+      final roles = <Map<String, dynamic>>[
+        {'id': 'unverified', 'title': 'Warehouseman', 'aiListingKind': 'role'},
+        {'id': 'verified', 'title': 'Sales Clerk', 'aiListingKind': 'role'},
+      ];
+      final ranked = rankJobOpportunities(
+        roles,
+        preferredOccupations: '',
+        goMatching: {
+          'status': 'ready',
+          'results': [
+            {
+              'jobId': 'unverified',
+              'score': 100,
+              'confidence': 'low',
+              'assessmentBasis': 'occupation_category_clues_only',
+              'roleCriteriaCount': 0,
+              'matchedOccupationFields': ['logistics_warehouse'],
+              'missingMandatory': [],
+            },
+            {
+              'jobId': 'verified',
+              'score': 75,
+              'confidence': 'moderate',
+              'assessmentBasis': 'role_attributed_requirements',
+              'roleCriteriaCount': 2,
+              'matchedOccupationFields': ['sales_retail'],
+              'missingMandatory': [],
+            },
+          ],
+        },
+      );
+      expect(ranked.length, 2);
+      expect(ranked.first['id'], 'verified');
+      final tentative = ranked.singleWhere((j) => j['id'] == 'unverified');
+      expect(tentative.containsKey('match'), isFalse);
+      expect(tentative['careerFieldToExplore'], true);
+      expect(tentative['suggestedForInterest'], true);
+      expect(
+        tentative['suggestionReason'],
+        contains('Check the details before applying'),
+      );
+    },
+  );
+
+  test('AI career discovery promotes newcomer training and skill transfer without percent badges', () {
+    final roles = <Map<String, dynamic>>[
+      {'id': 'engineer', 'title': 'Civil Engineer', 'aiListingKind': 'role'},
+      {'id': 'trainee', 'title': 'Production Trainee', 'aiListingKind': 'role'},
+      {'id': 'waiter', 'title': 'Service Waiter', 'aiListingKind': 'role'},
+    ];
+    final beginner = rankJobOpportunities(
+      roles,
+      preferredOccupations: '',
+      goMatching: {
+        'status': 'ready',
+        'results': [
+          {
+            'jobId': 'engineer',
+            'score': 6,
+            'opportunityRank': 0,
+            'opportunityPathway': 'explore',
+          },
+          {
+            'jobId': 'trainee',
+            'score': 6,
+            'opportunityRank': 24,
+            'opportunityPathway': 'training_pathway',
+          },
+        ],
+      },
+    );
+    expect(beginner.first['id'], 'trainee');
+    expect(beginner.first['trainingPathway'], true);
+    expect(beginner.first.containsKey('match'), false);
+    expect(
+      beginner.first['suggestionReason'],
+      contains('Ask PESO what you need'),
+    );
+
+    final skilled = rankJobOpportunities(
+      roles,
+      preferredOccupations: '',
+      goMatching: {
+        'status': 'ready',
+        'results': [
+          {
+            'jobId': 'waiter',
+            'score': 1,
+            'confidence': 'low',
+            'assessmentBasis': 'occupation_category_clues_only',
+            'roleCriteriaCount': 0,
+            'opportunityRank': 14,
+            'opportunityPathway': 'transferable_skills',
+          },
+        ],
+      },
+    );
+    final waiter = skilled.firstWhere((item) => item['id'] == 'waiter');
+    expect(waiter['transferableCareer'], true);
+    expect(waiter['suggestedForInterest'], true);
+    expect(waiter.containsKey('match'), false);
   });
 
   test('non-matching preferences do not create vacancies or percentages', () {
@@ -98,19 +212,30 @@ void main() {
   test('saved NSRP/resume skill evidence ranks only real existing jobs', () {
     final ranked = rankJobOpportunities(
       <Map<String, dynamic>>[
-        {'id': 'construction', 'title': 'Mason', 'aiListingKind': 'role',
-          'reqs': ['Concrete mixing']},
-        {'id': 'office', 'title': 'Office Assistant', 'aiListingKind': 'role',
-          'reqs': ['Microsoft Excel and computer literacy']},
+        {
+          'id': 'construction',
+          'title': 'Mason',
+          'aiListingKind': 'role',
+          'reqs': ['Concrete mixing'],
+        },
+        {
+          'id': 'office',
+          'title': 'Office Assistant',
+          'aiListingKind': 'role',
+          'reqs': ['Microsoft Excel and computer literacy'],
+        },
       ],
       preferredOccupations: '',
       sourceSupportedSkills: ['Microsoft Excel'],
     );
     expect(ranked.map((job) => job['id']).toList(), ['office', 'construction']);
     expect(ranked.first['suggestedForInterest'], true);
-    expect(ranked.first['suggestionReason'], contains('NSRP/resume'));
-    expect(ranked.every((job) => !job.containsKey('match')), true,
-        reason: 'profile interest ranking must not fabricate Go scores');
+    expect(ranked.first['suggestionReason'], contains('You listed skills'));
+    expect(
+      ranked.every((job) => !job.containsKey('match')),
+      true,
+      reason: 'profile interest ranking must not fabricate Go scores',
+    );
   });
 
   test('localized UI shows correct Tagalog/Taglish without mutating source', () {

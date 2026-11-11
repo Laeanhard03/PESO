@@ -14,3 +14,39 @@
   outline-color: #b91c1c !important;
   box-shadow: 0 0 0 6px rgba(239, 68, 68, 0.2) !important;
 }
+
+/* Print-only compact layout for the second original NSRP sheet.
+   Applied only to the export clone; the editable on-screen form is unchanged. */
+.nsrp-print-compact {
+  padding: 18px 28px !important;
+  font-size: 11px !important;
+}
+.nsrp-print-compact,
+.nsrp-print-compact * {
+  line-height: 1.08 !important;
+}
+.nsrp-print-compact .p-8 { padding: 18px 28px !important; }
+.nsrp-print-compact .p-4 { padding: 8px !important; }
+.nsrp-print-compact .p-2 { padding: 5px !important; }
+.nsrp-print-compact .p-1 { padding: 3px !important; }
+.nsrp-print-compact .mb-4 { margin-bottom: 8px !important; }
+.nsrp-print-compact .mb-3 { margin-bottom: 6px !important; }
+.nsrp-print-compact .mb-8 { margin-bottom: 10px !important; }
+.nsrp-print-compact .mt-4 { margin-top: 6px !important; }
+.nsrp-print-compact .mt-3 { margin-top: 6px !important; }
+.nsrp-print-compact .mt-2 { margin-top: 4px !important; }
+.nsrp-print-compact .gap-y-2 { row-gap: 6px !important; }
+.nsrp-print-compact .gap-2 { gap: 6px !important; }
+.nsrp-print-compact .gap-4 { gap: 10px !important; }
+.nsrp-print-compact .h-8 { height: 24px !important; }
+.nsrp-print-compact .h-10 { height: 30px !important; }
+.nsrp-print-compact .h-20 { height: 56px !important; }
+.nsrp-print-compact input[type="checkbox"] {
+  width: 14px !important;
+  height: 14px !important;
+}
+.nsrp-print-compact .text-sm { font-size: 11px !important; }
+.nsrp-print-compact .text-xs { font-size: 10px !important; }
+.nsrp-print-compact [class~="text-[10px]"] { font-size: 9px !important; }
+.nsrp-print-compact [class~="text-[9px]"] { font-size: 8px !important; }
+.nsrp-print-compact [class~="text-[8px]"] { font-size: 7px !important; }

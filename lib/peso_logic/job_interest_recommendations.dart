@@ -79,13 +79,10 @@ List<Map<String, dynamic>> rankJobOpportunities(
       goMatching?['status'] == 'ready' && goMatching?['results'] is List
       ? goMatching!['results'] as List
       : const [];
-  final goScores = <String, num>{
+  final goEvidence = <String, Map<dynamic, dynamic>>{
     for (final row in rawGo.whereType<Map>())
-      if (row['jobId']?.toString().isNotEmpty == true &&
-          row['score'] is num &&
-          (row['score'] as num) >= 0 &&
-          (row['score'] as num) <= 100)
-        row['jobId'].toString(): row['score'] as num,
+      if (row['jobId']?.toString().isNotEmpty == true)
+        row['jobId'].toString(): row,
   };
 
   final prepared = <({int index, int priority, Map<String, dynamic> job})>[];
@@ -121,11 +118,13 @@ List<Map<String, dynamic>> rankJobOpportunities(
         .map((skill) => skill.trim().toLowerCase())
         .where((skill) => skill.length >= 4 && skill.length <= 90)
         .toSet();
-    final requirementText = (job['reqs'] is List
-        ? (job['reqs'] as List).join(' ')
-        : job['requirements'] is List
-        ? (job['requirements'] as List).join(' ')
-        : '').toLowerCase();
+    final requirementText =
+        (job['reqs'] is List
+                ? (job['reqs'] as List).join(' ')
+                : job['requirements'] is List
+                ? (job['requirements'] as List).join(' ')
+                : '')
+            .toLowerCase();
     final detailText = [
       roleTitle,
       requirementText,
@@ -136,9 +135,41 @@ List<Map<String, dynamic>> rankJobOpportunities(
     ].join(' ');
     final verifiedSkills = verifiedEvidence
         .where((term) => _containsPhrase(detailText, term))
-        .length.clamp(0, 5);
+        .length
+        .clamp(0, 5);
     final jobId = job['id']?.toString() ?? '';
-    final modelScore = goScores[jobId];
+    final model = goEvidence[jobId];
+    final rawDiscoveryRank = model?['opportunityRank'];
+    final discoveryRank =
+        rawDiscoveryRank is num &&
+            rawDiscoveryRank >= 0 &&
+            rawDiscoveryRank <= 100
+        ? rawDiscoveryRank.toInt()
+        : 0;
+    final opportunityPathway = model?['opportunityPathway']?.toString() ?? '';
+    final trainingPathway =
+        opportunityPathway == 'training_pathway' && discoveryRank > 0;
+    final transferableCareer =
+        opportunityPathway == 'transferable_skills' && discoveryRank > 0;
+    final rawScore = model?['score'];
+    final matchedFields = model?['matchedOccupationFields'];
+    final recordedGaps = model?['missingMandatory'];
+    final hasKnownGap = recordedGaps is List && recordedGaps.isNotEmpty;
+    final supportedRoleEvidence =
+        model?['assessmentBasis'] == 'role_attributed_requirements' &&
+        (model?['roleCriteriaCount'] is num) &&
+        (model!['roleCriteriaCount'] as num) > 0 &&
+        (model['confidence'] == 'medium' || model['confidence'] == 'moderate');
+    final validScore = rawScore is num && rawScore >= 0 && rawScore <= 100;
+    // These are occupation-model scores, not probabilities of being hired.
+    // Do not promote uncertain job-title clues to numeric "matches".
+    final modelScore = supportedRoleEvidence && !hasKnownGap && validScore
+        ? rawScore
+        : null;
+    final careerFieldToExplore =
+        matchedFields is List &&
+        matchedFields.isNotEmpty &&
+        !supportedRoleEvidence;
     // Job-specific posts come first; employer-wide notices are not a career
     // recommendation just because they mention many unrelated positions.
     final notice = job['aiListingKind'] == 'notice';
@@ -147,6 +178,8 @@ List<Map<String, dynamic>> rankJobOpportunities(
         (hasInterest ? 100 : 0) +
         (directMatch ? 35 : 0) +
         (verifiedSkills * 8) +
+        (careerFieldToExplore ? 10 : 0) +
+        (discoveryRank / 2).round() +
         (modelScore != null ? (modelScore / 4).round() : 0) -
         (notice ? 35 : 0);
 
@@ -155,14 +188,38 @@ List<Map<String, dynamic>> rankJobOpportunities(
       priority: priority,
       job: <String, dynamic>{
         ...job,
-        'suggestedForInterest': (hasInterest || verifiedSkills > 0) && !notice,
-        if ((hasInterest || verifiedSkills > 0) && !notice)
+        'suggestedForInterest':
+            (hasInterest ||
+                verifiedSkills > 0 ||
+                modelScore != null ||
+                careerFieldToExplore ||
+                trainingPathway ||
+                transferableCareer) &&
+            !notice,
+        if ((hasInterest ||
+                verifiedSkills > 0 ||
+                modelScore != null ||
+                careerFieldToExplore ||
+                trainingPathway ||
+                transferableCareer) &&
+            !notice)
           'suggestionReason': matchedFamilies.isNotEmpty
-              ? 'Your interests: ${matchedFamilies.join(', ')}'
+              ? 'This job is related to the work you want to do.'
               : directMatch
-              ? 'Your preferred occupation'
-              : 'Related to the work or skills saved in your NSRP/resume',
-        if (modelScore != null) 'match': modelScore.round(),
+              ? 'This job is similar to the work you want.'
+              : verifiedSkills > 0
+              ? 'You listed skills that may help with this job. Check the details.'
+              : trainingPathway
+              ? 'The job title says trainee or helper. Ask PESO what you need.'
+              : transferableCareer
+              ? 'Skills you listed may help with this job. Ask PESO what it needs.'
+              : 'This job may interest you. Check the details before applying.',
+        if (trainingPathway && !notice) 'trainingPathway': true,
+        if (transferableCareer && !notice) 'transferableCareer': true,
+        if (careerFieldToExplore && !notice) 'careerFieldToExplore': true,
+        if (hasKnownGap && !notice) 'roleRequirementsToReview': true,
+        // The model score affects ordering, but is not a hiring percentage.
+        // Job cards show a plain explanation instead of a numeric "match".
       },
     ));
   }

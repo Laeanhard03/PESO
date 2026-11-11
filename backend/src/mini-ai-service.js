@@ -4,6 +4,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { isJobPostingVisible } from './job_postings.js';
+import { enrichCareerOpportunities } from './career-opportunity-ranker.js';
 import {
   verifyOccupationCategories, deriveCategoriesFromVerifiedFacts,
   classifyJobOccupation,
@@ -307,15 +308,57 @@ export async function runGoModel(applicant, jobs, { executable, model, execImpl 
     packaged?.executable || defaultBinary;
   const modelPath = model || process.env.PESO_GO_AI_MODEL ||
     packaged?.model || defaultModel;
-  const input = JSON.stringify({ applicant, jobs: jobs.map(safeJob) });
-  // Pass JSON via stdin, never as a command argument or shell interpolation.
-  const { stdout } = await execImpl(binaryPath, ['predict', '-model', modelPath], {
-    input, timeout: 8500, maxBuffer: 2 * 1024 * 1024,
-    windowsHide: true, shell: false,
-  });
-  const output = JSON.parse(stdout);
-  if (!output?.ok || !Array.isArray(output.results)) throw new Error('invalid_go_model_response');
-  return output;
+  // The packaged Go CLI intentionally returns no more than 30 ranked results
+  // per invocation. Cover every eligible role by evaluating bounded batches;
+  // never silently hide potentially relevant roles beyond the first 30.
+  // A small worker pool keeps serverless memory/process pressure bounded.
+  const batchSize = 30;
+  const batches = [];
+  for (let offset = 0; offset < jobs.length; offset += batchSize) {
+    batches.push(jobs.slice(offset, offset + batchSize).map(safeJob));
+  }
+  if (batches.length === 0) throw new Error('no_jobs_to_evaluate');
+  const responses = new Array(batches.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < batches.length) {
+      const index = next++;
+      const batch = batches[index];
+      // Pass only bounded JSON via stdin, never as shell arguments.
+      const { stdout } = await execImpl(binaryPath, ['predict', '-model', modelPath], {
+        input: JSON.stringify({ applicant, jobs: batch }),
+        timeout: 8500, maxBuffer: 2 * 1024 * 1024,
+        windowsHide: true, shell: false,
+      });
+      const response = JSON.parse(stdout);
+      if (!response?.ok || !Array.isArray(response.results) ||
+          response.results.length !== batch.length) {
+        throw new Error('invalid_go_model_response');
+      }
+      const expected = new Set(batch.map(job => job.id));
+      const observed = new Set();
+      for (const row of response.results) {
+        const id = String(row?.jobId || '');
+        if (!expected.has(id) || observed.has(id)) {
+          throw new Error('invalid_go_model_response');
+        }
+        observed.add(id);
+      }
+      responses[index] = response;
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(3, batches.length) },
+    () => worker()));
+  const version = responses[0]?.modelVersion;
+  if (responses.some(response => response.modelVersion !== version)) {
+    throw new Error('go_model_version_mismatch');
+  }
+  const results = responses.flatMap(response => response.results);
+  results.sort((a, b) => b.score - a.score);
+  return {
+    ok: true, modelVersion: version, results,
+    disclaimer: responses[0]?.disclaimer,
+  };
 }
 export async function evaluateProfileAgainstJobs({ profile, jobs, runner = runGoModel }) {
   const applicant = normalizeApplicantProfile(profile);
@@ -324,12 +367,18 @@ export async function evaluateProfileAgainstJobs({ profile, jobs, runner = runGo
   try {
     const response = await runner(applicant, available);
     const indexed = new Map(available.map(job => [String(job._id ?? job.id), job]));
-    const results = response.results.filter(row => indexed.has(String(row.jobId))).map(row => ({
+    const modelRows = response.results.filter(row => indexed.has(String(row.jobId))).map(row => ({
       ...row, title: String(indexed.get(String(row.jobId)).title || ''),
       company: String(indexed.get(String(row.jobId)).company || ''),
       category: String(indexed.get(String(row.jobId)).category || ''),
       sourceTitle: String(indexed.get(String(row.jobId)).sourceTitle || ''),
     }));
+    // The trained occupation score stays intact. A separate explainable
+    // discovery rank supports beginners and transferable skills without
+    // inventing requirements or automatic employment eligibility.
+    const results = enrichCareerOpportunities(applicant, available, modelRows)
+      .sort((a, b) => b.opportunityRank - a.opportunityRank ||
+        Number(b.score || 0) - Number(a.score || 0));
     return { ok: true, status: 'ready', modelVersion: response.modelVersion,
       applicant: { skills: applicant.skills, educationLevel: applicant.educationLevel,
         yearsExperience: applicant.yearsExperience, profileIncomplete: applicant.incomplete },

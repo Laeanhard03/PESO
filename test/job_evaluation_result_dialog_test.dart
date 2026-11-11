@@ -34,21 +34,44 @@ Map<String, dynamic> report({
   },
 };
 void main() {
-  testWidgets('congratulates on supported career match before Outcomes', (
-    tester,
-  ) async {
-    final data = report();
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(body: JobEvaluationResultDialog(report: data)),
-      ),
-    );
-    expect(find.textContaining('Congratulations!'), findsOneWidget);
-    expect(find.textContaining('PESO and the employer'), findsOneWidget);
-    expect(find.text('View full results'), findsOneWidget);
-    expect(find.text('Continue application to PESO'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
+  testWidgets(
+    'explains supported career overlap without promising employment',
+    (tester) async {
+      final data = report();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: JobEvaluationResultDialog(report: data)),
+        ),
+      );
+      expect(find.text('Your skills may fit this job'), findsOneWidget);
+      expect(find.textContaining('PESO or the employer'), findsOneWidget);
+      expect(find.text('See more details'), findsOneWidget);
+      expect(find.text('Continue application to PESO'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'high similarity without verified employer criteria is a review, not a match',
+    (tester) async {
+      final data = report(explicit: false);
+      (data['modelMatch'] as Map<String, dynamic>)['score'] = 100;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: JobEvaluationResultDialog(report: data)),
+        ),
+      );
+      expect(find.text('Let’s check this job'), findsOneWidget);
+      expect(
+        find.textContaining('more details from the job post'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Congratulations'), findsNothing);
+      expect(find.text('Not a Match Yet'), findsNothing);
+      expect(find.text('Continue application to PESO'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('a missing employer criterion prevents any congratulations', (
     tester,
@@ -59,12 +82,9 @@ void main() {
         home: Scaffold(body: JobEvaluationResultDialog(report: data)),
       ),
     );
-    expect(find.text('Not a Match Yet'), findsOneWidget);
-    expect(find.text('What to improve before applying'), findsOneWidget);
-    expect(
-      find.textContaining('update your profile with accurate details'),
-      findsOneWidget,
-    );
+    expect(find.text('Check these job requirements'), findsOneWidget);
+    expect(find.text('What you can do next'), findsOneWidget);
+    expect(find.textContaining('add them to your profile'), findsOneWidget);
     expect(
       find.textContaining('Employer-listed professional driver license'),
       findsWidgets,
@@ -103,11 +123,11 @@ void main() {
     await tester.tap(find.text('Evaluate now'));
     await tester.pump();
     expect(find.byKey(const Key('job-evaluation-popup')), findsOneWidget);
-    expect(find.text('Not a Match Yet'), findsOneWidget);
+    expect(find.text('Let’s check this job'), findsOneWidget);
     completion.complete(<String, dynamic>{
       'ok': true,
       'feedback': <String, dynamic>{
-        'status': 'no_match',
+        'status': 'needs_review',
         'headline': 'Other paths may fit your experience',
         'explanation': 'This occupational area differs from your existing profile. Explore these other jobs or apply through PESO.',
         'explanationSource': 'gemini',
@@ -117,12 +137,17 @@ void main() {
           'jobId': 'office123',
           'title': 'Office Assistant',
           'company': 'QA Employer',
+          'reason': 'The job title says trainee or helper. Ask PESO what you need to apply.',
         },
       ],
     });
     await tester.pumpAndSettle();
     expect(find.text('Office Assistant'), findsOneWidget);
-    expect(find.textContaining('explanation by Gemini'), findsOneWidget);
+    expect(
+      find.textContaining('Ask PESO what you need to apply.'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('AI helped write this note'), findsOneWidget);
     await tester.ensureVisible(
       find.byKey(const Key('recommended-role-office123')),
     );
@@ -131,6 +156,37 @@ void main() {
     expect(selected, 'job:office123');
     expect((data['jobFeedback'] as Map)['recommendations'], isNotEmpty);
   });
+
+  for (final size in <Size>[
+    const Size(320, 568),
+    const Size(390, 844),
+    const Size(1024, 768),
+  ]) {
+    testWidgets('job check is readable on ${size.width} px at larger text', (
+      tester,
+    ) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+      final data = report(explicit: false);
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: TextScaler.linear(1.5)),
+            child: child!,
+          ),
+          home: Scaffold(body: JobEvaluationResultDialog(report: data)),
+        ),
+      );
+      expect(find.text('Let’s check this job'), findsOneWidget);
+      expect(find.textContaining('still apply'), findsWidgets);
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets(
     'report preserves Gemini explanation in Outcomes and is responsive',
