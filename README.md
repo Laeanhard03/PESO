@@ -247,3 +247,15 @@ The first Render build reached the React bundle step but failed because `NODE_EN
 - React workspace: 17 tests passed; ESLint passed; production NSRP bundle built successfully
 
 The Render Free instance may spin down after inactivity; its first request after sleep can have a cold-start delay. The Vercel primary remains unchanged.
+
+## Independent Vercel primary deployment (2026-11-12)
+
+- Created the independent Vercel project `peso-jobkonek` under the `ferrerajoshlander-1268` Hobby team. Production domain: `https://peso-jobkonek.vercel.app/`; project dashboard: `https://vercel.com/ferrerajoshlander-1268/peso-jobkonek`.
+- Connected GitHub `Laeanhard03/PESO` and set `deploy/render-failover` as the Vercel production branch. The deployed source is commit `9dc1718` (`Merge main into Render failover deployment`) in Singapore (`sin1`). Production is public; preview deployments retain Vercel SSO protection.
+- The single-project build publishes Flutter at `/`, React NSRP/resume at `/nsrp/` and `/nsrp/resume`, and the Express API through `api/index.mjs` under `/api/*`. The API function is configured for a 300-second maximum duration.
+- Verified from the public production domain: `/`, `/nsrp/`, and `/nsrp/resume` return HTTP 200; `/api/health` returns JSON; unauthenticated `/api/jobs` and `/api/admin/users` return HTTP 401.
+- **Backend readiness is incomplete:** the latest `/api/health` check reports `mongoDbConnected=false`, `databaseName=null`, and `geminiConfigured=false`. Vercel Production still needs `MONGODB_URI`, `FIREBASE_ADMIN_SERVICE_ACCOUNT_B64`, `INITIAL_ADMIN_EMAIL`, and `GEMINI_KEY_ENCRYPTION_SECRET`. The current environment already contains `FIREBASE_PROJECT_ID`, `MONGODB_DB_NAME`, `PESO_PUBLIC_PDF_OCR_LANGS`, and `CLIENT_ALLOWED_ORIGINS`.
+- `FILE_LINK_SECRET` and `PESO_EXPORT_SECRET` were generated as new shared signing secrets and configured in both Vercel Production and Render. Previously issued signed file/export links may need to be regenerated after this coordinated secret rotation.
+- Updated Render's `PESO_FAILOVER_PRIMARY_URL` to `https://peso-jobkonek.vercel.app`. The Render gateway redirects new visitors to Vercel only when the primary page, MongoDB-backed `/api/health`, and required `adminDevelopmentNotes` feature are healthy. Otherwise it serves the Render fallback. Use the Render service URL as the independent entry point; a failed Vercel deployment cannot redirect requests that go directly to its own unavailable hostname.
+- **Credential safety:** do not reuse the old `backend/.env` MongoDB URI; the previous URI was exposed and must be rotated. Configure a fresh least-privilege Atlas URI for `peso_jobkonek`. The Firebase Admin service-account JSON and Gemini encryption secret were validated locally; transfer them to Vercel through its Production environment settings without pasting secrets into chat.
+- **Release gate:** after the remaining Production variables are configured, redeploy Vercel and require `/api/health` to report MongoDB connected and Gemini configured. Then verify that the Render gateway returns HTTP 302 to Vercel when healthy and serves the Render copy when Vercel is unhealthy.
