@@ -19,7 +19,7 @@ services:
       - key: MONGODB_DB_NAME
         value: peso_jobkonek
       - key: PESO_FAILOVER_PRIMARY_URL
-        value: https://peso-psi.vercel.app
+        value: https://peso-jobkonek.vercel.app
       - key: PESO_FAILOVER_CACHE_MS
         value: "10000"
       - key: PESO_FAILOVER_REQUIRED_FEATURES

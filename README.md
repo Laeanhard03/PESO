@@ -259,3 +259,11 @@ The Render Free instance may spin down after inactivity; its first request after
 - Updated Render's `PESO_FAILOVER_PRIMARY_URL` to `https://peso-jobkonek.vercel.app`. The Render gateway redirects new visitors to Vercel only when the primary page, MongoDB-backed `/api/health`, and required `adminDevelopmentNotes` feature are healthy. Otherwise it serves the Render fallback. Use the Render service URL as the independent entry point; a failed Vercel deployment cannot redirect requests that go directly to its own unavailable hostname.
 - **Credential safety:** do not reuse the old `backend/.env` MongoDB URI; the previous URI was exposed and must be rotated. Configure a fresh least-privilege Atlas URI for `peso_jobkonek`. The Firebase Admin service-account JSON and Gemini encryption secret were validated locally; transfer them to Vercel through its Production environment settings without pasting secrets into chat.
 - **Release gate:** after the remaining Production variables are configured, redeploy Vercel and require `/api/health` to report MongoDB connected and Gemini configured. Then verify that the Render gateway returns HTTP 302 to Vercel when healthy and serves the Render copy when Vercel is unhealthy.
+
+## Vercel environment follow-up (2026-11-12)
+
+- `INITIAL_ADMIN_EMAIL` is now configured in Vercel Production and matches the existing MongoDB admin account.
+- `FILE_LINK_SECRET` and `PESO_EXPORT_SECRET` are configured as sensitive Production variables in Vercel and synchronized to Render using the same newly generated values.
+- The remaining Vercel Production blockers are exactly: `MONGODB_URI`, `FIREBASE_ADMIN_SERVICE_ACCOUNT_B64`, and `GEMINI_KEY_ENCRYPTION_SECRET`.
+- The current Vercel production deployment for commit `bcebfaa` is Ready. Public checks: `/`, `/nsrp/`, `/nsrp/resume`, and `/api/health` return HTTP 200; unauthenticated `/api/jobs` and `/api/admin/users` return HTTP 401.
+- Latest Vercel API health remains `mongoDbConnected=false`, `databaseName=null`, `geminiConfigured=false`; Render remains healthy with MongoDB, Gemini, and `adminDevelopmentNotes` enabled. The Render gateway therefore correctly continues to serve the backup until Vercel's database-backed health check passes.
