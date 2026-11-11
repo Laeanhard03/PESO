@@ -588,6 +588,165 @@ class PesoApiClient {
     timeout: const Duration(seconds: 45),
   );
 
+  static Future<Map<String, dynamic>> adminListDevelopmentNotes({
+    String query = '',
+    String kind = 'all',
+    String status = 'active',
+    int limit = 200,
+  }) => _request(
+    'GET',
+    '/api/admin/development-notes',
+    query: <String, String>{
+      'limit': limit.clamp(1, 200).toString(),
+      if (query.trim().isNotEmpty) 'q': query.trim(),
+      if (kind != 'all') 'kind': kind,
+      if (status == 'archived') 'archived': '1',
+      if (status != 'active' && status != 'all' && status != 'archived')
+        'status': status,
+    },
+    timeout: const Duration(seconds: 45),
+  );
+
+  static Future<Map<String, dynamic>> adminCreateDevelopmentNote(
+    Map<String, dynamic> note,
+  ) => _request('POST', '/api/admin/development-notes', body: note);
+
+  static Future<Map<String, dynamic>> adminUpdateDevelopmentNote(
+    String id,
+    Map<String, dynamic> changes, {
+    required int expectedRevision,
+  }) => _request(
+    'PATCH',
+    '/api/admin/development-notes/${Uri.encodeComponent(id)}',
+    body: <String, dynamic>{...changes, 'expectedRevision': expectedRevision},
+  );
+
+  static Future<Map<String, dynamic>> adminAddDevelopmentChecklistItem(
+    String id,
+    String text, {
+    required int expectedRevision,
+  }) => _request(
+    'POST',
+    '/api/admin/development-notes/${Uri.encodeComponent(id)}/checklist',
+    body: <String, dynamic>{'text': text, 'expectedRevision': expectedRevision},
+  );
+
+  static Future<Map<String, dynamic>> adminSetDevelopmentChecklistItem(
+    String id,
+    String itemId, {
+    required bool completed,
+    required int expectedRevision,
+  }) => _request(
+    'PATCH',
+    '/api/admin/development-notes/${Uri.encodeComponent(id)}/checklist/${Uri.encodeComponent(itemId)}',
+    body: <String, dynamic>{
+      'completed': completed,
+      'expectedRevision': expectedRevision,
+    },
+  );
+
+  static Future<Map<String, dynamic>> adminRemoveDevelopmentChecklistItem(
+    String id,
+    String itemId, {
+    required int expectedRevision,
+  }) => _request(
+    'DELETE',
+    '/api/admin/development-notes/${Uri.encodeComponent(id)}/checklist/${Uri.encodeComponent(itemId)}',
+    body: <String, dynamic>{'expectedRevision': expectedRevision},
+  );
+
+  static Future<Map<String, dynamic>> adminCommentDevelopmentNote(
+    String id,
+    String message,
+  ) => _request(
+    'POST',
+    '/api/admin/development-notes/${Uri.encodeComponent(id)}/comments',
+    body: <String, dynamic>{'message': message},
+  );
+
+  static Future<Map<String, dynamic>> adminAttachDevelopmentNoteImage(
+    String id, {
+    required String fileName,
+    required String mimeType,
+    required String base64,
+    required int expectedRevision,
+  }) => _request(
+    'POST',
+    '/api/admin/development-notes/${Uri.encodeComponent(id)}/attachments',
+    body: <String, dynamic>{
+      'fileName': fileName,
+      'mimeType': mimeType,
+      'base64': base64,
+      'expectedRevision': expectedRevision,
+    },
+    timeout: const Duration(seconds: 60),
+  );
+
+  static Future<Uint8List> adminReadDevelopmentNoteImage(
+    String id,
+    String attachmentId,
+  ) async {
+    final token = await PesoAuthSession.getBearerToken();
+    if (token == null || token.isEmpty) {
+      throw const PesoApiException(
+        statusCode: 401,
+        code: 'unauthenticated',
+        message: 'Sign in as an administrator to view this image.',
+      );
+    }
+    final base = Uri.parse(baseUrl);
+    final uri = base.replace(
+      path:
+          base.path.replaceFirst(RegExp(r'/$'), '') +
+          '/api/admin/development-notes/${Uri.encodeComponent(id)}/attachments/${Uri.encodeComponent(attachmentId)}/content',
+    );
+    try {
+      final response = await _http
+          .get(
+            uri,
+            headers: {
+              'Authorization': 'Bearer $token',
+              'Accept': 'image/png, image/jpeg, image/webp, image/gif',
+            },
+          )
+          .timeout(const Duration(seconds: 45));
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw PesoApiException(
+          statusCode: response.statusCode,
+          code: 'admin_note_image_unavailable',
+          message: _statusMessage(response.statusCode),
+        );
+      }
+      if (response.bodyBytes.isEmpty ||
+          response.bodyBytes.length > 5 * 1024 * 1024) {
+        throw const PesoApiException(
+          statusCode: 502,
+          code: 'invalid_note_image',
+          message: 'The stored screenshot is empty or too large.',
+        );
+      }
+      return response.bodyBytes;
+    } on PesoApiException {
+      rethrow;
+    } catch (_) {
+      throw const PesoApiException(
+        statusCode: 0,
+        code: 'note_image_network_error',
+        message: 'Could not retrieve the private screenshot.',
+      );
+    }
+  }
+
+  static Future<Map<String, dynamic>> adminRemoveDevelopmentNoteImage(
+    String id,
+    String attachmentId, {
+    required int expectedRevision,
+  }) => _request(
+    'DELETE',
+    '/api/admin/development-notes/${Uri.encodeComponent(id)}/attachments/${Uri.encodeComponent(attachmentId)}',
+    body: <String, dynamic>{'expectedRevision': expectedRevision},
+  );
+
   static Future<Map<String, dynamic>> adminListJobs({
     int limit = 100,
     String? pageToken,

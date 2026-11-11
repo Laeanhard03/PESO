@@ -69,6 +69,13 @@ void main() {
     expect(tabs, contains(AdminTab.analytics));
     expect(tabs, contains(AdminTab.users));
     expect(tabs, contains(AdminTab.concerns));
+    expect(tabs, contains(AdminTab.developmentNotes));
+    expect(
+      kNavItems
+          .firstWhere((item) => item.tab == AdminTab.developmentNotes)
+          .label,
+      'Development Notepad',
+    );
     expect(tabs, contains(AdminTab.jobs));
     expect(tabs, contains(AdminTab.applications));
     expect(tabs, contains(AdminTab.siteContent));

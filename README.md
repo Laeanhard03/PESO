@@ -114,3 +114,34 @@ identities are not reliable deployment authors.
    Do not recreate separate React or backend Vercel projects. Authenticated
    admin and applicant acceptance requires an owner-account browser test;
    an unauthenticated HTTP 401 alone verifies access protection only.
+
+
+## Admin Development Notepad
+
+The Admin dashboard includes a shared Development Notepad for the PESO programming team. Administrators can record bugs, improvements, and development tasks; assign a programmer; set priority and tags; add step-by-step checklists; attach private screenshots; discuss findings in comments; and archive or restore resolved items. Completing every checklist item automatically marks bugs as Fixed and improvements/tasks as Implemented. The workspace stores notes in MongoDB, screenshots in private GridFS storage, and uses revision checks to prevent concurrent edits from silently overwriting one another. The Admin view refreshes shared notes every 20 seconds when no search term is active. See backend/ADMIN_API.md for the protected API contract.
+
+
+## Vercel pause and failover status (2026-11-12)
+
+The Vercel dashboard project is yey10/peso; https://peso-psi.vercel.app/ is its production app domain. The dashboard showed the yey10 team paused since November 11, 2026 for **Fluid Active CPU** Hobby fair-use overage (not CDN bandwidth), with a displayed pause end date of December 11, 2026. The public app domain and multiple production/preview deployment URLs returned HTTP 402 (DEPLOYMENT_DISABLED) during the November 12 check. The team-level pause banner was also visible on the team's other projects.
+
+A redirect script served by the paused Vercel deployment cannot recover this outage: Vercel returns HTTP 402 before serving the app's HTML, so browser JavaScript never runs. A second deployment in the same yey10 team is not an independent fallback; the team's deployments are paused together. The Vercel project dashboard URL is not a second application URL.
+
+**Failover is not yet deployed.** No independent working PESO deployment URL was found in the yey10 team's project deployments or the other currently connected Vercel account. A resilient entry point requires an independent host/router and an independently available app/API origin, or moving the project to an eligible active Vercel team. The peso-psi.vercel.app hostname itself cannot be redirected by code inside the paused deployment. Do not claim failover is active until an external entry point and fallback origin are configured and tested.
+
+The Render integration is connected. A local render.yaml now defines a free Singapore web service on the dedicated deploy/render-failover branch, with a same-origin Flutter/NSRP/Express build and an external health-checked failover router. The Render account exposes one workspace named My Workspace; no Render service has been created yet because the workspace must be confirmed. Secret values remain outside Git and must be configured in Render.
+
+
+## Independent Render backup and failover gateway
+
+The source now includes a Render deployment definition at render.yaml. It is designed as one same-origin Node web service that builds the existing Flutter app and React NSRP/resume workspace, then runs the existing Express API and serves the generated build/web assets. The backup uses the same MongoDB database, Firebase project, and packaged Go matching runtime; it does not create a second database or separate API.
+
+The planned Render service is peso-jobkonek-failover-jlf-2026 in Singapore on the Free plan. Its public entry point will be https://peso-jobkonek-failover-jlf-2026.onrender.com if that service name is available. The service checks both the primary Vercel page and /api/health; it only redirects to Vercel when the site, MongoDB connection, and required adminDevelopmentNotes feature are healthy. Otherwise it serves the Render copy. A session cookie keeps the current browser on the fallback while its Flutter, NSRP, and API requests are in progress. API requests are never redirected.
+
+The required-feature check prevents the gateway from sending users back to an older Vercel build that does not yet contain the Development Notepad. Once the Vercel deployment includes the feature and reports it from /api/health, new browser sessions can automatically return to Vercel.
+
+The Render backup disables automatic public-PDF background re-reading with PESO_SKIP_AUTOMATIC_JOB_SYNC=1; already stored public recruitment data remains available, while the backup avoids duplicating the CPU-heavy scheduled ingestion that contributed to the Vercel team's pause. Manual refresh remains available through the Admin workflow.
+
+Before the first live deploy, configure these server-side values in Render without committing them: MONGODB_URI, FIREBASE_ADMIN_SERVICE_ACCOUNT_B64, INITIAL_ADMIN_EMAIL, FILE_LINK_SECRET, PESO_EXPORT_SECRET, and (if used by the current Gemini setup) GEMINI_API_KEY and GEMINI_KEY_ENCRYPTION_SECRET. Reuse the existing values where encrypted Gemini keys or signed links must remain readable. Also allow the Render service's outbound IP addresses in MongoDB Atlas and add the Render hostname to Firebase Authentication's authorized domains.
+
+The Free web service sleeps after 15 minutes without inbound traffic and takes about one minute to wake. Render documents 750 free instance hours per workspace per calendar month. This is a cost-free backup tier, not an always-on production guarantee. The old peso-psi.vercel.app hostname cannot redirect while Vercel returns HTTP 402 before serving application code; once the backup is deployed, users must enter through the new Render URL during the pause. The deploy/render-failover branch is prepared locally; no Render resource, DNS change, paid plan, or Vercel deployment has been applied yet.

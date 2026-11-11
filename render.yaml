@@ -1,0 +1,48 @@
+services:
+  - type: web
+    name: peso-jobkonek-failover-jlf-2026
+    runtime: node
+    plan: free
+    region: singapore
+    branch: deploy/render-failover
+    autoDeployTrigger: commit
+    buildCommand: bash scripts/vercel_install_flutter.sh && bash scripts/vercel_build_flutter.sh
+    startCommand: cd backend && npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: FIREBASE_PROJECT_ID
+        value: capstone-4th-year-peso-ai
+      - key: MONGODB_DB_NAME
+        value: peso_jobkonek
+      - key: CLIENT_ALLOWED_ORIGINS
+        value: https://peso-jobkonek-failover-jlf-2026.onrender.com
+      - key: PUBLIC_API_BASE_URL
+        value: https://peso-jobkonek-failover-jlf-2026.onrender.com
+      - key: PESO_FAILOVER_PRIMARY_URL
+        value: https://peso-psi.vercel.app
+      - key: PESO_FAILOVER_CACHE_MS
+        value: "10000"
+      - key: PESO_FAILOVER_REQUIRED_FEATURES
+        value: adminDevelopmentNotes
+      - key: PESO_SKIP_AUTOMATIC_JOB_SYNC
+        value: "1"
+      - key: PESO_PUBLIC_PDF_OCR_LANGS
+        value: eng
+      - key: MONGODB_URI
+        sync: false
+      - key: FIREBASE_ADMIN_SERVICE_ACCOUNT_B64
+        sync: false
+      - key: INITIAL_ADMIN_EMAIL
+        sync: false
+      - key: FILE_LINK_SECRET
+        sync: false
+      - key: PESO_EXPORT_SECRET
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_KEY_ENCRYPTION_SECRET
+        sync: false

@@ -42,6 +42,8 @@ import { RODRIGUEZ_BARANGAYS, normalizeMunicipality, normalizeBarangay,
   validateResidency, residencyStatus, isVerifiedResident, normalizeSex,
   normalizeDateOfBirth, ageFromBirthDate, documentSummary } from './src/residency.js';
 import { installAdminApplicantDocumentRoutes } from './src/admin-applicant-documents.js';
+import { installAdminDevelopmentNotesRoutes } from './src/admin-development-notes.js';
+import { createFailoverMiddleware } from './src/failover-router.js';
 
 
 import {
@@ -267,6 +269,15 @@ app.use((req, res, next) => {
   if (req.method === 'OPTIONS') return res.status(204).end();
   next();
 });
+
+// The Render URL is the stable entry point. It sends new browser navigations
+// to Vercel while the primary site and its MongoDB-backed API are healthy;
+// otherwise the same Express service serves the local Flutter/NSRP bundle.
+app.use(createFailoverMiddleware({
+  primaryUrl: process.env.PESO_FAILOVER_PRIMARY_URL,
+  cacheMs: Number(process.env.PESO_FAILOVER_CACHE_MS || 10000),
+  requiredFeatures: process.env.PESO_FAILOVER_REQUIRED_FEATURES || '',
+}));
 
 // Vercel invokes the exported Express app without calling startServer().
 // Initialize MongoDB on the first normal request, coalesce concurrent cold starts,
@@ -772,6 +783,9 @@ installAdminApplicantDocumentRoutes({
   artifactFromGridFs, isAllowedMimeType, safeFileName,
 });
 
+// Shared, administrator-only bug and improvement checklist workspace.
+installAdminDevelopmentNotesRoutes({ app, requireAuth, requireAdmin, requireMongo, state });
+
 app.get('/api/health', async (_req, res) => {
   // Managed Gemini keys take precedence over the legacy environment key.
   // Never surface raw keys, account data, quota details, or counts publicly.
@@ -794,6 +808,7 @@ app.get('/api/health', async (_req, res) => {
     ok: true,
     service: 'peso-jobkonek-api',
     mongoDbConnected: state.mongoConnected,
+    features: { adminDevelopmentNotes: true },
     firebaseTokenVerificationReady: true,
     appRolesStoredIn: 'mongodb',
     geminiConfigured,
@@ -2954,6 +2969,34 @@ app.post('/api/ai/query', requireAuth, requireMongo, async (req, res, next) => {
   } catch (error) {
     return next(error);
   }
+});
+
+// Render uses this readiness endpoint before routing traffic to a new instance.
+// MongoDB is essential for PESO profiles, job feeds, applications, and Admin.
+app.get('/healthz', (_req, res) => {
+  if (!state.mongoConnected || !state.db || !state.bucket) {
+    return res.status(503).json({ ok: false, service: 'peso-jobkonek', database: 'unavailable' });
+  }
+  return res.status(200).json({ ok: true, service: 'peso-jobkonek', database: 'ready' });
+});
+
+// The Render backup is a single same-origin deployment: Flutter, NSRP, and the
+// Express API are served by this process. Vercel continues to serve its own
+// static build and only rewrites /api requests to the serverless function.
+const webBuildDirectory = path.resolve(__dirname, '../build/web');
+app.use(express.static(webBuildDirectory));
+app.use((req, res, next) => {
+  if (!['GET', 'HEAD'].includes(req.method) ||
+      req.path === '/api' || req.path.startsWith('/api/') ||
+      path.extname(req.path)) return next();
+
+  const isNsrpRoute = req.path === '/nsrp' || req.path.startsWith('/nsrp/');
+  const indexFile = isNsrpRoute
+    ? path.join(webBuildDirectory, 'nsrp', 'index.html')
+    : path.join(webBuildDirectory, 'index.html');
+  return res.sendFile(indexFile, (error) => {
+    if (error) next(error);
+  });
 });
 
 app.use((error, _req, res, _next) => {

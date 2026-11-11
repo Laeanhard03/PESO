@@ -64,3 +64,27 @@ The standard Admin API does not require backend/service-account.json. That file 
 ## Tests
 
 Run npm run check from backend; the test command explicitly targets test/*.test.js and src/*.test.js so temporary scripts and non-test files are not auto-discovered.
+
+
+## Development Notepad
+
+The Admin dashboard includes a shared Development Notepad for internal bug reports, improvements, and development tasks. It uses the adminDevelopmentNotes MongoDB collection and the existing private profileArtifacts GridFS bucket for screenshots.
+
+All routes below require a verified Firebase bearer token, a MongoDB-backed role=admin, and MongoDB readiness. Applicant accounts cannot list or modify development notes.
+
+- GET /api/admin/development-notes — list active notes (default), filter by kind, status, or escaped text search q; archived=1 lists archived notes. limit is capped at 200.
+- POST /api/admin/development-notes — create a note with title, optional description, kind (bug, improvement, task), priority (low, medium, high, critical), optional assignee, tags, and initial checklist strings.
+- PATCH /api/admin/development-notes/:id — update note fields or archive/restore. Every mutation supplies expectedRevision.
+- POST /api/admin/development-notes/:id/checklist — add a checklist item with text and expectedRevision.
+- PATCH /api/admin/development-notes/:id/checklist/:itemId — check or reopen an item with completed and expectedRevision.
+- DELETE /api/admin/development-notes/:id/checklist/:itemId — remove a checklist item with expectedRevision.
+- POST /api/admin/development-notes/:id/comments — add a team comment with message.
+- POST /api/admin/development-notes/:id/attachments — attach a screenshot using fileName, mimeType, base64 content, and expectedRevision. Accepted types are JPEG, PNG, WEBP, and GIF; each file is limited to 5 MB and each note to 10 screenshots.
+- GET /api/admin/development-notes/:id/attachments/:attachmentId/content — stream an attached screenshot after rechecking the administrator role and note/attachment relationship.
+- DELETE /api/admin/development-notes/:id/attachments/:attachmentId — remove a screenshot with expectedRevision.
+
+Checklist completion updates the parent status automatically: a bug becomes fixed; an improvement or task becomes implemented. Reopening a completed item returns the note to in_progress or open as appropriate. Notes retain creator/updater identity, checklist completion identity, comments, and a bounded activity history.
+
+Updates use optimistic revision checks. A stale expectedRevision returns HTTP 409 (note_revision_conflict) rather than overwriting another programmer's work. The Flutter Admin view refreshes the shared list every 20 seconds while the search box is empty, and immediately applies the current user's successful changes.
+
+Screenshot bytes are private GridFS records with the admin_dev_note_attachment category and note ID. They deliberately do not use the applicant-artifact metadata.ownerUid field: deleting an administrator account must not remove screenshots that belong to shared team notes. There are no public screenshot URLs.

@@ -85,6 +85,7 @@ enum AdminTab {
   analytics,
   users,
   concerns,
+  developmentNotes,
   jobs,
   applications,
   ingestion,
@@ -127,6 +128,13 @@ const List<NavItem> kNavItems = [
     Icons.forum_outlined,
     'Concerns & Feedback',
     'Messages from job seekers who were not matched to a job, and other concerns they raised.',
+  ),
+  NavItem(
+    AdminTab.developmentNotes,
+    'Development Notepad',
+    Icons.checklist_rounded,
+    'Development Notepad',
+    'Shared bug reports, screenshots, checklists, and implementation tracking for the development team.',
   ),
   NavItem(
     AdminTab.jobs,

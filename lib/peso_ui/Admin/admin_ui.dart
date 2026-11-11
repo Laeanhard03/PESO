@@ -22,6 +22,7 @@ import 'job_applications_section.dart';
 import 'job_management_section.dart';
 import 'admin_landing_content_section.dart';
 import 'admin_models.dart';
+import 'admin_development_notes_section.dart';
 import 'gemini_api_key_management_section.dart';
 import '../../peso_services/app_toast.dart';
 
@@ -1128,6 +1129,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
         return const AdminUserManagementSection();
       case AdminTab.concerns:
         return ConcernsSection(initialConcerns: _concerns);
+      case AdminTab.developmentNotes:
+        return const AdminDevelopmentNotesSection();
       case AdminTab.jobs:
         return const _WorkspaceSubTabs(
           labels: ['Job Postings', 'Online PDF Sources'],
