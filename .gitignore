@@ -83,3 +83,6 @@ firestore-debug.log
 /docs/qa_browser/
 /mini_ai/bin/
 /backend/scripts/qa-list-local-browser-accounts.mjs
+
+# Local Vercel project linkage and pulled deployment metadata
+.vercel/

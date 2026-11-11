@@ -35,10 +35,8 @@ services:
       - key: INITIAL_ADMIN_EMAIL
         sync: false
       - key: FILE_LINK_SECRET
-        sync: false
+        generateValue: true
       - key: PESO_EXPORT_SECRET
-        sync: false
-      - key: GEMINI_API_KEY
-        sync: false
+        generateValue: true
       - key: GEMINI_KEY_ENCRYPTION_SECRET
         sync: false
