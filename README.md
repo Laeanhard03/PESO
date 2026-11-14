@@ -555,3 +555,27 @@ This isolates the remaining fault to Render's GitHub App / service Git Credentia
 The user re-authorized the Render GitHub App for the `Laeanhard03/PESO` repository. The Render service was manually synchronized to commit `5de5ed7a0eed6d075f758a2a0e2f1e8b8fe285ef`; its Flutter 3.47.1 web compilation succeeded, the React/NSRP suite passed 33/33, ESLint completed without reported errors, Vite built the `/nsrp/` bundle, and the service health endpoint returned `{"ok":true,"service":"peso-jobkonek","database":"ready"}`. Render reported deploy `dep-dbse5loae00c73es6470` as `live`.
 
 A post-authorization GitHub push is now being sent to verify that Render's GitHub App integration starts a deployment automatically, without calling the manual deploy endpoint. The branch remains `deploy/render-failover`; service auto-deploy is `yes` / `commit`; Blueprint auto-sync is `true`.
+
+## Render GitHub auto-deploy verified (2026-11-15)
+
+The Render GitHub App repository authorization is restored and push-based deployments are now verified. After authorization, commit `e315d9b9304f32e8f3a5d184fea71c4da487219a` was pushed to `deploy/render-failover`. Without a manual deploy request, Render created deploy `dep-dbse76h5efls73emrsgg` with trigger `new_commit`, cloned the same GitHub repository, checked out that exact SHA, compiled Flutter 3.47.1, passed the React/NSRP tests (33/33), completed ESLint, built the Vite `/nsrp/` bundle, and deployed successfully to **LIVE**. The same commit also produced a Vercel production deployment in **READY** state.
+
+### Verified Render production checks
+
+- `GET /healthz` -> HTTP 200, `{ "ok": true, "service": "peso-jobkonek", "database": "ready" }`.
+- `GET /api/health` -> HTTP 200.
+- `GET /` (Flutter) -> HTTP 200.
+- `GET /nsrp/` (embedded React NSRP/resume workspace) -> HTTP 200.
+- Runtime logs confirm MongoDB `peso_jobkonek` connected and Express API listening on `0.0.0.0:10000`.
+
+### Permanent automatic deployment configuration
+
+- Git repository: `https://github.com/Laeanhard03/PESO`.
+- Branch: `deploy/render-failover`.
+- Render service auto-deploy: `yes`, trigger `commit`, root directory `/`.
+- Render Blueprint auto-sync: `true`, path `render.yaml`, same branch/repository.
+- Build command: `bash scripts/vercel_install_flutter.sh && bash scripts/vercel_build_flutter.sh`.
+- Runtime command: `cd backend && CLIENT_ALLOWED_ORIGINS="https://$RENDER_EXTERNAL_HOSTNAME" PUBLIC_API_BASE_URL="https://$RENDER_EXTERNAL_HOSTNAME" npm start`.
+- Build includes the pinned Flutter SDK, Flutter Web app, embedded NSRP/resume React/Vite app, and backend Node dependencies; it starts the existing Express/MongoDB service after build.
+
+**Result:** a GitHub push now starts builds automatically on both Vercel and Render. No routine manual Render deploy is required. Keep this Render service as the Singapore backup; do not create a duplicate service or separate database.
