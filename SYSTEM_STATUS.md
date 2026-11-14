@@ -304,3 +304,10 @@ A local pass does not establish that Firebase Functions, Gemini, Authentication 
 - Registration verification UI now clearly states that Firebase has already signed in the new account, uses `Verify and continue`, and offers `Go to login instead` with a safe sign-out. Email verification is still required before protected workspace access.
 - Tests: React 27/27, lint clean, Vite build passed; Playwright first-input tests at 390/510/1250px; production-build PDF E2E shows one DOB and correctly aligned signature date. Flutter 290/290; login tests 3/3; analyzer 0 warnings/errors (105 info-level findings). Backend 325/325. Flutter + NSRP production build artifacts validated.
 - Deployment and Admin checklist closure are pending.
+
+## 2026-11-14 - Resume photo upload and completion guards (release pending)
+
+- Resume photo uploads now accept JPG/PNG up to 5 MiB, verify the original for one clear face, then resize to 1600 px max edge and locally JPEG-compress to <=1.9 MB. The resulting data URI remains below the 3 MB encrypted draft bridge limit. Failed replacements preserve the previous verified photo.
+- Resume export remains blocked without a verified photo and validates education, work experience, and skills/readiness before PDF generation. Explicit no-formal-schooling and no-previous-experience choices are valid.
+- Tests: React 30/30; ESLint clean; Vite build passed. Browser optimization: 3,717,424-byte JPG -> 1,273,405-byte JPEG at 1600x1152; data URI 1,697,899 chars. Production-build route checks passed at mobile/desktop widths.
+- Checklist: registration login 1/1 complete; NSRP date/dropdown 2/2 complete. Resume upload/gating items await production release check. IT Admin Salary removal remains pending clarification before altering a personal financial record.

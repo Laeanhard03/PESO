@@ -2,7 +2,12 @@ import { useEffect, useState, useRef } from "react";
 import * as htmlToImage from "html-to-image";
 import { jsPDF } from "jspdf";
 import { sendToFlutter } from './flutterBridge.js';
-import { isVerifiedResumePhoto, validateResumePhoto } from './resumePhotoValidation.js';
+import {
+  isVerifiedResumePhoto,
+  MAX_RESUME_PHOTO_DATA_URI_LENGTH,
+  optimizeResumePhoto,
+  validateResumePhoto,
+} from './resumePhotoValidation.js';
 import { applicantCareerEntries, educationChoices, experienceChoices, skillsChoices, validateApplicantEssentials } from './applicantEssentials.js';
 
 // Registration values inherited from the Flutter shell (URL query string).
@@ -183,7 +188,7 @@ export default function ResumeApp() {
       setCareerSkills(draft.applicantEssentials?.skills || '');
       if (typeof draft.photoDataUri === 'string' &&
           draft.photoDataUri.startsWith('data:image/') &&
-          draft.photoDataUri.length < 3000000) {
+          draft.photoDataUri.length <= MAX_RESUME_PHOTO_DATA_URI_LENGTH) {
         const photoRequestId = ++photoValidationGenerationRef.current;
         setIsPhotoChecking(true);
         setPhotoValidation({ status: 'checking', message: 'Checking your saved profile photo…' });
@@ -294,25 +299,41 @@ export default function ResumeApp() {
           : { status: 'error', message: result.message });
         return;
       }
+
+      setPhotoValidation({ status: 'checking', message: 'Photo verified. Optimizing it for your resume…' });
+      const optimized = await optimizeResumePhoto(file);
+      if (requestId !== photoValidationGenerationRef.current) return;
+      if (!optimized.valid || !optimized.blob) {
+        setPhotoValidation(previousPhotoStillVerified
+          ? { status: 'success', message: optimized.message + ' Your previous verified photo was kept.' }
+          : { status: 'error', message: optimized.message });
+        return;
+      }
+
+      // Read only the optimized Blob as a data URI. This keeps encrypted local
+      // and remote drafts comfortably below the 3 MB bridge payload ceiling.
       const dataUri = await new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onerror = () => reject(new Error('The photo could not be read.'));
         reader.onload = () => typeof reader.result === 'string'
           ? resolve(reader.result)
           : reject(new Error('The photo could not be read.'));
-        reader.readAsDataURL(file);
+        reader.readAsDataURL(optimized.blob);
       });
+      if (dataUri.length > MAX_RESUME_PHOTO_DATA_URI_LENGTH) {
+        throw new Error('The optimized photo is still too large to save.');
+      }
       if (requestId !== photoValidationGenerationRef.current) return;
       setPhoto(dataUri);
       verifiedPhotoRef.current = dataUri;
-      setPhotoValidation({ status: 'success', message: 'Photo verified and added to your resume.' });
+      setPhotoValidation({ status: 'success', message: 'Photo verified, optimized, and added to your resume.' });
       // The embedded draft autosaver listens for document input/change events.
       document.dispatchEvent(new Event('input', { bubbles: true }));
     } catch {
       if (requestId === photoValidationGenerationRef.current) {
         setPhotoValidation(previousPhotoStillVerified
-          ? { status: 'success', message: 'The replacement photo could not be verified. Your previous verified photo was kept.' }
-          : { status: 'error', message: 'The photo could not be verified. Choose another clear JPG or PNG.' });
+          ? { status: 'success', message: 'The replacement photo could not be prepared. Your previous verified photo was kept.' }
+          : { status: 'error', message: 'The photo could not be prepared. Choose another clear JPG or PNG up to 5 MB.' });
       }
     } finally {
       input.value = '';
@@ -669,7 +690,7 @@ export default function ResumeApp() {
           </button>
         </div>
         <p id="resume-photo-requirement" className="mt-2 w-full text-xs text-slate-500">
-          A verified profile photo is required before generating your resume. Use a JPG or PNG under 2 MB with one clear face. Photo checks run locally in your browser.
+          A verified profile photo is required before generating your resume. Upload a JPG or PNG up to 5 MB with one clear face. Photo checks and image optimization run locally in your browser.
         </p>
         {photoValidation.message && (
           <p

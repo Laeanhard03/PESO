@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   hasSuitablePortraitFace,
   isVerifiedResumePhoto,
+  optimizeResumePhoto,
   validatePhotoFile,
   validateResumePhoto,
 } from './resumePhotoValidation.js';
@@ -23,11 +24,43 @@ test('resume generation requires a previously verified JPG or PNG data URL', () 
   assert.equal(isVerifiedResumePhoto('data:image/jpeg;base64,AAAA', 'error'), false);
 });
 
-test('accepts JPG and PNG metadata within the existing 2 MB limit', () => {
+test('accepts JPG and PNG uploads up to 5 MiB and rejects larger or unsupported files', () => {
   assert.equal(validatePhotoFile(imageFile('image/jpeg')).valid, true);
   assert.equal(validatePhotoFile(imageFile('image/png')).valid, true);
-  assert.equal(validatePhotoFile(imageFile('image/jpeg', 2_000_001)).valid, false);
+  assert.equal(validatePhotoFile(imageFile('image/jpeg', 5 * 1024 * 1024)).valid, true);
+  assert.equal(validatePhotoFile(imageFile('image/jpeg', 5 * 1024 * 1024 + 1)).valid, false);
   assert.equal(validatePhotoFile(imageFile('image/gif')).valid, false);
+});
+
+test('optimizes a valid large upload below the encrypted resume-draft limit', async () => {
+  let disposed = false;
+  const attempts = [];
+  const result = await optimizeResumePhoto(imageFile('image/jpeg', 4_500_000), {
+    loadImage: async () => ({
+      image: { naturalWidth: 4000, naturalHeight: 3000 },
+      dispose: () => { disposed = true; },
+    }),
+    encodeImage: async (image, width, height, quality) => {
+      attempts.push({ width, height, quality });
+      const size = width === 1600 ? 2_200_000 : 1_500_000;
+      return new Blob([new Uint8Array(size)], { type: 'image/jpeg' });
+    },
+  });
+  assert.equal(result.valid, true);
+  assert.ok(result.blob.size <= 1_900_000);
+  assert.ok(result.blob.size > 0);
+  assert.ok(attempts.length >= 5);
+  assert.ok(attempts[0].width <= 1600 && attempts[0].height <= 1600);
+  assert.equal(disposed, true);
+});
+
+test('rejects an oversized upload before decoding it for optimization', async () => {
+  let decoded = false;
+  const result = await optimizeResumePhoto(imageFile('image/jpeg', 5 * 1024 * 1024 + 1), {
+    loadImage: async () => { decoded = true; return { image: {} }; },
+  });
+  assert.equal(result.valid, false);
+  assert.equal(decoded, false);
 });
 
 test('rejects a logo or mascot when no face is detected', () => {
@@ -72,9 +105,10 @@ test('keeps validation fail-closed when the detector cannot load', async () => {
 
 test('does not initialize face detection for unsupported or oversized files', async () => {
   let initialized = false;
-  const result = await validateResumePhoto(imageFile('image/gif'), {
-    loadModel: async () => { initialized = true; return { estimateFaces: async () => [] }; },
-  });
-  assert.equal(result.valid, false);
+  const loadModel = async () => { initialized = true; return { estimateFaces: async () => [] }; };
+  const unsupported = await validateResumePhoto(imageFile('image/gif'), { loadModel });
+  const oversized = await validateResumePhoto(imageFile('image/jpeg', 5 * 1024 * 1024 + 1), { loadModel });
+  assert.equal(unsupported.valid, false);
+  assert.equal(oversized.valid, false);
   assert.equal(initialized, false);
 });

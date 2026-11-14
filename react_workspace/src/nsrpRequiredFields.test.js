@@ -222,3 +222,17 @@ test('resume completion requires a verified applicant photo and does not inject 
   assert.match(source, /Add Profile Photo/);
   assert.doesNotMatch(source, /TEMPLATE EXAMPLE CONTENT|sampleWarningNode|template warning|Replace the sample name|sample name and contact details/i);
 });
+
+test('resume export stays blocked until the applicant has a verified photo and education details', async () => {
+  const source = await readFile(new URL('./ResumeApp.jsx', import.meta.url), 'utf8');
+  const photoGuard = source.indexOf('if (isPhotoChecking || !hasVerifiedPhoto)');
+  const educationValidation = source.indexOf('const missing = validateApplicantEssentials(essentialSnapshot, { nsrp: false });');
+  const processingStart = source.indexOf('setIsProcessing(true);', educationValidation);
+
+  assert.ok(photoGuard >= 0, 'photo verification must guard resume export');
+  assert.ok(educationValidation > photoGuard, 'education validation must run before export');
+  assert.ok(processingStart > educationValidation, 'PDF generation must not start before education validation');
+  assert.match(source, /education: careerEducation/);
+  assert.match(source, /<select aria-label="Resume highest education" aria-required="true"/);
+  assert.match(source, /Choose your education/);
+});
