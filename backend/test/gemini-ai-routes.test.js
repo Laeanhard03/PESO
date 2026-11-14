@@ -1,22 +1,39 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
+import { Readable, Writable } from 'node:stream';
 import { ObjectId } from 'mongodb';
 
 import { app, state } from '../server.js';
+
+function valueAtPath(record, path) {
+  return String(path).split('.').reduce((value, key) => value?.[key], record);
+}
+
+function matchesFilter(record, filter = {}) {
+  return Object.entries(filter).every(([key, expected]) => {
+    const actual = valueAtPath(record, key);
+    if (expected && typeof expected === 'object' && '$nin' in expected) {
+      return !expected.$nin.some((value) => String(value) === String(actual));
+    }
+    if (expected && typeof expected === 'object' && '$in' in expected) {
+      return expected.$in.some((value) => String(value) === String(actual));
+    }
+    if (expected && typeof expected === 'object' && '$gt' in expected) {
+      return actual > expected.$gt;
+    }
+    return String(actual) === String(expected);
+  });
+}
 
 class MemoryCollection {
   constructor() { this.records = new Map(); }
   async createIndex() { return 'fake-test-index'; }
   async findOne(filter = {}) {
-    const record = [...this.records.values()].find((item) =>
-      Object.entries(filter).every(([key, value]) => String(item[key]) === String(value)),
-    );
+    const record = [...this.records.values()].find((item) => matchesFilter(item, filter));
     return record ? structuredClone(record) : null;
   }
   async updateOne(filter, update, options = {}) {
-    let record = [...this.records.values()].find((item) =>
-      Object.entries(filter).every(([key, value]) => String(item[key]) === String(value)),
-    );
+    let record = [...this.records.values()].find((item) => matchesFilter(item, filter));
     let upserted = false;
     if (!record && options.upsert) {
       record = Object.fromEntries(Object.entries(filter).filter(([, value]) => value == null || typeof value !== 'object'));
@@ -38,22 +55,25 @@ class MemoryCollection {
   }
   async deleteOne(filter = {}) {
     for (const [id, record] of this.records) {
-      if (Object.entries(filter).every(([key, value]) => String(record[key]) === String(value))) {
+      if (matchesFilter(record, filter)) {
         this.records.delete(id);
         return { deletedCount: 1 };
       }
     }
     return { deletedCount: 0 };
   }
+  async deleteMany(filter = {}) {
+    let deletedCount = 0;
+    for (const [id, record] of this.records) {
+      if (matchesFilter(record, filter)) {
+        this.records.delete(id);
+        deletedCount++;
+      }
+    }
+    return { deletedCount };
+  }
   find(filter = {}) {
-    let results = [...this.records.values()].filter((item) =>
-      Object.entries(filter).every(([key, value]) => {
-        if (value && typeof value === 'object' && '$nin' in value) {
-          return !value.$nin.some((v) => String(v) === String(item[key]));
-        }
-        return String(item[key]) === String(value);
-      }),
-    );
+    let results = [...this.records.values()].filter((item) => matchesFilter(item, filter));
     const cursor = {
       sort(fields) {
         results.sort((a, b) => {
@@ -102,6 +122,47 @@ function fakeDatabase() {
   };
 }
 
+const gridFsBytes = new Map();
+function fakeGridFsBucket() {
+  return {
+    openUploadStream(filename, options = {}) {
+      const id = new ObjectId();
+      const pieces = [];
+      const stream = new Writable({
+        write(chunk, _encoding, callback) {
+          pieces.push(Buffer.from(chunk));
+          callback();
+        },
+        final(callback) {
+          const bytes = Buffer.concat(pieces);
+          gridFsBytes.set(String(id), bytes);
+          state.db.collection('profileArtifacts.files').insertOne({
+            _id: String(id),
+            length: bytes.length,
+            filename,
+            uploadDate: new Date(),
+            contentType: options.contentType,
+            metadata: structuredClone(options.metadata || {}),
+          }).then(() => callback(), callback);
+        },
+      });
+      stream.id = id;
+      return stream;
+    },
+    openDownloadStream(id) {
+      const bytes = gridFsBytes.get(String(id));
+      return Readable.from([bytes || Buffer.alloc(0)]);
+    },
+    find() {
+      return { sort() { return this; }, toArray: async () => [] };
+    },
+    async delete(id) {
+      gridFsBytes.delete(String(id));
+      await state.db.collection('profileArtifacts.files').deleteOne({ _id: id });
+    },
+  };
+}
+
 before(async () => {
   for (const name of [
     'tokenVerifierOverride', 'mongoConnected', 'mongoProblem', 'db', 'bucket',
@@ -125,12 +186,20 @@ before(async () => {
       email_verified: true,
       firebase: { sign_in_provider: 'google.com' },
     };
+    if (token === 'test-other-user-token') return {
+      uid: 'different-applicant',
+      email: 'other@example.test',
+      name: 'Different Applicant',
+      email_verified: true,
+      firebase: { sign_in_provider: 'password' },
+    };
     throw new Error('Invalid fake test token.');
   };
   state.mongoConnected = true;
   state.mongoProblem = null;
   state.db = fakeDatabase();
-  state.bucket = { openUploadStream() {}, openDownloadStream() {}, find() { return { toArray: async () => [] }; } };
+  gridFsBytes.clear();
+  state.bucket = fakeGridFsBucket();
   state.smsIndexesReady = false;
   state.geminiProviderOverride = async ({ operation, apiKey, payload }) => {
     calls.push({ operation, apiKey, payload });
@@ -302,6 +371,123 @@ test('key-management routes remain unreachable to anonymous and ordinary users',
   const regular = await request('/api/admin/gemini-keys');
   assert.equal(regular.status, 403);
   assert.equal(calls.length, 0);
+});
+
+test('chunked resume upload rejects anonymous, oversized and incomplete sessions safely', async () => {
+  const anonymous = await request('/api/artifacts/upload-sessions', {
+    token: null, method: 'POST',
+    body: { fileName: 'resume.pdf', category: 'resume_upload',
+      mimeType: 'application/pdf', sizeBytes: 1024 },
+  });
+  assert.equal(anonymous.status, 401);
+
+  const oversized = await request('/api/artifacts/upload-sessions', {
+    method: 'POST',
+    body: { fileName: 'resume.pdf', category: 'resume_upload',
+      mimeType: 'application/pdf', sizeBytes: 20 * 1024 * 1024 + 1 },
+  });
+  assert.equal(oversized.status, 413);
+
+  const created = await request('/api/artifacts/upload-sessions', {
+    method: 'POST',
+    body: { fileName: 'resume.pdf', category: 'resume_upload',
+      mimeType: 'application/pdf', sizeBytes: 2 * 1024 * 1024 },
+  });
+  assert.equal(created.status, 201);
+  const sessionPath = '/api/artifacts/upload-sessions/' + created.body.sessionId;
+  const firstChunk = await request(sessionPath + '/chunks/0', {
+    method: 'PUT',
+    body: { base64: Buffer.alloc(1024 * 1024, 0x41).toString('base64') },
+  });
+  assert.equal(firstChunk.status, 200);
+
+  const incomplete = await request(sessionPath + '/complete', {
+    method: 'POST', body: {},
+  });
+  assert.equal(incomplete.status, 409);
+  assert.equal(incomplete.body.error, 'artifact_upload_incomplete');
+
+  const deleted = await request(sessionPath, { method: 'DELETE' });
+  assert.equal(deleted.status, 200);
+  assert.equal(deleted.body.completed, false);
+  assert.equal(await state.db.collection('artifactUploadChunks').findOne({
+    sessionId: created.body.sessionId,
+  }), null);
+});
+
+test('large resume uploads use bounded chunks and owner-scoped GridFS IDs for Gemini extraction', async () => {
+  calls.length = 0;
+  const bytes = Buffer.alloc(4 * 1024 * 1024 + 17, 0x41);
+  bytes.set(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), 0);
+
+  const created = await request('/api/artifacts/upload-sessions', {
+    method: 'POST',
+    body: {
+      fileName: 'synthetic-resume.png',
+      category: 'resume_upload',
+      mimeType: 'image/png',
+      sizeBytes: bytes.length,
+    },
+  });
+  assert.equal(created.status, 201);
+  assert.ok(created.body.sessionId);
+  assert.equal(created.body.chunkSize, 1024 * 1024);
+
+  const sessionPath = '/api/artifacts/upload-sessions/' + created.body.sessionId;
+  const chunkCount = created.body.chunkCount;
+  const uploadedChunks = await Promise.all(Array.from({ length: chunkCount }, (_, offsetIndex) => {
+    const index = chunkCount - 1 - offsetIndex;
+    const offset = index * created.body.chunkSize;
+    const end = Math.min(offset + created.body.chunkSize, bytes.length);
+    return request(sessionPath + '/chunks/' + index, {
+      method: 'PUT',
+      body: { base64: bytes.subarray(offset, end).toString('base64') },
+    });
+  }));
+  for (const [offsetIndex, chunk] of uploadedChunks.entries()) {
+    assert.equal(chunk.status, 200);
+    assert.equal(chunk.body.chunkIndex, chunkCount - 1 - offsetIndex);
+  }
+
+  const completed = await request(sessionPath + '/complete', { method: 'POST', body: {} });
+  assert.equal(completed.status, 201);
+  assert.equal(completed.body.artifact.sizeBytes, bytes.length);
+  const artifactId = completed.body.artifact.id;
+  const retriedCompletion = await request(sessionPath + '/complete', {
+    method: 'POST', body: {},
+  });
+  assert.equal(retriedCompletion.status, 200);
+  assert.equal(retriedCompletion.body.reused, true);
+  assert.equal(retriedCompletion.body.artifact.id, artifactId);
+  const cleanupAfterLostAcknowledgement = await request(sessionPath, { method: 'DELETE' });
+  assert.equal(cleanupAfterLostAcknowledgement.status, 200);
+  assert.equal(cleanupAfterLostAcknowledgement.body.completed, true);
+  assert.equal(cleanupAfterLostAcknowledgement.body.artifact.id, artifactId);
+  const stored = await state.db.collection('profileArtifacts.files').findOne({
+    _id: new ObjectId(artifactId),
+  });
+  assert.equal(stored.metadata.ownerUid, 'gemini-integration-user');
+  assert.equal(stored.metadata.category, 'resume_upload');
+
+  // A different authenticated applicant cannot use another user's artifact ID.
+  const denied = await request('/api/ai/profile', {
+    token: 'test-other-user-token',
+    method: 'POST',
+    body: { artifactIds: [artifactId], persist: false },
+  });
+  assert.equal(denied.status, 404);
+  assert.equal(calls.length, 0);
+
+  const extracted = await request('/api/ai/profile', {
+    method: 'POST',
+    body: { artifactIds: [artifactId], persist: false },
+  });
+  assert.equal(extracted.status, 200);
+  assert.equal(extracted.body.saved, false);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].operation, 'profile_extraction');
+  assert.equal(calls[0].payload.parts[1].inlineData.mimeType, 'image/png');
+  assert.equal(calls[0].payload.parts[1].inlineData.data, bytes.toString('base64'));
 });
 
 test('resume absorption preview returns the extracted profile without persisting it', async () => {

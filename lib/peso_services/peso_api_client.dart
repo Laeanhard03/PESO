@@ -57,6 +57,11 @@ class PesoApiClient {
   }
 
   static final http.Client _http = http.Client();
+  static const int _maxArtifactBytes = 20 * 1024 * 1024;
+  // Keep each base64 JSON request comfortably below Vercel's 4.5 MB limit.
+  static const int _maxInlineArtifactUploadBytes = 3 * 1024 * 1024;
+  static const int _artifactChunkBytes = 1024 * 1024;
+  static const int _artifactChunkConcurrency = 3;
 
   /// Public, owner-independent catalog discovery for the landing/Home/Jobs
   /// screens. No Firebase token or private matching data is requested.
@@ -337,6 +342,7 @@ class PesoApiClient {
   static Future<Map<String, dynamic>> extractProfile({
     required String rawText,
     required List<Map<String, dynamic>> artifacts,
+    List<String> artifactIds = const <String>[],
     bool persist = true,
   }) => _request(
     'POST',
@@ -344,6 +350,7 @@ class PesoApiClient {
     body: <String, dynamic>{
       'rawText': rawText,
       'artifacts': artifacts,
+      'artifactIds': artifactIds,
       'persist': persist,
     },
     timeout: const Duration(seconds: 245),
@@ -413,17 +420,129 @@ class PesoApiClient {
     required String mimeType,
     required List<int> bytes,
   }) async {
-    final response = await _request(
+    if (bytes.isEmpty || bytes.length > _maxArtifactBytes) {
+      throw const PesoApiException(
+        statusCode: 413,
+        code: 'artifact_size_limit',
+        message: 'Choose a non-empty PDF/JPG/PNG file no larger than 20 MB.',
+      );
+    }
+
+    if (bytes.length <= _maxInlineArtifactUploadBytes) {
+      final response = await _request(
+        'POST',
+        '/api/artifacts',
+        body: <String, dynamic>{
+          'fileName': fileName,
+          'category': category,
+          'mimeType': mimeType,
+          'base64': base64Encode(bytes),
+        },
+        timeout: const Duration(seconds: 90),
+      );
+      return _artifactFromResponse(response);
+    }
+
+    // Vercel Functions reject request bodies over 4.5 MB. Send larger files
+    // as 1 MB base64 chunks, then let the authenticated API assemble them into
+    // the same owner-scoped GridFS store used by normal artifact uploads.
+    final session = await _request(
       'POST',
-      '/api/artifacts',
+      '/api/artifacts/upload-sessions',
       body: <String, dynamic>{
         'fileName': fileName,
         'category': category,
         'mimeType': mimeType,
-        'base64': base64Encode(bytes),
+        'sizeBytes': bytes.length,
       },
-      timeout: const Duration(seconds: 90),
+      timeout: const Duration(seconds: 25),
     );
+    final sessionId = session['sessionId']?.toString() ?? '';
+    if (sessionId.isEmpty) {
+      throw const PesoApiException(
+        statusCode: 502,
+        code: 'invalid_artifact_upload_session',
+        message: 'The PESO API could not start the secure document upload.',
+      );
+    }
+
+    final sessionPath =
+        '/api/artifacts/upload-sessions/${Uri.encodeComponent(sessionId)}';
+    try {
+      final chunkCount =
+          (bytes.length + _artifactChunkBytes - 1) ~/ _artifactChunkBytes;
+      var nextChunkIndex = 0;
+      Future<void> uploadNextChunk() async {
+        while (true) {
+          // Claim the next index before awaiting so workers never upload the
+          // same part. The server assembles chunks by index, not arrival order.
+          final chunkIndex = nextChunkIndex++;
+          if (chunkIndex >= chunkCount) return;
+          final offset = chunkIndex * _artifactChunkBytes;
+          final end = offset + _artifactChunkBytes < bytes.length
+              ? offset + _artifactChunkBytes
+              : bytes.length;
+          final chunk = bytes.sublist(offset, end);
+          for (var attempt = 0; attempt < 3; attempt++) {
+            try {
+              await _request(
+                'PUT',
+                '$sessionPath/chunks/$chunkIndex',
+                body: <String, dynamic>{'base64': base64Encode(chunk)},
+                timeout: const Duration(seconds: 35),
+              );
+              break;
+            } catch (error) {
+              final transient =
+                  error is PesoApiException &&
+                  (error.statusCode == 0 ||
+                      error.statusCode == 502 ||
+                      error.statusCode == 503 ||
+                      error.statusCode == 504);
+              if (!transient || attempt == 2) rethrow;
+              await Future<void>.delayed(
+                Duration(milliseconds: 500 * (1 << attempt)),
+              );
+            }
+          }
+        }
+      }
+
+      final workerCount = chunkCount < _artifactChunkConcurrency
+          ? chunkCount
+          : _artifactChunkConcurrency;
+      await Future.wait(
+        List<Future<void>>.generate(workerCount, (_) => uploadNextChunk()),
+      );
+      final completed = await _request(
+        'POST',
+        '$sessionPath/complete',
+        body: const <String, dynamic>{},
+        timeout: const Duration(seconds: 90),
+      );
+      return _artifactFromResponse(completed);
+    } catch (error) {
+      try {
+        final cleanup = await _request(
+          'DELETE',
+          sessionPath,
+          timeout: const Duration(seconds: 15),
+        );
+        // The completion response may have been lost after GridFS committed.
+        // The server keeps a short-lived idempotency record for this case.
+        if (cleanup['completed'] == true) {
+          return _artifactFromResponse(cleanup);
+        }
+      } catch (_) {
+        // Keep the original upload error; expired sessions are cleaned server-side.
+      }
+      Error.throwWithStackTrace(error, StackTrace.current);
+    }
+  }
+
+  static Map<String, dynamic> _artifactFromResponse(
+    Map<String, dynamic> response,
+  ) {
     final raw = response['artifact'];
     if (raw is! Map) {
       throw const PesoApiException(

@@ -264,3 +264,11 @@ Objective/user-approved:
 - Vercel production does not currently define GEMINI_FALLBACK_MODEL; do not pick a different model without an explicit latency/quality/usage decision.
 - Verification: backend npm run check 328/328; syntax checks passed. Added four-key, timeout-budget, AbortSignal, and post-extraction matching-status regression coverage. No real provider call or applicant-data write was used during diagnostics.
 - Release pending until both Vercel and Render deploy the change and the protected health/key-pool/job-recommendation routes are smoke-tested.
+
+## 2026-11-14 - Gemini release deployed to both primary and failover
+
+- Vercel deployment dpl_CdL9zrdL83T6hQYFpa7ZQdfMx6HY is READY; Render deployment dep-dbs14vek1f9s7380cv9g is LIVE. Both run 5720e945c0dcf6444ef6309c5138c1524149e535 on deploy/render-failover.
+- Render remote build passed Flutter web release build, NSRP/resume suite 30/30, ESLint, Vite production build, and deployment package upload.
+- Render smoke passed: /healthz, /api/health, /api/public/jobs?limit=1, /nsrp/ HTTP 200; MongoDB connected, Firebase token verification ready, Gemini configured. Protected AI/admin endpoints correctly return 401 unauthenticated.
+- Render browser tests passed at 390px/1250px: first-event dropdowns, resume no-photo/education gates, 5 MB upload copy, and registration login UI.
+- No real applicant profile was submitted to Gemini and no applicant records were modified. Still to validate later with a synthetic applicant: full live Gemini extraction followed by Go matching.

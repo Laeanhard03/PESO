@@ -9,12 +9,25 @@ class ProfileArtifactInput {
     required this.category,
     required this.mimeType,
     required this.bytes,
+    this.storedArtifactId,
   });
 
   final String fileName;
   final String category;
   final String mimeType;
   final Uint8List bytes;
+
+  /// Owner-scoped GridFS ID returned by the authenticated upload API.
+  /// When present, Gemini requests send this ID rather than re-encoding bytes.
+  final String? storedArtifactId;
+
+  ProfileArtifactInput withStoredArtifactId(String id) => ProfileArtifactInput(
+    fileName: fileName,
+    category: category,
+    mimeType: mimeType,
+    bytes: bytes,
+    storedArtifactId: id,
+  );
 
   /// Only an original uploaded resume is sent as file bytes to Gemini.
   /// Resume-builder templates contain example content, so send only their
@@ -31,7 +44,9 @@ class ProfileArtifactInput {
       final bytes = base64Decode(encoded);
       if (bytes.isEmpty) return null;
       return ProfileArtifactInput(
-        fileName: _safeFileName(payload['fileName']?.toString() ?? 'document.pdf'),
+        fileName: _safeFileName(
+          payload['fileName']?.toString() ?? 'document.pdf',
+        ),
         category: payload['category']?.toString() ?? 'resume_upload',
         mimeType: payload['mimeType']?.toString() ?? 'application/pdf',
         bytes: bytes,
@@ -43,6 +58,8 @@ class ProfileArtifactInput {
 
   static String _safeFileName(String value) {
     final base = value.split(RegExp(r'[/\\]')).last.trim();
-    return base.isEmpty ? 'document.pdf' : base.replaceAll(RegExp(r'[^A-Za-z0-9._ -]'), '_');
+    return base.isEmpty
+        ? 'document.pdf'
+        : base.replaceAll(RegExp(r'[^A-Za-z0-9._ -]'), '_');
   }
 }

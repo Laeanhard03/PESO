@@ -1449,7 +1449,7 @@ class _UserProfileState extends State<UserProfile> {
       final newCategory = category == 'nsrp_form'
           ? 'nsrp_form'
           : 'resume_upload';
-      await PesoApiClient.uploadArtifact(
+      final uploadedArtifact = await PesoApiClient.uploadArtifact(
         fileName: file.name,
         category: newCategory,
         mimeType: validPdf
@@ -1469,6 +1469,7 @@ class _UserProfileState extends State<UserProfile> {
               ? 'image/png'
               : 'image/jpeg',
           bytes: bytes,
+          storedArtifactId: uploadedArtifact['id']?.toString(),
         );
         try {
           await PesoApiClient.saveOnboarding(<String, dynamic>{

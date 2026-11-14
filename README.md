@@ -485,3 +485,27 @@ This entry supersedes the immediately preceding Render-stale deployment note. It
 - Vercel production currently has no GEMINI_FALLBACK_MODEL configured. No fallback model was enabled automatically because model choice changes latency, quality, and usage.
 - Verification: backend npm run check passed, 328/328 tests; Node syntax checks passed. Added regression coverage for four-key failover, bounded sequential provider timeouts, request-scoped AbortSignal handling, and persistence of post-extraction Go matching status.
 - Release status at this checkpoint: code/tests complete; production deployment and post-deploy smoke checks pending. No live Gemini request was issued during diagnostics; provider usage was not consumed by the read-only checks.
+
+## 2026-11-14 - Gemini release FINALIZED on both production hosts
+
+- Render deployment dep-dbs14vek1f9s7380cv9g is LIVE on commit 5720e945c0dcf6444ef6309c5138c1524149e535 (branch deploy/render-failover). The Render build completed successfully, the app connected to MongoDB, and the service announced itself live.
+- Vercel deployment dpl_CdL9zrdL83T6hQYFpa7ZQdfMx6HY is READY on the same commit. Both primary and failover now run the same Gemini key-rotation release.
+- Render production smoke passed: /healthz, /api/health, /api/public/jobs?limit=1, /nsrp/ returned HTTP 200. Health reports MongoDB connected, Firebase token verification ready, Gemini configured. Protected unauthenticated /api/ai/profile, /api/ai/job-recommendations, /api/admin/gemini-keys correctly returned HTTP 401.
+- Render browser regression passed at 390px and 1250px: all five NSRP dropdowns update on the first input event. Resume export remains disabled without a verified photo, education is required, 5 MB photo guidance is visible. Registration login UI includes the auto-sign-in explanation, Verify and continue, and Go to login instead.
+- Vercel had already passed the equivalent smoke checks and production readiness checks on the same commit.
+- The remote Render build executed the NSRP/resume suite: 30/30 passed, then ESLint and Vite production build passed; Flutter web release build and deployment packaging completed successfully.
+- No real applicant profile was submitted to Gemini during release verification; no production applicant records were changed. Real full-size Gemini extraction remains to be confirmed using a controlled synthetic/test applicant, without overwriting a real applicant profile.
+- This final note supersedes the earlier deployment pending entry above.
+
+
+
+## 2026-11-14 - Resume builder selection and large resume scan repair
+
+- React Resume Builder career fields now track applicant interaction for the current editing session. A delayed Flutter draft restore fills untouched fields only and cannot replace education, work-experience, skills-stage or skills values the applicant has already selected/entered.
+- Native education, work-experience and skills-stage selections commit through both React input/change handlers. Choosing the new-entrant path clears stale optional skills and prevents a later draft restore from silently bringing those skills back.
+- Large resume files no longer have to fit inside one Vercel Function JSON request. Vercel Functions cap request and response bodies at 4.5 MB; the upload client now keeps small files on the existing direct endpoint and transfers larger files as authenticated 1 MiB chunks (up to three concurrent requests, with transient retry) into the same private MongoDB GridFS bucket. See Vercel's [Function payload limit](https://vercel.com/docs/errors/function_payload_too_large).
+- Chunk upload sessions are UID-scoped, validate MIME/size/index/decoded-byte length, expire after 30 minutes, and retain a short-lived completion reference so a lost HTTP acknowledgement can be retried without duplicating the stored document. Both session and chunk records have TTL cleanup indexes.
+- Gemini extraction accepts owner-checked GridFS artifact IDs. The backend verifies the Firebase UID, resume_upload category, MIME type and file size before reading bytes and passing the original file to the existing Gemini key rotator. NSRP PDFs and template-filled resume-builder PDFs remain excluded from Gemini file attachments.
+- Registration now reuses the already uploaded GridFS ID for the preview and final AI-processing stage, avoiding a second full resume upload. If the early preview upload fails but the final document save succeeds, AIProcessingScreen now attaches the returned GridFS ID before extraction and preserves it for retry. User-profile resume replacement also passes the stored artifact ID into extraction.
+- Regression coverage: React late-prefill helper tests; authenticated chunked upload tests for anonymous rejection, 20 MB boundary, incomplete sessions, out-of-order chunk assembly, owner isolation, GridFS persistence, Gemini handoff and idempotent completion/cleanup. Browser QA at 390px and 1250px confirms single-selection persistence across delayed draft restoration and prevents stale optional skills from reappearing.
+- Local release validation: backend 330/330 tests; React 33/33 tests; ESLint passed; Vite production build passed; Flutter 291/291 tests; Flutter analyzer exited 0 with 104 info-level findings and no warnings/errors.

@@ -184,23 +184,48 @@ class _AIProcessingScreenState extends State<AIProcessingScreen>
       }
 
       // PDFs/images are stored privately in MongoDB GridFS through the PESO API.
-      // Private document bytes must be stored before invoking Gemini.
-      var documentsSaved = widget.artifacts.isEmpty;
+      // Private document bytes must be stored before invoking Gemini. Retain the
+      // server-issued IDs so large files can be referenced instead of re-sent
+      // as inline base64, including when the earlier preview upload was retried.
+      final extractionArtifacts = List<ProfileArtifactInput>.of(
+        widget.artifacts,
+      );
+      var documentsSaved = extractionArtifacts.isEmpty;
       try {
-        final artifactResult = await services.saveDocuments(widget.artifacts);
+        final artifactResult = await services.saveDocuments(
+          extractionArtifacts,
+        );
         persistenceWarnings.addAll(artifactResult.warnings);
-        documentsSaved = artifactResult.warnings.isEmpty &&
-            artifactResult.records.length == widget.artifacts.length;
+        documentsSaved =
+            artifactResult.warnings.isEmpty &&
+            artifactResult.records.length == extractionArtifacts.length &&
+            artifactResult.records.every(
+              (record) => record['id']?.toString().trim().isNotEmpty ?? false,
+            );
+        if (documentsSaved) {
+          for (var index = 0; index < extractionArtifacts.length; index++) {
+            final artifactId =
+                artifactResult.records[index]['id']?.toString().trim() ?? '';
+            if (artifactId.isNotEmpty) {
+              extractionArtifacts[index] = extractionArtifacts[index]
+                  .withStoredArtifactId(artifactId);
+            }
+          }
+        }
       } catch (error) {
         persistenceWarnings.add(
           'Document files could not be saved. Please retry their upload.',
         );
-        debugPrint('[PROFILE] Document save unavailable (${error.runtimeType}).');
+        debugPrint(
+          '[PROFILE] Document save unavailable (${error.runtimeType}).',
+        );
       }
 
       // Remove encrypted resume/NSRP backups only after the server has
       // confirmed both the source record and all attached documents.
-      if (sourceConfirmedOnServer && documentsSaved && widget.services == null &&
+      if (sourceConfirmedOnServer &&
+          documentsSaved &&
+          widget.services == null &&
           Firebase.apps.isNotEmpty) {
         final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
         if (uid.isNotEmpty) {
@@ -226,10 +251,11 @@ class _AIProcessingScreenState extends State<AIProcessingScreen>
       try {
         if (!sourceSaved || !documentsSaved) {
           throw StateError(
-              'Source input or documents must be saved before AI extraction.');
+            'Source input or documents must be saved before AI extraction.',
+          );
         }
         final extracted = await services.extractProfile(
-          artifacts: widget.artifacts,
+          artifacts: extractionArtifacts,
           rawText: safeEvidence,
           persist: true,
         );
@@ -272,7 +298,7 @@ class _AIProcessingScreenState extends State<AIProcessingScreen>
                 initialResumeData: widget.resumeData,
                 initialPesoFormData: widget.pesoFormData,
                 initialOnboardingText: widget.rawTextData,
-                retryArtifacts: widget.artifacts,
+                retryArtifacts: extractionArtifacts,
                 aiExtractionUnavailable: extractionUnavailable,
                 onboardingSourcesSaved: sourceSaved,
               ),
@@ -629,12 +655,12 @@ class AIAbsorbingOrb extends StatelessWidget {
                   child: PesoGreenTextureLayer(
                     tone: PesoGreenTextureTone.brand,
                     intensity: 0.55,
-                  child: Icon(
-                    Icons.psychology_alt_rounded,
-                    color: Colors.white,
-                    size: compact ? 42 : 50,
+                    child: Icon(
+                      Icons.psychology_alt_rounded,
+                      color: Colors.white,
+                      size: compact ? 42 : 50,
+                    ),
                   ),
-                ),
                 ),
               );
             },

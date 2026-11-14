@@ -1,5 +1,8 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:peso_prototype/peso_models/profile_artifact.dart';
 import 'package:peso_prototype/peso_ui/Reusable_Designs/ai_processing_ui.dart';
 import 'package:peso_prototype/peso_logic/onboarding_ai_evidence.dart';
 import 'package:peso_prototype/peso_services/profile_artifact_service.dart';
@@ -76,11 +79,75 @@ void main() {
     await tester.pump(const Duration(seconds: 2));
     await tester.pump(const Duration(seconds: 1));
     expect(find.text('SOURCE_NOT_SAVED'), findsOneWidget);
-    expect(actions, ['source-attempt', 'documents'], reason: 'Gemini must not run before source persistence succeeds.');
+    expect(actions, [
+      'source-attempt',
+      'documents',
+    ], reason: 'Gemini must not run before source persistence succeeds.');
     expect(outcome!.sourceSaved, isFalse);
     expect(outcome!.aiProfile, isNull);
     expect(outcome!.extractionUnavailable, isTrue);
     expect(outcome!.warnings, isNotEmpty);
+  });
+
+  testWidgets('reuses the stored GridFS ID for final Gemini extraction', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    const artifactId = '6af8f8e224f98cd33ea4bf901';
+    final artifact = ProfileArtifactInput(
+      fileName: 'large-resume.pdf',
+      category: 'resume_upload',
+      mimeType: 'application/pdf',
+      bytes: Uint8List(3 * 1024 * 1024 + 1),
+    );
+    final actions = <String>[];
+    AIProcessingOutcome? outcome;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AIProcessingScreen(
+          artifacts: [artifact],
+          services: AIProcessingServices(
+            saveSources: ({resumeData, pesoFormData, onboardingText}) async {
+              actions.add('sources');
+            },
+            saveDocuments: (artifacts) async {
+              actions.add('documents');
+              expect(artifacts.single.storedArtifactId, isNull);
+              return const ProfileArtifactSaveResult(
+                records: [
+                  {'id': artifactId},
+                ],
+                warnings: [],
+              );
+            },
+            extractProfile:
+                ({required artifacts, rawText, persist = true}) async {
+                  actions.add('extract');
+                  expect(artifacts.single.storedArtifactId, artifactId);
+                  expect(persist, isTrue);
+                  return {
+                    'fullName': 'Verified Test Person',
+                    'skills': ['Cash handling'],
+                  };
+                },
+          ),
+          profilePageBuilder: (context, value) {
+            outcome = value;
+            return const Scaffold(body: Text('STORED_ARTIFACT_DESTINATION'));
+          },
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('STORED_ARTIFACT_DESTINATION'), findsOneWidget);
+    expect(actions, ['sources', 'documents', 'extract']);
+    expect(outcome!.aiProfile!['fullName'], 'Verified Test Person');
+    expect(outcome!.extractionUnavailable, isFalse);
   });
 
   for (final fails in [false, true]) {

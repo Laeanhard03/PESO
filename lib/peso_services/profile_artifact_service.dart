@@ -51,6 +51,20 @@ class ProfileArtifactService {
         );
         continue;
       }
+      final storedId = artifact.storedArtifactId?.trim() ?? '';
+      if (storedId.isNotEmpty) {
+        // The onboarding preview already stored this exact artifact. Reuse its
+        // owner-scoped GridFS ID instead of uploading the same bytes again.
+        records.add(<String, dynamic>{
+          'id': storedId,
+          'storagePath': storedId,
+          'fileName': artifact.fileName,
+          'category': artifact.category,
+          'mimeType': artifact.mimeType,
+          'sizeBytes': artifact.bytes.length,
+        });
+        continue;
+      }
 
       Object? lastError;
       for (var attempt = 0; attempt < 3; attempt++) {
@@ -66,9 +80,12 @@ class ProfileArtifactService {
           break;
         } catch (error) {
           lastError = error;
-          final transient = error is PesoApiException &&
-              (error.statusCode == 0 || error.statusCode == 502 ||
-                  error.statusCode == 503 || error.statusCode == 504);
+          final transient =
+              error is PesoApiException &&
+              (error.statusCode == 0 ||
+                  error.statusCode == 502 ||
+                  error.statusCode == 503 ||
+                  error.statusCode == 504);
           if (!transient || attempt == 2) break;
           await Future<void>.delayed(
             Duration(milliseconds: 700 * (1 << attempt)),
@@ -76,10 +93,17 @@ class ProfileArtifactService {
         }
       }
       if (lastError != null) {
-        warnings.add('Could not save ' + artifact.fileName + ': ' +
-            _friendlyApiError(lastError));
-        debugPrint('[ARTIFACT] Upload pending retry (' +
-            lastError.runtimeType.toString() + ').');
+        warnings.add(
+          'Could not save ' +
+              artifact.fileName +
+              ': ' +
+              _friendlyApiError(lastError),
+        );
+        debugPrint(
+          '[ARTIFACT] Upload pending retry (' +
+              lastError.runtimeType.toString() +
+              ').',
+        );
       }
     }
 

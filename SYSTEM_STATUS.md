@@ -327,3 +327,20 @@ A local pass does not establish that Firebase Functions, Gemini, Authentication 
 - Confirmed POST /api/ai/profile runs best-effort Go matching after successful extraction; GET /api/ai/job-recommendations independently runs Go matching from saved NSRP/resume evidence.
 - Added timeout, four-key failover, provider AbortSignal and matching-persistence regression tests. Backend npm run check: 328/328 passed; syntax checks passed.
 - Production release and post-deploy smoke verification pending. No real Gemini call was made during read-only diagnostics.
+
+## 2026-11-14 - FINAL RELEASE STATE: BOTH HOSTS LIVE
+
+- Vercel READY: dpl_CdL9zrdL83T6hQYFpa7ZQdfMx6HY.
+- Render LIVE: dep-dbs14vek1f9s7380cv9g.
+- Both hosts run commit 5720e945c0dcf6444ef6309c5138c1524149e535 on deploy/render-failover.
+- Render smoke: health, public jobs, and NSRP HTTP 200; MongoDB/Firebase/Gemini ready; protected AI/admin routes correctly 401 without auth; NSRP first-event dropdown tests pass at 390/1250px; resume photo/education gates pass; login UI verified.
+- Render build: NSRP/resume 30/30, ESLint, Vite, Flutter release web build, deployment package all passed.
+- No live applicant AI extraction or applicant-data write was used for the deployment smoke. A controlled synthetic end-to-end Gemini extraction/matching test remains a separate validation item.
+
+## 2026-11-14 - Resume Builder persistence and large resume upload (release pending)
+
+- Career-field selections now commit on the first native input event and are protected from delayed Flutter draft restoration; the new-entrant path clears stale optional skills.
+- Resume documents above 3 MiB use authenticated 1 MiB chunks (maximum 20 MiB) and assemble into the existing owner-scoped GridFS bucket; Gemini receives verified owner-scoped artifact IDs rather than oversized inline request bodies.
+- Registration reuses the saved GridFS artifact ID for preview/final extraction; AIProcessingScreen attaches IDs returned by a successful retry upload; profile resume replacement also reuses its stored ID.
+- Validation: backend 330/330; React 33/33; ESLint and Vite build passed; Flutter 291/291; Flutter analyzer exited 0 with 104 info-level findings, zero warnings/errors.
+- Vercel and Render deployment plus production smoke checks are pending.

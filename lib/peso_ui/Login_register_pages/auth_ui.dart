@@ -150,6 +150,19 @@ class _AuthPageState extends State<AuthPage> {
         }
         return <String, dynamic>{};
       }
+      for (var index = 0; index < artifacts.length; index++) {
+        final artifactId = stored.records[index]['id']?.toString().trim() ?? '';
+        if (artifactId.isEmpty) {
+          if (mounted) {
+            AppToast.warning(
+              context,
+              'Your resume was saved without a usable document reference. Continue with NSRP and retry the scan later.',
+            );
+          }
+          return <String, dynamic>{};
+        }
+        artifacts[index] = artifacts[index].withStoredArtifactId(artifactId);
+      }
       final extracted = await PesoAIEngine.generateProfile(
         artifacts: artifacts,
         persist: false,
@@ -688,83 +701,83 @@ class _AuthPageState extends State<AuthPage> {
         tone: PesoGreenTextureTone.dark,
         intensity: 1.05,
         child: Padding(
-      padding: EdgeInsets.symmetric(
-        horizontal: compact ? 16 : (narrow ? 28 : 50),
-        vertical: compact ? 28 : 56,
-      ),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 1160),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              if (showHero) ...[
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.only(right: 56),
-                    child: introduction(),
-                  ),
-                ),
-                const SizedBox(width: 16),
-              ],
-              Flexible(
-                flex: showHero ? 0 : 1,
-                child: AnimatedSize(
-                  duration: const Duration(milliseconds: 200),
-                  alignment: Alignment.topCenter,
-                  child: Container(
-                    width: isLogin ? 470 : 580,
-                    padding: EdgeInsets.all(compact ? 23 : 38),
-                    decoration: BoxDecoration(
+          padding: EdgeInsets.symmetric(
+            horizontal: compact ? 16 : (narrow ? 28 : 50),
+            vertical: compact ? 28 : 56,
+          ),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1160),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  if (showHero) ...[
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.only(right: 56),
+                        child: introduction(),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                  ],
+                  Flexible(
+                    flex: showHero ? 0 : 1,
+                    child: AnimatedSize(
+                      duration: const Duration(milliseconds: 200),
+                      alignment: Alignment.topCenter,
+                      child: Container(
+                        width: isLogin ? 470 : 580,
+                        padding: EdgeInsets.all(compact ? 23 : 38),
+                        decoration: BoxDecoration(
                           color: isLight
                               ? Colors.white
                               : const Color(0xFF183A2D),
-                      borderRadius: BorderRadius.circular(26),
-                      border: Border.all(
-                        color: isLight
-                            ? const Color(0xFFE0E6E2)
-                            : const Color(0xFF436A58),
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: .20),
-                          blurRadius: 35,
-                          offset: const Offset(0, 16),
+                          borderRadius: BorderRadius.circular(26),
+                          border: Border.all(
+                            color: isLight
+                                ? const Color(0xFFE0E6E2)
+                                : const Color(0xFF436A58),
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: .20),
+                              blurRadius: 35,
+                              offset: const Offset(0, 16),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        if (isLogin && narrow) ...[
-                          introduction(insideCard: true),
-                          const SizedBox(height: 27),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            if (isLogin && narrow) ...[
+                              introduction(insideCard: true),
+                              const SizedBox(height: 27),
                               Divider(
                                 color: Colors.white.withValues(alpha: .17),
                               ),
-                          const SizedBox(height: 20),
-                        ],
-                        AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 180),
-                          child: KeyedSubtree(
-                            key: ValueKey<AuthView>(_currentView),
+                              const SizedBox(height: 20),
+                            ],
+                            AnimatedSwitcher(
+                              duration: const Duration(milliseconds: 180),
+                              child: KeyedSubtree(
+                                key: ValueKey<AuthView>(_currentView),
                                 child: _buildCurrentAuthView(
                                   pesoGreen,
                                   isLight,
                                 ),
-                          ),
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
                   ),
-                ),
+                ],
               ),
-            ],
+            ),
           ),
-        ),
-      ),
         ),
       ),
     );
@@ -891,7 +904,10 @@ class _AuthPageState extends State<AuthPage> {
                     await AuthService.signOut();
                   } catch (error) {
                     if (mounted) {
-                      AppToast.error(context, 'Could not switch to login: $error');
+                      AppToast.error(
+                        context,
+                        'Could not switch to login: $error',
+                      );
                     }
                     return;
                   }

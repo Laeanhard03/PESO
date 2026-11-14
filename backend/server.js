@@ -74,6 +74,8 @@ const PROJECT_ID = process.env.FIREBASE_PROJECT_ID || 'capstone-4th-year-peso-ai
 const DB_NAME = process.env.MONGODB_DB_NAME || 'peso_jobkonek';
 const BOOTSTRAP_ADMIN_EMAIL = (process.env.INITIAL_ADMIN_EMAIL || 'admin@example.invalid').trim().toLowerCase();
 const BUCKET_NAME = 'profileArtifacts';
+const ARTIFACT_UPLOAD_CHUNK_BYTES = 1024 * 1024;
+const ARTIFACT_UPLOAD_SESSION_TTL_MS = 30 * 60 * 1000;
 
 const state = {
   mongoClient: null,
@@ -362,6 +364,18 @@ async function connectMongo() {
     } catch (indexError) {
       // Index-management permissions should not disable authenticated PESO data.
       logSafeError('[MongoDB] Job query indexes unavailable', indexError);
+    }
+    for (const [label, collection, keys, options] of [
+      ['session expiry', 'artifactUploadSessions', { expiresAt: 1 }, { expireAfterSeconds: 0 }],
+      ['chunk expiry', 'artifactUploadChunks', { expiresAt: 1 }, { expireAfterSeconds: 0 }],
+      ['chunk lookup', 'artifactUploadChunks', { sessionId: 1, ownerUid: 1, index: 1 }, { unique: true }],
+    ]) {
+      try {
+        await db.collection(collection).createIndex(keys, options);
+      } catch (indexError) {
+        // Upload ownership, chunk ordering and expiry are also checked in every request.
+        logSafeError('[MongoDB] Artifact upload ' + label + ' index unavailable', indexError);
+      }
     }
     state.mongoClient = client;
     state.db = db;
@@ -808,6 +822,24 @@ function artifactFromGridFs(file) {
     sizeBytes: Number(file.length || 0),
     uploadedAt: file.uploadDate || new Date(),
   };
+}
+
+async function readGridFsArtifactBytes(id, maximumBytes = MAX_ARTIFACT_BYTES) {
+  const stream = state.bucket.openDownloadStream(id);
+  const chunks = [];
+  let totalBytes = 0;
+  for await (const chunk of stream) {
+    totalBytes += chunk.length;
+    if (totalBytes > maximumBytes) {
+      stream.destroy?.();
+      throw Object.assign(new Error('Resume document exceeds the 20 MB extraction limit.'), {
+        status: 413,
+        code: 'artifact_size_limit',
+      });
+    }
+    chunks.push(Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks, totalBytes);
 }
 
 // Read-only admin document integration, sharing the AI Profile GridFS store.
@@ -2738,6 +2770,223 @@ app.get('/api/artifacts', requireAuth, requireMongo, async (req, res, next) => {
   }
 });
 
+// Large document uploads use small authenticated chunks because Vercel
+// Functions reject request bodies larger than 4.5 MB. Chunks are assembled
+// server-side into the existing owner-scoped GridFS bucket.
+app.post('/api/artifacts/upload-sessions', requireAuth, requireMongo, async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    const sizeBytes = Number(body.sizeBytes);
+    const category = String(body.category || 'document').trim().slice(0, 80);
+    const mimeType = String(body.mimeType || '').toLowerCase();
+    if (!Number.isSafeInteger(sizeBytes) || sizeBytes <= 0 || sizeBytes > MAX_ARTIFACT_BYTES) {
+      return res.status(413).json({ ok: false, error: 'artifact_size_limit',
+        message: 'Choose a non-empty document no larger than 20 MB.' });
+    }
+    if (!isAllowedMimeType(mimeType)) {
+      return res.status(415).json({ ok: false, error: 'unsupported_file_type' });
+    }
+    if (category === 'profile_photo' && sizeBytes > 3 * 1024 * 1024) {
+      return res.status(413).json({ ok: false, error: 'invalid_profile_photo',
+        message: 'Choose a PNG or JPEG profile picture under 3 MB.' });
+    }
+    const sessionId = crypto.randomUUID();
+    const now = new Date();
+    const chunkCount = Math.ceil(sizeBytes / ARTIFACT_UPLOAD_CHUNK_BYTES);
+    await state.db.collection('artifactUploadSessions').insertOne({
+      _id: sessionId,
+      ownerUid: req.user.uid,
+      fileName: safeFileName(body.fileName),
+      category,
+      mimeType,
+      sizeBytes,
+      chunkCount,
+      createdAt: now,
+      expiresAt: new Date(now.getTime() + ARTIFACT_UPLOAD_SESSION_TTL_MS),
+    });
+    return res.status(201).json({
+      ok: true, sessionId,
+      chunkSize: ARTIFACT_UPLOAD_CHUNK_BYTES,
+      chunkCount,
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+app.put('/api/artifacts/upload-sessions/:sessionId/chunks/:index', requireAuth, requireMongo, async (req, res, next) => {
+  try {
+    const sessionId = String(req.params.sessionId || '');
+    const session = await state.db.collection('artifactUploadSessions').findOne({
+      _id: sessionId,
+      ownerUid: req.user.uid,
+    });
+    if (!session) return res.status(404).json({ ok: false, error: 'artifact_upload_session_not_found' });
+    if (!(session.expiresAt instanceof Date) || session.expiresAt.getTime() <= Date.now()) {
+      return res.status(410).json({ ok: false, error: 'artifact_upload_session_expired' });
+    }
+    const index = Number(req.params.index);
+    if (!Number.isInteger(index) || index < 0 || index >= session.chunkCount) {
+      return res.status(400).json({ ok: false, error: 'invalid_artifact_chunk_index' });
+    }
+    const encoded = String(req.body?.base64 || '');
+    const maximumEncodedLength = Math.ceil(ARTIFACT_UPLOAD_CHUNK_BYTES * 4 / 3) + 8;
+    if (!encoded || encoded.length > maximumEncodedLength ||
+        !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) {
+      return res.status(400).json({ ok: false, error: 'invalid_artifact_chunk' });
+    }
+    const bytes = Buffer.from(encoded, 'base64');
+    if (bytes.toString('base64') !== encoded) {
+      return res.status(400).json({ ok: false, error: 'invalid_artifact_chunk' });
+    }
+    const expectedSize = Math.min(
+      ARTIFACT_UPLOAD_CHUNK_BYTES,
+      session.sizeBytes - index * ARTIFACT_UPLOAD_CHUNK_BYTES,
+    );
+    if (bytes.length !== expectedSize) {
+      return res.status(400).json({ ok: false, error: 'artifact_chunk_size_mismatch' });
+    }
+    await state.db.collection('artifactUploadChunks').updateOne(
+      { _id: sessionId + ':' + index },
+      { $set: {
+        sessionId, ownerUid: req.user.uid, index, bytes,
+        updatedAt: new Date(),
+        expiresAt: session.expiresAt,
+      } },
+      { upsert: true },
+    );
+    return res.json({ ok: true, chunkIndex: index, receivedBytes: bytes.length });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+app.post('/api/artifacts/upload-sessions/:sessionId/complete', requireAuth, requireMongo, async (req, res, next) => {
+  let uploadedId = null;
+  try {
+    const sessionId = String(req.params.sessionId || '');
+    const sessions = state.db.collection('artifactUploadSessions');
+    const chunksCollection = state.db.collection('artifactUploadChunks');
+    const session = await sessions.findOne({ _id: sessionId, ownerUid: req.user.uid });
+    if (!session) return res.status(404).json({ ok: false, error: 'artifact_upload_session_not_found' });
+    if (!(session.expiresAt instanceof Date) || session.expiresAt.getTime() <= Date.now()) {
+      return res.status(410).json({ ok: false, error: 'artifact_upload_session_expired' });
+    }
+    const files = state.db.collection(BUCKET_NAME + '.files');
+    if (session.completedArtifactId && ObjectId.isValid(session.completedArtifactId)) {
+      const completedFile = await files.findOne({
+        _id: new ObjectId(session.completedArtifactId),
+        'metadata.ownerUid': req.user.uid,
+      });
+      if (completedFile) {
+        return res.json({ ok: true, artifact: artifactFromGridFs(completedFile), reused: true });
+      }
+    }
+    const chunks = await chunksCollection.find({
+      sessionId, ownerUid: req.user.uid,
+    }).sort({ index: 1 }).toArray();
+    if (chunks.length !== session.chunkCount ||
+        chunks.some((chunk, index) => chunk.index !== index)) {
+      return res.status(409).json({ ok: false, error: 'artifact_upload_incomplete',
+        message: 'Some document parts are missing. Please retry the upload.' });
+    }
+    const bytes = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk.bytes)));
+    if (bytes.length !== session.sizeBytes) {
+      return res.status(409).json({ ok: false, error: 'artifact_upload_size_mismatch' });
+    }
+    const contentSha256 = crypto.createHash('sha256').update(bytes).digest('hex');
+    if (session.category !== 'profile_photo') {
+      const existing = await files.findOne({
+        'metadata.ownerUid': req.user.uid,
+        'metadata.category': session.category,
+        'metadata.contentSha256': contentSha256,
+      });
+      if (existing && existing.length === bytes.length) {
+        await sessions.updateOne({ _id: sessionId, ownerUid: req.user.uid }, {
+          $set: { completedArtifactId: String(existing._id), completedAt: new Date() },
+        });
+        await chunksCollection.deleteMany({ sessionId, ownerUid: req.user.uid });
+        return res.json({ ok: true, artifact: artifactFromGridFs(existing), reused: true });
+      }
+    }
+    if (session.category === 'profile_photo') {
+      const jpeg = session.mimeType === 'image/jpeg' && bytes.length > 3 &&
+        bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+      const png = session.mimeType === 'image/png' && bytes.length > 8 &&
+        bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+      if (bytes.length > 3 * 1024 * 1024 || (!jpeg && !png)) {
+        return res.status(415).json({ ok: false, error: 'invalid_profile_photo',
+          message: 'Choose a valid PNG or JPEG profile picture under 3 MB.' });
+      }
+    }
+    const upload = state.bucket.openUploadStream(session.fileName, {
+      contentType: session.mimeType,
+      metadata: {
+        ownerUid: req.user.uid,
+        category: session.category,
+        originalFileName: session.fileName,
+        mimeType: session.mimeType,
+        contentSha256,
+      },
+    });
+    uploadedId = upload.id;
+    await pipeline(Readable.from([bytes]), upload);
+    const file = await files.findOne({ _id: uploadedId });
+    if (!file) throw new Error('GridFS chunk upload ended without a file record.');
+    if (/resume/.test(session.category) || /nsrp|peso_form|employment_form/.test(session.category)) {
+      await ensureProfile(req.user);
+      await usersCollection().updateOne({ uid: req.user.uid }, {
+        $set: { ['documentSummary.' + (/resume/.test(session.category)
+          ? 'resumeSubmitted' : 'formSubmitted')]: true, updatedAt: new Date() },
+      });
+    }
+    if (session.category === 'profile_photo') {
+      await ensureProfile(req.user);
+      await usersCollection().updateOne({ uid: req.user.uid }, {
+        $set: {
+          photoArtifactId: String(uploadedId),
+          avatarStyle: 'photo',
+          updatedAt: new Date(),
+        },
+      });
+    }
+    await sessions.updateOne({ _id: sessionId, ownerUid: req.user.uid }, {
+      $set: { completedArtifactId: String(uploadedId), completedAt: new Date() },
+    });
+    await chunksCollection.deleteMany({ sessionId, ownerUid: req.user.uid });
+    return res.status(201).json({ ok: true, artifact: artifactFromGridFs(file) });
+  } catch (error) {
+    if (uploadedId && state.bucket) {
+      try { await state.bucket.delete(uploadedId); } catch { /* preserve original error */ }
+    }
+    return next(error);
+  }
+});
+
+app.delete('/api/artifacts/upload-sessions/:sessionId', requireAuth, requireMongo, async (req, res, next) => {
+  try {
+    const sessionId = String(req.params.sessionId || '');
+    const sessions = state.db.collection('artifactUploadSessions');
+    const session = await sessions.findOne({ _id: sessionId, ownerUid: req.user.uid });
+    if (session?.completedArtifactId && ObjectId.isValid(session.completedArtifactId)) {
+      const completedFile = await state.db.collection(BUCKET_NAME + '.files').findOne({
+        _id: new ObjectId(session.completedArtifactId),
+        'metadata.ownerUid': req.user.uid,
+      });
+      if (completedFile) {
+        return res.json({ ok: true, completed: true, artifact: artifactFromGridFs(completedFile) });
+      }
+    }
+    await state.db.collection('artifactUploadChunks').deleteMany({
+      sessionId, ownerUid: req.user.uid,
+    });
+    await sessions.deleteOne({ _id: sessionId, ownerUid: req.user.uid });
+    return res.json({ ok: true, completed: false });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 app.post('/api/artifacts', requireAuth, requireMongo, async (req, res, next) => {
   let uploadedId = null;
   try {
@@ -2928,6 +3177,12 @@ app.post('/api/ai/profile', requireAuth, requireMongo, async (req, res, next) =>
       ? req.body.rawText.slice(0, 300000)
       : '';
     const artifacts = Array.isArray(req.body?.artifacts) ? req.body.artifacts.slice(0, 8) : [];
+    const artifactIds = Array.isArray(req.body?.artifactIds)
+      ? [...new Set(req.body.artifactIds.map((value) => String(value || '').trim()).filter(Boolean))]
+      : [];
+    if (artifactIds.length > 8) {
+      return res.status(400).json({ ok: false, error: 'too_many_resume_artifacts' });
+    }
     // Resume absorption previews (persist: false) return the extracted profile
     // so onboarding screens can inherit it, without overwriting stored data.
     const persist = req.body?.persist !== false;
@@ -2952,6 +3207,36 @@ app.post('/api/ai/profile', requireAuth, requireMongo, async (req, res, next) =>
     }];
 
     let attachedResume = false;
+    const extractionArtifacts = [];
+    const artifactFiles = state.db.collection(BUCKET_NAME + '.files');
+    for (const artifactId of artifactIds) {
+      if (!ObjectId.isValid(artifactId)) {
+        return res.status(400).json({ ok: false, error: 'invalid_resume_artifact_id' });
+      }
+      const file = await artifactFiles.findOne({
+        _id: new ObjectId(artifactId),
+        'metadata.ownerUid': req.user.uid,
+        'metadata.category': 'resume_upload',
+      });
+      if (!file) {
+        return res.status(404).json({ ok: false, error: 'resume_artifact_not_found' });
+      }
+      const mimeType = String(file.metadata?.mimeType || file.contentType || '').toLowerCase();
+      if (!isAllowedMimeType(mimeType)) {
+        return res.status(415).json({ ok: false, error: 'unsupported_resume_file_type' });
+      }
+      if (!Number.isSafeInteger(file.length) || file.length <= 0 || file.length > MAX_ARTIFACT_BYTES) {
+        return res.status(413).json({ ok: false, error: 'artifact_size_limit' });
+      }
+      const bytes = await readGridFsArtifactBytes(file._id);
+      if (bytes.length !== file.length) {
+        return res.status(502).json({ ok: false, error: 'resume_artifact_read_failed' });
+      }
+      const base64 = bytes.toString('base64');
+      parts.push({ inlineData: { mimeType, data: base64 } });
+      extractionArtifacts.push({ category: 'resume_upload', mimeType, base64 });
+      attachedResume = true;
+    }
     for (const file of artifacts) {
       // Do not send NSRP PDFs or template-filled resume PDFs to Gemini.
       if (!file || file.category !== 'resume_upload') continue;
@@ -2959,7 +3244,9 @@ app.post('/api/ai/profile', requireAuth, requireMongo, async (req, res, next) =>
       if (!isAllowedMimeType(mimeType)) continue;
       const bytes = decodeArtifactBase64(file);
       if (bytes.length > MAX_ARTIFACT_BYTES) continue;
-      parts.push({ inlineData: { mimeType, data: bytes.toString('base64') } });
+      const base64 = bytes.toString('base64');
+      parts.push({ inlineData: { mimeType, data: base64 } });
+      extractionArtifacts.push({ ...file, mimeType, base64 });
       attachedResume = true;
     }
 
@@ -2992,7 +3279,7 @@ app.post('/api/ai/profile', requireAuth, requireMongo, async (req, res, next) =>
     // Verify the literal sex label in a text-bearing uploaded PDF. Gemini may
     // not infer sex from names or photos; unknown values remain unset.
     const verifiedSexEvidence = await verifyUploadedResumeSex(
-      artifacts, decodeArtifactBase64);
+      extractionArtifacts, decodeArtifactBase64);
     if (verifiedSexEvidence) profile.verifiedSexEvidence = verifiedSexEvidence;
     else delete profile.verifiedSexEvidence;
     // Use only source-supported extraction facts for automatic matching. A

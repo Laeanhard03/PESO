@@ -9,6 +9,7 @@ import {
   validateResumePhoto,
 } from './resumePhotoValidation.js';
 import { applicantCareerEntries, educationChoices, experienceChoices, skillsChoices, validateApplicantEssentials } from './applicantEssentials.js';
+import { buildResumeCareerPrefillUpdates } from './resumeCareerPrefill.js';
 
 // Registration values inherited from the Flutter shell (URL query string).
 // They replace the per-template sample name/contact text so applicants start
@@ -107,6 +108,26 @@ export default function ResumeApp() {
   const [skillsStage, setSkillsStage] = useState('');
   const [careerSkills, setCareerSkills] = useState('');
   const [missingEssentials, setMissingEssentials] = useState([]);
+  // A delayed Flutter draft restore must never overwrite a field the applicant
+  // has already edited in this session. This is especially important on mobile,
+  // where the native select can be used before the initial postMessage arrives.
+  const careerFieldsTouchedRef = useRef({
+    education: false, experience: false, skillsStage: false, skills: false,
+  });
+  const commitCareerChoice = (key, value, setter) => {
+    careerFieldsTouchedRef.current[key] = true;
+    setter(current => current === value ? current : value);
+    if (key === 'skillsStage' && value !== skillsChoices[0]) {
+      // Choosing the new-entrant path makes the optional skills textbox
+      // irrelevant; do not let a delayed draft restore repopulate it.
+      careerFieldsTouchedRef.current.skills = true;
+      setCareerSkills('');
+    }
+    setMissingEssentials(previous => previous.filter(item =>
+      item.key !== key &&
+      !(key === 'skillsStage' && value !== skillsChoices[0] && item.key === 'skills'),
+    ));
+  };
   const fileInputRef = useRef(null);
   const [draftStatus, setDraftStatus] = useState('Offline Draft');
   const ownerUidRef = useRef('');
@@ -179,13 +200,23 @@ export default function ResumeApp() {
         pendingRestoreRef.current = null;
         restoringRef.current = false;
       }, 190);
-      setCareerEducation(educationChoices.includes(draft.applicantEssentials?.education)
-        ? draft.applicantEssentials.education : '');
-      setExperienceStatus(experienceChoices.includes(draft.applicantEssentials?.experience)
-        ? draft.applicantEssentials.experience : '');
-      setSkillsStage(skillsChoices.includes(draft.applicantEssentials?.skillsStage)
-        ? draft.applicantEssentials.skillsStage : '');
-      setCareerSkills(draft.applicantEssentials?.skills || '');
+      const restoredCareerFields = buildResumeCareerPrefillUpdates(
+        draft.applicantEssentials || {},
+        careerFieldsTouchedRef.current,
+        { education: educationChoices, experience: experienceChoices, skillsStage: skillsChoices },
+      );
+      if (Object.hasOwn(restoredCareerFields, 'education')) {
+        setCareerEducation(restoredCareerFields.education);
+      }
+      if (Object.hasOwn(restoredCareerFields, 'experience')) {
+        setExperienceStatus(restoredCareerFields.experience);
+      }
+      if (Object.hasOwn(restoredCareerFields, 'skillsStage')) {
+        setSkillsStage(restoredCareerFields.skillsStage);
+      }
+      if (Object.hasOwn(restoredCareerFields, 'skills')) {
+        setCareerSkills(restoredCareerFields.skills);
+      }
       if (typeof draft.photoDataUri === 'string' &&
           draft.photoDataUri.startsWith('data:image/') &&
           draft.photoDataUri.length <= MAX_RESUME_PHOTO_DATA_URI_LENGTH) {
@@ -723,24 +754,27 @@ export default function ResumeApp() {
         )}
         <div className="grid sm:grid-cols-2 gap-3 mt-4">
           <label className="text-sm font-semibold">Highest schooling <span className="text-rose-600" aria-hidden="true">*</span>
-            <select aria-label="Resume highest education" aria-required="true" aria-invalid={missingEssentials.some(item => item.key === 'education')} style={missingEssentials.some(item => item.key === 'education') ? { borderColor: '#dc2626', boxShadow: '0 0 0 1px #dc2626' } : undefined} value={careerEducation}
-              onChange={event => { setCareerEducation(event.target.value); setMissingEssentials([]); }}
+            <select aria-label="Resume highest education" aria-required="true" data-testid="resume-education-select" aria-invalid={missingEssentials.some(item => item.key === 'education')} style={missingEssentials.some(item => item.key === 'education') ? { borderColor: '#dc2626', boxShadow: '0 0 0 1px #dc2626' } : undefined} value={careerEducation}
+              onInput={event => commitCareerChoice('education', event.currentTarget.value, setCareerEducation)}
+              onChange={event => commitCareerChoice('education', event.currentTarget.value, setCareerEducation)}
               className="mt-1 w-full border border-gray-300 rounded-lg p-3 bg-white">
               <option value="">Choose your education</option>
               {educationChoices.map(v => <option key={v} value={v}>{v}</option>)}
             </select>
           </label>
           <label className="text-sm font-semibold">Work experience <span className="text-rose-600" aria-hidden="true">*</span>
-            <select aria-label="Resume work experience" aria-required="true" aria-invalid={missingEssentials.some(item => item.key === 'experience')} style={missingEssentials.some(item => item.key === 'experience') ? { borderColor: '#dc2626', boxShadow: '0 0 0 1px #dc2626' } : undefined} value={experienceStatus}
-              onChange={event => { setExperienceStatus(event.target.value); setMissingEssentials([]); }}
+            <select aria-label="Resume work experience" aria-required="true" data-testid="resume-experience-select" aria-invalid={missingEssentials.some(item => item.key === 'experience')} style={missingEssentials.some(item => item.key === 'experience') ? { borderColor: '#dc2626', boxShadow: '0 0 0 1px #dc2626' } : undefined} value={experienceStatus}
+              onInput={event => commitCareerChoice('experience', event.currentTarget.value, setExperienceStatus)}
+              onChange={event => commitCareerChoice('experience', event.currentTarget.value, setExperienceStatus)}
               className="mt-1 w-full border border-gray-300 rounded-lg p-3 bg-white">
               <option value="">Select your situation</option>
               {experienceChoices.map(v => <option key={v} value={v}>{v}</option>)}
             </select>
           </label>
           <label className="text-sm font-semibold sm:col-span-2">Skills and training <span className="text-rose-600" aria-hidden="true">*</span>
-            <select aria-label="Resume skills stage" aria-required="true" aria-invalid={missingEssentials.some(item => item.key === 'skillsStage')} style={missingEssentials.some(item => item.key === 'skillsStage') ? { borderColor: '#dc2626', boxShadow: '0 0 0 1px #dc2626' } : undefined} value={skillsStage}
-              onChange={event => { setSkillsStage(event.target.value); setMissingEssentials([]); }}
+            <select aria-label="Resume skills stage" aria-required="true" data-testid="resume-skills-stage-select" aria-invalid={missingEssentials.some(item => item.key === 'skillsStage')} style={missingEssentials.some(item => item.key === 'skillsStage') ? { borderColor: '#dc2626', boxShadow: '0 0 0 1px #dc2626' } : undefined} value={skillsStage}
+              onInput={event => commitCareerChoice('skillsStage', event.currentTarget.value, setSkillsStage)}
+              onChange={event => commitCareerChoice('skillsStage', event.currentTarget.value, setSkillsStage)}
               className="mt-1 w-full border border-gray-300 rounded-lg p-3 bg-white">
               <option value="">Select your situation</option>
               {skillsChoices.map(v => <option key={v} value={v}>{v}</option>)}
@@ -748,8 +782,9 @@ export default function ResumeApp() {
           </label>
           {skillsStage === skillsChoices[0] && (
             <label className="text-sm font-semibold sm:col-span-2">Skills you can honestly describe <span className="text-rose-600" aria-hidden="true">*</span>
-              <textarea aria-label="Resume applicant skills" aria-required="true" aria-invalid={missingEssentials.some(item => item.key === 'skills')} style={missingEssentials.some(item => item.key === 'skills') ? { borderColor: '#dc2626', boxShadow: '0 0 0 1px #dc2626' } : undefined} rows={2} value={careerSkills}
-                onChange={event => { setCareerSkills(event.target.value); setMissingEssentials([]); }}
+              <textarea aria-label="Resume applicant skills" aria-required="true" data-testid="resume-applicant-skills" aria-invalid={missingEssentials.some(item => item.key === 'skills')} style={missingEssentials.some(item => item.key === 'skills') ? { borderColor: '#dc2626', boxShadow: '0 0 0 1px #dc2626' } : undefined} rows={2} value={careerSkills}
+                onInput={event => commitCareerChoice('skills', event.currentTarget.value, setCareerSkills)}
+                onChange={event => commitCareerChoice('skills', event.currentTarget.value, setCareerSkills)}
                 className="mt-1 w-full border border-gray-300 rounded-lg p-3"
                 placeholder="e.g. Customer service, basic carpentry or computer skills" />
             </label>
