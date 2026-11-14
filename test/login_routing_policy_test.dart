@@ -36,4 +36,26 @@ void main() {
     );
     expect(loginSource, contains('AuthService.getCurrentUserRole'));
   });
+
+  test('new applicants remain signed in after registration and can explicitly switch to login', () {
+    final authService = File('lib/peso_services/auth_service.dart')
+        .readAsStringSync();
+    final registerSource = File(
+      'lib/peso_ui/Login_register_pages/register_ui.dart',
+    ).readAsStringSync();
+    final authPageSource = File('lib/peso_ui/Login_register_pages/auth_ui.dart')
+        .readAsStringSync();
+
+    expect(authService, contains('_auth.createUserWithEmailAndPassword('));
+    expect(registerSource, contains('AuthService.registerWithEmail('));
+    expect(registerSource, contains('widget.onEmailVerificationRequired('));
+    expect(
+      authPageSource,
+      contains('Your account has been created and you are already signed in.'),
+    );
+    expect(authPageSource, contains('Verify and continue'));
+    expect(authPageSource, contains('Go to login instead'));
+    expect(authPageSource, contains('await AuthService.signOut();'));
+    expect(authPageSource, contains('_currentView = AuthView.login;'));
+  });
 }

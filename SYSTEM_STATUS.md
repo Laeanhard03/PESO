@@ -296,3 +296,11 @@ A local pass does not establish that Firebase Functions, Gemini, Authentication 
 
 - Vercel production: **READY**, deployment `dpl_EApfNH5tWeyWcsh9qRNJXMvNvoRT`, commit `e6f5f6d99ac88e43139269d778a8c3c00b5b1c4b`, alias `peso-jobkonek.vercel.app`. Homepage, public jobs, API health, and `/nsrp/` all return HTTP 200. MongoDB, Firebase verification, and Gemini are ready; desktop/mobile browser smoke has zero JavaScript errors and failed requests.
 - Render failover remains healthy on `f49b057` and redirects its root to Vercel while the primary is healthy. Render reports `autoDeploy=yes`, but no deployment event for `e6f5f6d` was created after the push; the backup UI is not yet synchronized. No manual deployment was forced while automatic deployment is enabled.
+
+## 2026-11-14 - NSRP and registration follow-up fixes (release pending)
+
+- NSRP DOB fallback is excluded from new schema-v2 serialized entries and the exported PDF clone; date-value spans preserve source text alignment, border rules, padding and typography. Legacy unversioned drafts still restore with the original control ordering.
+- All five controlled NSRP dropdowns now update from the first native `input` event, retaining `change` as a fallback; state writes are idempotent.
+- Registration verification UI now clearly states that Firebase has already signed in the new account, uses `Verify and continue`, and offers `Go to login instead` with a safe sign-out. Email verification is still required before protected workspace access.
+- Tests: React 27/27, lint clean, Vite build passed; Playwright first-input tests at 390/510/1250px; production-build PDF E2E shows one DOB and correctly aligned signature date. Flutter 290/290; login tests 3/3; analyzer 0 warnings/errors (105 info-level findings). Backend 325/325. Flutter + NSRP production build artifacts validated.
+- Deployment and Admin checklist closure are pending.

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import * as htmlToImage from "html-to-image";
 import { jsPDF } from "jspdf";
 import { sendToFlutter } from './flutterBridge.js';
@@ -58,6 +58,17 @@ export default function App() {
     const [year, month, day] = iso.split('-');
     return month + '/' + day + '/' + year;
   };
+  const getNsrpControls = (root, { includeDateFallback = false } = {}) =>
+    Array.from(root.querySelectorAll(
+      '#zoom-wrapper input, #zoom-wrapper select, #zoom-wrapper textarea',
+    )).filter(control =>
+      !['hidden', 'submit', 'button', 'reset', 'file'].includes((control.type || '').toLowerCase()) &&
+      (includeDateFallback || !control.hasAttribute('data-nsrp-date-fallback')),
+    );
+  const commitSelectValue = (event, updateState) => {
+    const value = event.currentTarget.value;
+    updateState(current => current === value ? current : value);
+  };
   const handleContactNumberChange = event => {
     const value = String(event?.target?.value || '').trim();
     setContactNumberWarning(isCompletePhilippineMobileNumber(value)
@@ -76,14 +87,12 @@ export default function App() {
     if (valid) setMissingEssentials(previous => previous.filter(item => item.key !== 'dateOfBirth'));
   };
 
-  const snapshotDraft = () => {
+  const snapshotDraft = useCallback(() => {
     const fields = draftFieldsRef.current;
-    const controls = Array.from(document.querySelectorAll(
-      '#zoom-wrapper input, #zoom-wrapper select, #zoom-wrapper textarea',
-    )).filter(node => !['hidden', 'submit', 'button', 'reset', 'file'].includes(
-      (node.type || '').toLowerCase()));
+    const controls = getNsrpControls(document);
     return {
       documentType: 'NSRP Form 1 Draft',
+      controlSchemaVersion: 2,
       draftUpdatedAt: new Date().toISOString(),
       entries: controls.map((node, index) => {
         const type = (node.type || node.tagName || '').toLowerCase();
@@ -103,7 +112,7 @@ export default function App() {
       signatureDataUrl: fields.hasSignature && signatureCanvasRef.current
         ? signatureCanvasRef.current.toDataURL('image/png') : null,
     };
-  };
+  }, []);
 
   const age = (() => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)) return '';
@@ -151,7 +160,7 @@ export default function App() {
       if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
     };
   // snapshotDraft reads the current controlled fields through draftFieldsRef.
-  }, []);
+  }, [snapshotDraft]);
 
 
   const beginSignature = event => {
@@ -419,10 +428,12 @@ export default function App() {
       // Match the exact control set and ordering used when serializing NSRP.
       // Applicant-career selects live outside the printable zoom wrapper and
       // must NOT shift saved index 1 (surname) onto the education dropdown.
-      const controls = Array.from(document.querySelectorAll(
-        '#zoom-wrapper input, #zoom-wrapper select, #zoom-wrapper textarea',
-      )).filter(control => !['hidden', 'submit', 'button', 'reset', 'file']
-        .includes((control.type || '').toLowerCase()));
+      // Older saved drafts include the manual DOB fallback in their indexed
+      // entries. Keep their original control ordering while new schema-v2
+      // drafts omit that duplicate and restore from the canonical ISO date.
+      const controls = Number(data.formData?.controlSchemaVersion) >= 2
+        ? getNsrpControls(document)
+        : getNsrpControls(document, { includeDateFallback: true });
       entries.slice(0, 400).forEach(entry => {
         const i = Number(entry?.index) - 1;
         if (!Number.isInteger(i) || i < 0 || i >= controls.length) return;
@@ -492,7 +503,7 @@ export default function App() {
   // Commit native selects exclusively through their React handlers, after
   // Chrome has finished changing the selected option.
   const commitCareerChoice = (key, value, updateState) => {
-    updateState(value);
+    updateState(current => current === value ? current : value);
     if (!value.trim()) return;
     setMissingEssentials(previous => {
       if (!previous.some(item => item.key === key ||
@@ -638,6 +649,10 @@ export default function App() {
         const printPage = page.cloneNode(true);
         printPage.removeAttribute('id');
         if (spec.compact) printPage.classList.add('nsrp-print-compact');
+        // Remove the browser-only manual DOB fallback from the clone itself;
+        // filtering it out of the replacement loop alone would leave the
+        // original input visible in the exported PDF.
+        printPage.querySelectorAll('[data-nsrp-date-fallback]').forEach(control => control.remove());
         printPage.style.position = 'absolute';
         // html-to-image needs the print source inside the visible render surface.
         // Keep the clone behind the app while rasterizing, then remove it.
@@ -650,8 +665,13 @@ export default function App() {
         printPage.style.transform = 'none';
 
 
-        const originals = Array.from(page.querySelectorAll('input, select, textarea'));
-        const copies = Array.from(printPage.querySelectorAll('input, select, textarea'));
+        // The manual DOB text box is an input fallback for browsers without a
+        // usable date picker, not a second printed field. It is excluded from
+        // both serialization and the print clone so the DOB appears once.
+        const originals = Array.from(page.querySelectorAll('input, select, textarea'))
+          .filter(source => !source.hasAttribute('data-nsrp-date-fallback'));
+        const copies = Array.from(printPage.querySelectorAll('input, select, textarea'))
+          .filter(target => !target.hasAttribute('data-nsrp-date-fallback'));
         originals.forEach((source, index) => {
           const target = copies[index];
           if (!target) return;
@@ -727,6 +747,22 @@ export default function App() {
               'white-space:pre-wrap;overflow:hidden;overflow-wrap:anywhere;word-break:break-word;' +
               'box-sizing:border-box;height:' + fieldHeight + 'px;max-height:' + fieldHeight + 'px;' +
               'font-family:Arial,sans-serif;font-size:' + fontSize + 'px;line-height:1.05;padding:0;';
+            // Preserve the original form field's alignment and rule when the
+            // native input is replaced by printable text. In particular, date
+            // values must remain centered on the official signature/date line.
+            const computed = window.getComputedStyle(source);
+            replacement.style.textAlign = computed.textAlign;
+            replacement.style.borderBottom = computed.borderBottom;
+            replacement.style.borderTop = computed.borderTop;
+            replacement.style.borderLeft = computed.borderLeft;
+            replacement.style.borderRight = computed.borderRight;
+            replacement.style.padding = computed.padding;
+            replacement.style.color = computed.color;
+            replacement.style.fontWeight = computed.fontWeight;
+            replacement.style.fontStyle = computed.fontStyle;
+            replacement.style.textTransform = computed.textTransform;
+            replacement.style.letterSpacing = computed.letterSpacing;
+            replacement.style.verticalAlign = computed.verticalAlign;
           }
           target.replaceWith(replacement);
         });
@@ -845,10 +881,7 @@ export default function App() {
         return `Form field ${index + 1}`;
       };
 
-      const controls = Array.from(document.querySelectorAll('#zoom-wrapper input, #zoom-wrapper select, #zoom-wrapper textarea')).filter((control) => {
-        const type = (control.type || '').toLowerCase();
-        return !['hidden', 'submit', 'button', 'reset', 'file'].includes(type);
-      });
+      const controls = getNsrpControls(document);
       const entries = controls.map((input, index) => {
         const type = (input.type || input.tagName || 'text').toLowerCase();
         const label = getFieldLabel(input, index);
@@ -880,6 +913,7 @@ export default function App() {
       });
       const formData = {
         documentType: 'NSRP Form 1',
+        controlSchemaVersion: 2,
         entries: storedEntries,
         applicantEssentials: {
           education: careerEducation,
@@ -993,7 +1027,9 @@ export default function App() {
           <label className="text-sm font-semibold text-slate-800">
             Highest education / currently studying
             <select aria-label="Highest education" data-testid="career-education-select" data-applicant-field="education"
-              value={careerEducation} onChange={event => commitCareerChoice('education', event.currentTarget.value, setCareerEducation)}
+              value={careerEducation}
+              onInput={event => commitCareerChoice('education', event.currentTarget.value, setCareerEducation)}
+              onChange={event => commitCareerChoice('education', event.currentTarget.value, setCareerEducation)}
               className="mt-1 w-full border border-slate-300 rounded-lg p-3 bg-white text-slate-900">
               <option value="">Select your actual education</option>
               {educationChoices.map(choice => <option key={choice} value={choice}>{choice}</option>)}
@@ -1005,7 +1041,9 @@ export default function App() {
           <label className="text-sm font-semibold text-slate-800">
             Work experience
             <select aria-label="Work experience status" data-testid="career-experience-select" data-applicant-field="experience"
-              value={experienceStatus} onChange={event => commitCareerChoice('experience', event.currentTarget.value, setExperienceStatus)}
+              value={experienceStatus}
+              onInput={event => commitCareerChoice('experience', event.currentTarget.value, setExperienceStatus)}
+              onChange={event => commitCareerChoice('experience', event.currentTarget.value, setExperienceStatus)}
               className="mt-1 w-full border border-slate-300 rounded-lg p-3 bg-white text-slate-900">
               <option value="">Select your situation</option>
               {experienceChoices.map(choice => <option key={choice} value={choice}>{choice}</option>)}
@@ -1017,7 +1055,9 @@ export default function App() {
           <label className="text-sm font-semibold text-slate-800 sm:col-span-2">
             Skills or training
             <select aria-label="Skills stage" data-testid="career-skills-select" data-applicant-field="skillsStage"
-              value={skillsStage} onChange={event => commitCareerChoice('skillsStage', event.currentTarget.value, setSkillsStage)}
+              value={skillsStage}
+              onInput={event => commitCareerChoice('skillsStage', event.currentTarget.value, setSkillsStage)}
+              onChange={event => commitCareerChoice('skillsStage', event.currentTarget.value, setSkillsStage)}
               className="mt-1 w-full border border-slate-300 rounded-lg p-3 bg-white text-slate-900">
               <option value="">Select your situation</option>
               {skillsChoices.map(choice => <option key={choice} value={choice}>{choice}</option>)}
@@ -1118,7 +1158,7 @@ export default function App() {
                     if (event.target.value) setMissingEssentials(previous => previous.filter(item => item.key !== 'dateOfBirth'));
                   }}
                   className="w-full min-w-0 outline-none" />
-                <input type="text" inputMode="numeric" aria-label="Type date of birth" data-applicant-field="dateOfBirth"
+                <input type="text" inputMode="numeric" aria-label="Type date of birth" data-nsrp-date-fallback="true" data-applicant-field="dateOfBirth"
                   aria-required="true" aria-invalid={missingEssentials.some(item => item.key === 'dateOfBirth')}
                   style={missingEssentials.some(item => item.key === 'dateOfBirth') ? { border: '1px solid #dc2626', backgroundColor: '#fff1f2' } : undefined}
                   placeholder="MM/DD/YYYY" maxLength={10} ref={manualDobRef}
@@ -1128,14 +1168,18 @@ export default function App() {
               <div className="w-1/2 p-1"><GreenLabel required>SEX</GreenLabel><select aria-label="Sex" data-applicant-field="sex" aria-required="true"
                 aria-invalid={missingEssentials.some(item => item.key === 'sex')}
                 style={missingEssentials.some(item => item.key === 'sex') ? { border: '1px solid #dc2626', backgroundColor: '#fff1f2' } : undefined}
-                className="w-full min-w-0 text-[11px]" value={sex} onChange={event => setSex(event.target.value)}><option value="">Choose</option><option>Male</option><option>Female</option><option>Other</option></select></div>
+                className="w-full min-w-0 text-[11px]" value={sex}
+              onInput={event => commitSelectValue(event, setSex)}
+              onChange={event => commitSelectValue(event, setSex)}><option value="">Choose</option><option>Male</option><option>Female</option><option>Other</option></select></div>
             </div>
 
             <div className="flex border-b border-black divide-x divide-black">
               <div className="w-1/2 flex flex-col divide-y divide-black">
                 <div className="flex divide-x divide-black h-1/2">
                    <div className="w-1/2 p-1 font-bold text-green-700">Personal details</div>
-                   <div className="w-1/2 p-1"><GreenLabel required>RELIGION</GreenLabel><select data-nsrp-required="religion" aria-label="Religion" className="w-full min-w-0" value={religion} onChange={event => setReligion(event.target.value)}><option value="">Select or prefer not to say</option><option>Prefer not to say</option><option>Roman Catholic</option><option>Islam</option><option>Iglesia ni Cristo</option><option>Protestant</option><option>Born Again Christian</option><option>Other</option><option>None</option></select></div>
+                   <div className="w-1/2 p-1"><GreenLabel required>RELIGION</GreenLabel><select data-nsrp-required="religion" aria-label="Religion" className="w-full min-w-0" value={religion}
+                onInput={event => commitSelectValue(event, setReligion)}
+                onChange={event => commitSelectValue(event, setReligion)}><option value="">Select or prefer not to say</option><option>Prefer not to say</option><option>Roman Catholic</option><option>Islam</option><option>Iglesia ni Cristo</option><option>Protestant</option><option>Born Again Christian</option><option>Other</option><option>None</option></select></div>
                 </div>
                 <div className="flex divide-x divide-black h-1/2">
                     <div className="w-1/4 p-1"><GreenLabel required>CIVIL STATUS</GreenLabel></div>

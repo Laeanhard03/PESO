@@ -834,6 +834,14 @@ class _AuthPageState extends State<AuthPage> {
             fontWeight: FontWeight.w700,
           ),
         ),
+        if (_verificationForRegistration) ...[
+          const SizedBox(height: 12),
+          Text(
+            'Your account has been created and you are already signed in. Verify this email, return here, and continue. You will not need to sign in again.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: mutedColor, height: 1.5),
+          ),
+        ],
         const SizedBox(height: 14),
         if (_verificationEmailError != null) ...[
           Text(
@@ -860,7 +868,11 @@ class _AuthPageState extends State<AuthPage> {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
               : const Icon(Icons.verified_user_outlined),
-          label: const Text('I verified my email'),
+          label: Text(
+            _verificationForRegistration
+                ? 'Verify and continue'
+                : 'I verified my email',
+          ),
           style: FilledButton.styleFrom(
             backgroundColor: pesoGreen,
             padding: const EdgeInsets.symmetric(vertical: 16),
@@ -875,17 +887,30 @@ class _AuthPageState extends State<AuthPage> {
           onPressed: _verificationBusy
               ? null
               : () async {
-                  await AuthService.signOut();
+                  try {
+                    await AuthService.signOut();
+                  } catch (error) {
+                    if (mounted) {
+                      AppToast.error(context, 'Could not switch to login: $error');
+                    }
+                    return;
+                  }
                   if (!mounted) return;
                   setState(() {
                     _verificationRequest = null;
                     _registrationIdentity = const <String, String>{};
-                    _currentView = _verificationForRegistration
-                        ? AuthView.register
-                        : AuthView.login;
+                    _verificationForRegistration = false;
+                    _verificationEmail = '';
+                    _verificationEmailSent = false;
+                    _verificationEmailError = null;
+                    _currentView = AuthView.login;
                   });
                 },
-          child: const Text('Use a different account'),
+          child: Text(
+            _verificationForRegistration
+                ? 'Go to login instead'
+                : 'Use a different account',
+          ),
         ),
       ],
     );
