@@ -318,3 +318,12 @@ A local pass does not establish that Firebase Functions, Gemini, Authentication 
 - Both hosts passed production resume gate checks at 390/1250 px, first-event NSRP dropdown tests, registration/login UI verification, API health with MongoDB connected, and public jobs response.
 - Admin checklist: 14/14 main task implemented; `bug fixes ilaya` 2/2 fixed; login 1/1 implemented; NSRP bug fixes 2/2 fixed; resume upload 1/1 fixed; resume photo/education gates 1/1 fixed.
 - One item remains open: `IT ADMIN SALARY` / `REMOVE MUNAYONG SALARY`. No salary record was changed pending confirmation of permanent deletion versus hide/archive.
+
+## 2026-11-14 - Gemini key rotation and AI matching deadline fix (release pending)
+
+- Diagnosed a Vercel POST /api/ai/profile runtime timeout at 300 seconds. The managed pool was active with four enabled keys; there was no active model quota record. Two keys last passed connectivity tests and two last failed transiently; all remain enabled.
+- Fixed provider per-call timeout overrides and the rotator's shared 210-second default / 240-second ceiling. Each attempt is clamped to remaining time with a 3-second finalization buffer; fallback-model attempts share the same deadline. The attempt ceiling is now four distinct keys.
+- 429 quota behavior remains project-safe: stop on project/model quota instead of rotating API keys to bypass it. Vercel has no GEMINI_FALLBACK_MODEL configured; no alternate model was selected automatically.
+- Confirmed POST /api/ai/profile runs best-effort Go matching after successful extraction; GET /api/ai/job-recommendations independently runs Go matching from saved NSRP/resume evidence.
+- Added timeout, four-key failover, provider AbortSignal and matching-persistence regression tests. Backend npm run check: 328/328 passed; syntax checks passed.
+- Production release and post-deploy smoke verification pending. No real Gemini call was made during read-only diagnostics.

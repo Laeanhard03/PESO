@@ -59,6 +59,30 @@ test('profile operation returns parsed JSON and retains bounded structured attac
   assert.equal(captured.contents[0].parts[1].inlineData.data, 'ZmFrZQ==');
 });
 
+test('request-scoped timeout shortens a long profile extraction provider call', async () => {
+  let aborted = false;
+  const providerCall = createGeminiProvider({
+    fetchImpl: async (_url, options) => new Promise((_resolve, reject) => {
+      options.signal.addEventListener('abort', () => {
+        aborted = true;
+        reject(options.signal.reason);
+      }, { once: true });
+    }),
+  });
+
+  await assert.rejects(providerCall({
+    apiKey: 'fake-provider-key-for-timeout-test',
+    model: 'gemini-test',
+    operation: 'profile_extraction',
+    payload: { parts: [{ text: 'Synthetic timeout test.' }] },
+    timeoutMs: 1000,
+  }), (error) => {
+    assert.equal(error.code, 'ETIMEDOUT');
+    return true;
+  });
+  assert.equal(aborted, true);
+});
+
 test('document reading operation attaches a Files API reference and returns parsed job notices', async () => {
   let captured;
   const providerCall = createGeminiProvider({

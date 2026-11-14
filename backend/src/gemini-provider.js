@@ -268,7 +268,7 @@ export function createGeminiProvider({ fetchImpl = globalThis.fetch, timeoutMs =
   const safeTimeout = Math.max(1000, Math.min(MAX_TIMEOUT_MS,
     Number.isFinite(timeoutMs) ? timeoutMs : DEFAULT_TIMEOUT_MS));
 
-  return async function generateContent({ apiKey, model, operation, payload = {} } = {}) {
+  return async function generateContent({ apiKey, model, operation, payload = {}, timeoutMs: requestedTimeoutMs } = {}) {
     if (typeof apiKey !== 'string' || !apiKey) {
       const error = new Error('Gemini API key is not configured.');
       error.status = 503;
@@ -289,8 +289,17 @@ export function createGeminiProvider({ fetchImpl = globalThis.fetch, timeoutMs =
     };
     const endpoint = 'https://generativelanguage.googleapis.com/v1beta/models/' +
       encodeURIComponent(model) + ':generateContent';
-    const requestTimeout = Math.max(1000, Math.min(MAX_TIMEOUT_MS,
-      Number.isFinite(OPERATION_TIMEOUT_MS[operation]) ? OPERATION_TIMEOUT_MS[operation] : safeTimeout));
+    // A request-scoped deadline may shorten an operation's normal timeout,
+    // but it can never extend the operation-specific provider ceiling. The
+    // key rotator uses this to keep sequential failover inside one hard budget.
+    const operationTimeout = Number.isFinite(OPERATION_TIMEOUT_MS[operation])
+      ? OPERATION_TIMEOUT_MS[operation]
+      : safeTimeout;
+    const requestTimeout = Math.max(1000, Math.min(
+      MAX_TIMEOUT_MS,
+      operationTimeout,
+      Number.isFinite(requestedTimeoutMs) ? requestedTimeoutMs : operationTimeout,
+    ));
     let response;
     try {
       response = await fetchImpl(endpoint, {

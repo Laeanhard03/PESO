@@ -1,13 +1,15 @@
-const MAX_ATTEMPTS_HARD_LIMIT = 3;
+const MAX_ATTEMPTS_HARD_LIMIT = 4;
 const DEFAULT_COOLDOWN_MS = 60_000;
 const DEFAULT_RETRY_AFTER_SECONDS = 30;
 const MAX_RETRY_AFTER_SECONDS = 86_400;
 // The app's own client waits 245s for an extraction. One thinking-model attempt
-// can now legitimately take up to 180s, so the rotator must not keep starting
-// fresh attempts past that window: answering late is worse than answering with a
-// clear, retryable failure.
+// can legitimately take up to 180s, so every provider call receives only the
+// remaining request budget. This prevents sequential 180s attempts from running
+// past Vercel's 300s function deadline. Fast transient failures can still rotate
+// through all four configured keys before the shared deadline is reached.
 const DEFAULT_TOTAL_BUDGET_MS = 210_000;
 const MIN_ATTEMPT_SLICE_MS = 20_000;
+const FINALIZATION_BUFFER_MS = 3_000;
 const MAX_TOTAL_BUDGET_MS = 240_000;
 
 function asStatus(error) {
@@ -213,13 +215,27 @@ export function createGeminiKeyRotator({
     15 * 60_000,
     Number.isFinite(cooldownMs) ? cooldownMs : DEFAULT_COOLDOWN_MS,
   ));
-  const safeBudget = Math.max(MIN_ATTEMPT_SLICE_MS, Math.min(
+  const safeBudget = Math.max(1000, Math.min(
     MAX_TOTAL_BUDGET_MS,
     Number.isFinite(totalBudgetMs) ? totalBudgetMs : DEFAULT_TOTAL_BUDGET_MS,
   ));
   const safeFallbackModel = typeof fallbackModel === 'string' ? fallbackModel.trim() : '';
 
-  async function callLegacyOnce(request) {
+  function remainingBudgetMs(startedAt, budgetMs) {
+    const elapsed = Math.max(0, Number(now()) - startedAt);
+    return Math.max(0, budgetMs - elapsed);
+  }
+
+  function timeoutFailure(attempts) {
+    return safeFailure({
+      statusCode: 503,
+      publicCode: 'gemini_request_timed_out',
+      message: 'Gemini did not finish before the request deadline. Please try again in a moment.',
+      retryAfterSeconds: DEFAULT_RETRY_AFTER_SECONDS,
+    }, attempts);
+  }
+
+  async function callLegacyOnce(request, requestBudget, startedAt) {
     const model = String(request?.model || '');
     if (model && typeof store.getModelQuotaStatus === 'function') {
       try {
@@ -249,8 +265,16 @@ export function createGeminiKeyRotator({
         message: 'No usable Gemini API key is configured.',
       }, 0);
     }
+
+    const timeoutMs = Math.floor(
+      remainingBudgetMs(startedAt, requestBudget) - FINALIZATION_BUFFER_MS,
+    );
+    if (timeoutMs < 1000) return timeoutFailure(0);
+
     try {
-      const result = await providerCall({ ...request, apiKey: key, keyId: 'legacy-env' });
+      const result = await providerCall({
+        ...request, apiKey: key, keyId: 'legacy-env', timeoutMs,
+      });
       return { ok: true, result, attempts: 1, keyId: 'legacy-env' };
     } catch (error) {
       const failure = classifyGeminiFailure(error);
@@ -268,11 +292,19 @@ export function createGeminiKeyRotator({
           // Preserve provider response even if quota bookkeeping is unavailable.
         }
       }
+      if (remainingBudgetMs(startedAt, requestBudget) <= FINALIZATION_BUFFER_MS + 250) {
+        return timeoutFailure(1);
+      }
       return safeFailure(failure, 1);
     }
   }
 
-  async function runPool(request) {
+  async function runPool(request, requestedBudgetMs = safeBudget) {
+    const requestBudget = Math.max(1000, Math.min(
+      safeBudget,
+      Number.isFinite(requestedBudgetMs) ? requestedBudgetMs : safeBudget,
+    ));
+    const startedAt = Number(now());
     let settings;
     try {
       settings = await store.getPoolSettings();
@@ -284,8 +316,12 @@ export function createGeminiKeyRotator({
       }, 0);
     }
 
+    if (remainingBudgetMs(startedAt, requestBudget) <= FINALIZATION_BUFFER_MS + 999) {
+      return timeoutFailure(0);
+    }
+
     if (settings?.managedPoolActivated !== true) {
-      return callLegacyOnce(request);
+      return callLegacyOnce(request, requestBudget, startedAt);
     }
 
     if (typeof store.getModelQuotaStatus === 'function' && request?.model) {
@@ -313,11 +349,11 @@ export function createGeminiKeyRotator({
     let attempts = 0;
     let lastFailure = null;
     let budgetExhausted = false;
-    const startedAt = Number(now());
 
     while (attempts < attemptsLimit) {
-      if (attempts > 0 &&
-          Math.max(0, Number(now()) - startedAt) + MIN_ATTEMPT_SLICE_MS > safeBudget) {
+      const remaining = remainingBudgetMs(startedAt, requestBudget);
+      if (remaining <= FINALIZATION_BUFFER_MS + 999 ||
+          (attempts > 0 && remaining < MIN_ATTEMPT_SLICE_MS + FINALIZATION_BUFFER_MS)) {
         budgetExhausted = true;
         break;
       }
@@ -395,7 +431,16 @@ export function createGeminiKeyRotator({
       }
 
       try {
-        const result = await providerCall({ ...request, apiKey, keyId });
+        const providerTimeoutMs = Math.floor(
+          remainingBudgetMs(startedAt, requestBudget) - FINALIZATION_BUFFER_MS,
+        );
+        if (providerTimeoutMs < 1000) {
+          budgetExhausted = true;
+          break;
+        }
+        const result = await providerCall({
+          ...request, apiKey, keyId, timeoutMs: providerTimeoutMs,
+        });
         await store.markSuccess(keyId, toDate(now()), String(request?.model || ''));
         return { ok: true, result, attempts, keyId };
       } catch (error) {
@@ -459,19 +504,18 @@ export function createGeminiKeyRotator({
         }
 
         if (attempts < attemptsLimit) {
-          await sleep(Math.min(250 * (2 ** (attempts - 1)), 1000));
+          const remaining = remainingBudgetMs(startedAt, requestBudget);
+          const roomForBackoff = Math.max(
+            0,
+            remaining - FINALIZATION_BUFFER_MS - MIN_ATTEMPT_SLICE_MS,
+          );
+          const backoffMs = Math.min(250 * (2 ** (attempts - 1)), 1000, roomForBackoff);
+          if (backoffMs > 0) await sleep(backoffMs);
         }
       }
     }
 
-    if (budgetExhausted && lastFailure?.action === 'failover') {
-      return safeFailure({
-        statusCode: 503,
-        publicCode: 'gemini_request_timed_out',
-        message: 'Gemini did not finish before the request deadline. Please try again in a moment.',
-        retryAfterSeconds: DEFAULT_RETRY_AFTER_SECONDS,
-      }, attempts);
-    }
+    if (budgetExhausted) return timeoutFailure(attempts);
 
     return safeFailure(lastFailure && lastFailure.action === 'failover'
       ? {
@@ -499,12 +543,15 @@ export function createGeminiKeyRotator({
   }
 
   async function generate(request) {
-    const primary = await runPool(request);
+    const startedAt = Number(now());
+    const primary = await runPool(request, safeBudget);
     if (primary?.ok) return primary;
     const requestedModel = String(request?.model || '').trim();
     if (!safeFallbackModel || safeFallbackModel === requestedModel) return primary;
     if (!exhaustionResult(primary)) return primary;
-    const secondary = await runPool({ ...request, model: safeFallbackModel });
+    const remaining = remainingBudgetMs(startedAt, safeBudget);
+    if (remaining < MIN_ATTEMPT_SLICE_MS + FINALIZATION_BUFFER_MS) return primary;
+    const secondary = await runPool({ ...request, model: safeFallbackModel }, remaining);
     if (secondary?.ok) {
       return {
         ...secondary,
@@ -551,6 +598,7 @@ export function createGeminiKeyRotator({
 
 export const GEMINI_ROTATOR_LIMITS = Object.freeze({
   maxAttempts: MAX_ATTEMPTS_HARD_LIMIT,
+  finalizationBufferMs: FINALIZATION_BUFFER_MS,
   defaultCooldownMs: DEFAULT_COOLDOWN_MS,
   maxCooldownMs: 15 * 60_000,
   defaultRetryAfterSeconds: DEFAULT_RETRY_AFTER_SECONDS,

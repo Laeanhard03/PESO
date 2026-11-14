@@ -213,6 +213,8 @@ test('profile extraction routes through the rotator and persists returned profil
   assert.equal(calls[0].operation, 'profile_extraction');
   const stored = await state.db.collection('users').findOne({ uid: 'gemini-integration-user' });
   assert.equal(stored.aiProfile.fullName, 'Example Applicant');
+  assert.ok(['ready', 'no_live_jobs', 'unavailable'].includes(result.body.jobMatching?.status));
+  assert.equal(stored.latestAiJobMatch?.status, result.body.jobMatching.status);
 });
 
 test('applicant source or education edits invalidate the cached AI match without altering account identity', async () => {

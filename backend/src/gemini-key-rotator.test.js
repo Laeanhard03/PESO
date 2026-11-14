@@ -251,6 +251,50 @@ test('fallback result keeps the quota message when the fallback also fails', asy
   assert.equal(result.fallbackCode, 'gemini_pool_exhausted');
 });
 
+test('fallback model shares the primary request deadline instead of resetting it', async () => {
+  const store = createStore([
+    makeKey('key-a'), makeKey('key-b'), makeKey('key-c'), makeKey('key-d'),
+  ]);
+  let clock = 1000;
+  const calls = [];
+  const rotator = createGeminiKeyRotator({
+    store,
+    decryptKey,
+    fallbackModel: 'gemini-2.5-flash-lite',
+    totalBudgetMs: 210_000,
+    maxAttempts: 4,
+    now: () => clock,
+    sleep: async (ms) => { clock += ms; },
+    providerCall: async ({ model, timeoutMs }) => {
+      calls.push({ model, timeoutMs });
+      if (model === 'gemini-primary') {
+        throw providerError(429, 'RESOURCE_EXHAUSTED');
+      }
+      clock += Math.min(timeoutMs, 180_000);
+      const error = new Error('mock fallback deadline');
+      error.name = 'TimeoutError';
+      error.code = 'ETIMEDOUT';
+      throw error;
+    },
+  });
+
+  const result = await rotator.generate({
+    operation: 'profile_extraction',
+    model: 'gemini-primary',
+    payload: { parts: [{ text: 'Synthetic fallback test.' }] },
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'gemini_rate_limited');
+  assert.equal(result.fallbackAttempted, true);
+  assert.equal(result.fallbackModel, 'gemini-2.5-flash-lite');
+  assert.equal(result.fallbackCode, 'gemini_request_timed_out');
+  assert.equal(calls[0].model, 'gemini-primary');
+  assert.ok(calls.slice(1).every(call => call.model === 'gemini-2.5-flash-lite'));
+  assert.equal(calls.length, 3);
+  assert.ok(clock - 1000 <= 207_000, 'primary and fallback work must share one deadline');
+});
+
 test('permanent bad request stops without switching to another key', async () => {
   const store = createStore([makeKey('key-a'), makeKey('key-b')]);
   const calls = [];
@@ -270,7 +314,7 @@ test('permanent bad request stops without switching to another key', async () =>
   assert.deepEqual(calls, ['fake-key-key-a']);
 });
 
-test('per-request attempt ceiling is three and each key is attempted at most once', async () => {
+test('per-request attempt ceiling is four and each key is attempted at most once', async () => {
   const store = createStore([
     makeKey('key-a'), makeKey('key-b'), makeKey('key-c'), makeKey('key-d'),
   ]);
@@ -278,7 +322,6 @@ test('per-request attempt ceiling is three and each key is attempted at most onc
   const rotator = createGeminiKeyRotator({
     store,
     decryptKey,
-    maxAttempts: 3,
     providerCall: async ({ apiKey }) => {
       calls.push(apiKey);
       throw providerError(503, 'upstream_unavailable');
@@ -288,10 +331,47 @@ test('per-request attempt ceiling is three and each key is attempted at most onc
   });
   const result = await rotator.generate({ operation: 'query', payload: { prompt: 'hi' } });
   assert.equal(result.ok, false);
-  assert.equal(result.attempts, 3);
-  assert.equal(calls.length, 3);
-  assert.equal(new Set(calls).size, 3);
-  assert.equal(store.used.length, 3);
+  assert.equal(result.attempts, 4);
+  assert.equal(calls.length, 4);
+  assert.equal(new Set(calls).size, 4);
+  assert.equal(store.used.length, 4);
+});
+
+test('slow provider attempts receive only the remaining total request budget', async () => {
+  const store = createStore([
+    makeKey('key-a'), makeKey('key-b'), makeKey('key-c'), makeKey('key-d'),
+  ]);
+  let clock = 1000;
+  const providerTimeouts = [];
+  const rotator = createGeminiKeyRotator({
+    store,
+    decryptKey,
+    maxAttempts: 4,
+    totalBudgetMs: 210_000,
+    now: () => clock,
+    sleep: async (ms) => { clock += ms; },
+    providerCall: async ({ timeoutMs }) => {
+      providerTimeouts.push(timeoutMs);
+      // The production provider also caps profile extraction at 180 seconds.
+      clock += Math.min(timeoutMs, 180_000);
+      const error = new Error('mock provider deadline');
+      error.name = 'TimeoutError';
+      error.code = 'ETIMEDOUT';
+      throw error;
+    },
+  });
+
+  const result = await rotator.generate({
+    operation: 'profile_extraction',
+    model: 'gemini-3.8-flash',
+    payload: { parts: [{ text: 'Synthetic resume test.' }] },
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'gemini_request_timed_out');
+  assert.equal(result.attempts, 2);
+  assert.deepEqual(providerTimeouts, [207_000, 26_750]);
+  assert.ok(clock - 1000 <= 207_000, 'provider work must leave the finalization buffer');
 });
 
 test('disabled, cooling, and quarantined keys are never chosen', async () => {

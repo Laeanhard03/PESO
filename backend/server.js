@@ -625,7 +625,7 @@ function callGeminiProvider(args) {
   return provider({ ...args, model: args.model || currentGeminiModel() });
 }
 
-function createGeminiRequestRotator({ maxAttempts = 3, totalBudgetMs = 0, fallbackModel = process.env.GEMINI_FALLBACK_MODEL || '' } = {}) {
+function createGeminiRequestRotator({ maxAttempts = 4, totalBudgetMs = 0, fallbackModel = process.env.GEMINI_FALLBACK_MODEL || '' } = {}) {
   const store = createGeminiKeyStore();
   return {
     store,
