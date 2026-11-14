@@ -265,6 +265,23 @@ class _AIProcessingScreenState extends State<AIProcessingScreen>
         // The authenticated extraction route persisted this result and its
         // source-verification metadata atomically before responding.
         finalAiData = extracted;
+        final sourceReading = extracted['_sourceReading'];
+        if (sourceReading is Map && sourceReading['imageOcr'] is Map) {
+          final imageOcr = Map<String, dynamic>.from(
+            sourceReading['imageOcr'] as Map,
+          );
+          final imageCount =
+              int.tryParse('${imageOcr['imageCount'] ?? 0}') ?? 0;
+          final readableImages =
+              int.tryParse('${imageOcr['readableImages'] ?? 0}') ?? 0;
+          if (imageCount > 0 && readableImages < imageCount) {
+            persistenceWarnings.add(
+              readableImages == 0
+                  ? 'Resume photo text could not be independently verified. AI matching will remain in review; upload a clearer image or PDF.'
+                  : 'Only $readableImages of $imageCount resume photo(s) could be independently verified. Review the remaining page(s) before relying on AI matching.',
+            );
+          }
+        }
         debugPrint('[PESO AI] Profile extraction completed.');
       } catch (error) {
         extractionUnavailable = true;
@@ -330,6 +347,16 @@ class _AIProcessingScreenState extends State<AIProcessingScreen>
                 ? 'Your form is available on this screen, but saving it failed. Please retry saving after your connection recovers.'
                 : extractionUnavailable
                 ? 'Your source forms are saved. AI extraction is unavailable; you can continue using your profile and retry later.'
+                : persistenceWarnings.any(
+                    (warning) =>
+                        warning.startsWith('Resume photo text') ||
+                        warning.startsWith('Only '),
+                  )
+                ? persistenceWarnings.firstWhere(
+                    (warning) =>
+                        warning.startsWith('Resume photo text') ||
+                        warning.startsWith('Only '),
+                  )
                 : 'Your profile is ready, but some documents or details need to be saved again.',
             kind: AppToastKind.warning,
             duration: const Duration(seconds: 10),

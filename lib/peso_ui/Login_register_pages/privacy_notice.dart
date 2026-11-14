@@ -1,7 +1,7 @@
 /// Consent copy for the PESO JobKonek prototype.
 /// This version is intentionally labelled as a prototype until the responsible
 /// LGU confirms its data-controller identity, DPO contact and retention schedule.
-const pesoPrivacyNoticeVersion = 'prototype-2026-10-23';
+const pesoPrivacyNoticeVersion = 'prototype-2026-11-14';
 
 const pesoTermsAndConditionsText =
     '''PESO JOBKONEK — TERMS AND CONDITIONS (PROTOTYPE)
@@ -21,7 +21,7 @@ const pesoTermsAndConditionsText =
 7. Updates. The responsible operator may update these terms and must notify users of material changes before relying on a new version.''';
 
 const pesoPrivacyNoticeText = '''PESO JOBKONEK — PRIVACY NOTICE (PROTOTYPE)
-Version: prototype-2026-10-23
+Version: prototype-2026-11-14
 
 IMPORTANT: This is a prototype notice awaiting formal approval by the responsible local government unit. Do not enter real applicant information until the Municipality has confirmed the official data controller, designated Data Protection Officer (DPO), legal bases and records-retention schedule.
 
@@ -35,7 +35,7 @@ Depending on what you provide and which features you use, the system may process
 The intended purposes are to create and secure your account; store the resume and NSRP information you choose to submit; show saved job opportunities; review Montalban residency eligibility; receive and manage applications; support PESO referrals and authorized employer review; provide user-requested resume extraction, translation and job-compatibility guidance; maintain service security; and produce authorized operational reports. Information should be limited to what is necessary for each purpose. The Municipality must approve the applicable lawful basis for each processing activity; this prototype notice does not assert that consent alone is the legal basis for every government service.
 
 4. AI, MATCHING AND HUMAN REVIEW
-If you request AI extraction or translation, relevant resume/profile text or job-description content may be processed by Google Gemini. The Go Mini-AI compares work-related information such as skills, education, experience and occupation categories with saved job criteria. Results may be incomplete or incorrect and are advisory only. They must not be treated as an official eligibility or hiring decision. Authorized people at PESO and employers remain responsible for official residency, referral and hiring decisions; no hiring decision is intended to be made solely by the AI score.
+If you request AI extraction, photographed resume pages may first be transcribed by a server-side OCR engine (Tesseract) so text can be checked independently. The uploaded image and relevant resume/profile text may also be processed by Google Gemini. Raw OCR transcription is used for extraction and evidence checking and is not stored as a separate permanent resume record. Only qualifications supported by applicant-entered form text or sufficiently readable OCR text are eligible for automatic Go Mini-AI matching; low-confidence or unsupported claims remain marked for review. The Go Mini-AI compares supported work-related information such as skills, education, experience and occupation categories with saved job criteria. Results may be incomplete or incorrect and are advisory only. They must not be treated as an official eligibility or hiring decision. Authorized people at PESO and employers remain responsible for official residency, referral and hiring decisions; no hiring decision is intended to be made solely by the AI score.
 
 5. WHO MAY RECEIVE THE INFORMATION?
 Access is intended for the applicant who owns the account and authorized PESO administrators who need information for account support, residency review, document review, reporting or application processing. Relevant information may be shared with an employer for an application or referral you initiate. Service providers may process data to operate authentication, hosting, database storage and AI features, including Firebase/Google services, the configured MongoDB hosting provider, Vercel hosting and Google Gemini when its features are used. Information may also be disclosed where required by law or valid legal process. The responsible operator must confirm appropriate contracts, access controls, transfer safeguards and the final list of processors before production.

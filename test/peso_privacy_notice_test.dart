@@ -5,12 +5,15 @@ import 'package:peso_prototype/peso_ui/Login_register_pages/register_ui.dart';
 
 void main() {
   test('prototype privacy notice covers required processing disclosures', () {
-    expect(pesoPrivacyNoticeVersion, 'prototype-2026-10-23');
+    expect(pesoPrivacyNoticeVersion, 'prototype-2026-11-14');
     expect(pesoPrivacyNoticeText, contains('PRIVACY NOTICE (PROTOTYPE)'));
     expect(pesoPrivacyNoticeText, contains('Municipality of Rodriguez'));
     expect(pesoPrivacyNoticeText, contains('Data Protection Officer'));
     expect(pesoPrivacyNoticeText, contains('sensitive personal information'));
     expect(pesoPrivacyNoticeText, contains('Google Gemini'));
+    expect(pesoPrivacyNoticeText, contains('server-side OCR'));
+    expect(pesoPrivacyNoticeText, contains('Tesseract'));
+    expect(pesoPrivacyNoticeText, contains('low-confidence'));
     expect(pesoPrivacyNoticeText, contains('WHO MAY RECEIVE'));
     expect(pesoPrivacyNoticeText, contains('records-retention'));
     expect(pesoPrivacyNoticeText, contains('YOUR RIGHTS'));

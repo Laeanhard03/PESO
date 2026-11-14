@@ -68,7 +68,18 @@ class PesoAIEngine {
       throw StateError('The PESO API returned an invalid extracted profile.');
     }
     debugPrint('[PESO AI] Secure profile extraction completed.');
-    return Map<String, dynamic>.from(profile);
+    final result = Map<String, dynamic>.from(profile);
+    final sourceReading = response['sourceReading'];
+    if (sourceReading is Map) {
+      result['_sourceReading'] = Map<String, dynamic>.from(sourceReading);
+    }
+    final matchingEvidence = response['aiMatchingExtraction'];
+    if (matchingEvidence is Map) {
+      result['_aiMatchingExtraction'] = Map<String, dynamic>.from(
+        matchingEvidence,
+      );
+    }
+    return result;
   }
 
   static bool _isSupportedMimeType(String value) => const {

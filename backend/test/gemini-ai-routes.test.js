@@ -166,7 +166,7 @@ function fakeGridFsBucket() {
 before(async () => {
   for (const name of [
     'tokenVerifierOverride', 'mongoConnected', 'mongoProblem', 'db', 'bucket',
-    'geminiProviderOverride', 'smsIndexesReady',
+    'geminiProviderOverride', 'resumeImageOcrOverride', 'smsIndexesReady',
   ]) originalState[name] = state[name];
 
   process.env.GEMINI_API_KEY = 'fake-legacy-gemini-key-for-isolated-tests';
@@ -201,6 +201,7 @@ before(async () => {
   gridFsBytes.clear();
   state.bucket = fakeGridFsBucket();
   state.smsIndexesReady = false;
+  state.resumeImageOcrOverride = async () => [];
   state.geminiProviderOverride = async ({ operation, apiKey, payload }) => {
     calls.push({ operation, apiKey, payload });
     if (operation === 'profile_extraction') {
@@ -490,6 +491,154 @@ test('large resume uploads use bounded chunks and owner-scoped GridFS IDs for Ge
   assert.equal(calls[0].payload.parts[1].inlineData.data, bytes.toString('base64'));
 });
 
+test('photographed resumes use independent OCR text to verify Gemini qualifications for Go matching', async () => {
+  calls.length = 0;
+  const originalProvider = state.geminiProviderOverride;
+  const originalOcr = state.resumeImageOcrOverride;
+  state.resumeImageOcrOverride = async (images) => {
+    assert.equal(images.length, 1);
+    assert.equal(images[0].mimeType, 'image/png');
+    return [{
+      status: 'readable',
+      text: 'DATA ENCODER. Skills: Data Entry, MS Excel. Education: Bachelor of Science in Information Technology. TESDA NC II.',
+      confidence: 96,
+      preparedBytes: Buffer.from('optimized-resume-image'),
+    }];
+  };
+  state.geminiProviderOverride = async ({ operation, payload }) => {
+    calls.push({ operation, payload });
+    if (operation !== 'profile_extraction') throw new Error('Unexpected fake Gemini operation.');
+    return { profile: {
+      professionalTitle: 'Data Encoder',
+      skills: ['Data Entry', 'MS Excel'],
+      education: ['Bachelor of Science in Information Technology'],
+      certifications: ['TESDA NC II'],
+      yearsExperience: 0,
+      occupationCategories: [{ field: 'data_services', iscoMajorGroup: '4', evidenceQuote: 'Data Entry' }],
+    } };
+  };
+  try {
+    const imageBytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3]);
+    const result = await request('/api/ai/profile', {
+      method: 'POST',
+      body: {
+        artifacts: [{
+          fileName: 'resume-photo.png',
+          category: 'resume_upload',
+          mimeType: 'image/png',
+          base64: imageBytes.toString('base64'),
+        }],
+        persist: false,
+      },
+    });
+    assert.equal(result.status, 200);
+    assert.equal(result.body.sourceReading.imageOcr.status, 'complete');
+    assert.equal(result.body.sourceReading.imageOcr.readableImages, 1);
+    assert.equal(result.body.sourceReading.imageOcr.visualImagesSent, 1);
+    assert.deepEqual(result.body.aiMatchingExtraction.sourceEvidenceTypes, ['resume_image_ocr']);
+    assert.equal(result.body.aiMatchingExtraction.status, 'verified');
+    assert.deepEqual(result.body.aiMatchingExtraction.skills, ['Data Entry', 'MS Excel']);
+    assert.deepEqual(result.body.aiMatchingExtraction.education, ['Bachelor of Science in Information Technology']);
+    assert.deepEqual(result.body.aiMatchingExtraction.certifications, ['TESDA NC II']);
+    assert.equal(result.body.aiMatchingExtraction.occupationCategories[0].field, 'data_services');
+    assert.equal(calls[0].payload.parts[1].inlineData.mimeType, 'image/jpeg');
+    assert.equal(calls[0].payload.parts[1].inlineData.data, Buffer.from('optimized-resume-image').toString('base64'));
+    assert.match(calls[0].payload.parts[0].text, /Independent OCR text from the uploaded resume image/);
+    assert.match(calls[0].payload.parts[0].text, /Bachelor of Science in Information Technology/);
+  } finally {
+    state.geminiProviderOverride = originalProvider;
+    state.resumeImageOcrOverride = originalOcr;
+  }
+});
+
+test('low-confidence resume OCR cannot verify Gemini-only claims for matching', async () => {
+  calls.length = 0;
+  const originalProvider = state.geminiProviderOverride;
+  const originalOcr = state.resumeImageOcrOverride;
+  state.resumeImageOcrOverride = async () => [{
+    status: 'low_confidence',
+    text: 'Data Entry MS Excel',
+    confidence: 22,
+  }];
+  state.geminiProviderOverride = async ({ operation, payload }) => {
+    calls.push({ operation, payload });
+    if (operation !== 'profile_extraction') throw new Error('Unexpected fake Gemini operation.');
+    return { profile: { skills: ['Data Entry', 'MS Excel'], yearsExperience: 0 } };
+  };
+  try {
+    const result = await request('/api/ai/profile', {
+      method: 'POST',
+      body: {
+        artifacts: [{
+          fileName: 'blurry-resume.png', category: 'resume_upload', mimeType: 'image/png',
+          base64: Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).toString('base64'),
+        }],
+        persist: false,
+      },
+    });
+    assert.equal(result.status, 200);
+    assert.equal(result.body.sourceReading.imageOcr.status, 'low_confidence');
+    assert.equal(result.body.sourceReading.textEvidenceAvailable, false);
+    assert.equal(result.body.aiMatchingExtraction.status, 'needs_review');
+    assert.deepEqual(result.body.aiMatchingExtraction.skills, []);
+    assert.deepEqual(result.body.aiMatchingExtraction.sourceEvidenceTypes, []);
+    assert.equal(calls[0].payload.parts[0].text.includes('Independent OCR text from the uploaded resume image'), false);
+  } finally {
+    state.geminiProviderOverride = originalProvider;
+    state.resumeImageOcrOverride = originalOcr;
+  }
+});
+test('photographed resume OCR evidence is persisted for Go matching', async () => {
+  calls.length = 0;
+  const originalProvider = state.geminiProviderOverride;
+  const originalOcr = state.resumeImageOcrOverride;
+  const users = state.db.collection('users');
+  const originalUser = await users.findOne({ uid: 'gemini-integration-user' });
+  state.resumeImageOcrOverride = async () => [{
+    status: 'readable',
+    text: 'Data Entry, MS Excel, Office Administration, TESDA NC II.',
+    confidence: 92,
+  }];
+  state.geminiProviderOverride = async ({ operation, payload }) => {
+    calls.push({ operation, payload });
+    if (operation !== 'profile_extraction') throw new Error('Unexpected fake Gemini operation.');
+    return { profile: {
+      professionalTitle: 'Data Encoder',
+      skills: ['Data Entry', 'MS Excel'],
+      education: [],
+      certifications: ['TESDA NC II'],
+      yearsExperience: 0,
+      occupationCategories: [{ field: 'data_services', iscoMajorGroup: '4', evidenceQuote: 'Data Entry' }],
+    } };
+  };
+  try {
+    const result = await request('/api/ai/profile', {
+      method: 'POST',
+      body: {
+        artifacts: [{
+          fileName: 'resume-photo.jpg', category: 'resume_upload', mimeType: 'image/jpeg',
+          base64: Buffer.from([0xff, 0xd8, 0xff, 0x01]).toString('base64'),
+        }],
+      },
+    });
+    assert.equal(result.status, 200);
+    assert.equal(result.body.saved, true);
+    assert.equal(result.body.sourceReading.imageOcr.status, 'complete');
+    assert.equal(result.body.aiMatchingExtraction.status, 'verified');
+    assert.deepEqual(result.body.aiMatchingExtraction.sourceEvidenceTypes, ['resume_image_ocr']);
+    const saved = await users.findOne({ uid: 'gemini-integration-user' });
+    assert.equal(saved.aiExtractionStatus, 'completed');
+    assert.equal(saved.aiMatchingExtraction.status, 'verified');
+    assert.deepEqual(saved.aiMatchingExtraction.skills, ['Data Entry', 'MS Excel']);
+    assert.equal(saved.aiMatchingExtraction.imageOcr.averageConfidence, 92);
+    assert.equal(Object.hasOwn(saved.aiMatchingExtraction, 'rawOcrText'), false);
+  } finally {
+    state.geminiProviderOverride = originalProvider;
+    state.resumeImageOcrOverride = originalOcr;
+    await users.deleteOne({ uid: 'gemini-integration-user' });
+    if (originalUser) await users.insertOne(originalUser);
+  }
+});
 test('resume absorption preview returns the extracted profile without persisting it', async () => {
   calls.length = 0;
   const originalProvider = state.geminiProviderOverride;

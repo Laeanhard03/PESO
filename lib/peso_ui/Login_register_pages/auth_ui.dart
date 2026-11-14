@@ -16,6 +16,7 @@ import '../../peso_services/profile_artifact_service.dart';
 import '../../peso_services/peso_role_policy.dart';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:camera/camera.dart';
 
 import '../../peso_models/profile_artifact.dart';
 import '../../peso_logic/peso_ai_engine.dart';
@@ -56,6 +57,13 @@ class _AuthPageState extends State<AuthPage> {
   late AuthView _currentView;
 
   String _selectedResumeType = 'upload'; // 'upload' or 'build'
+
+  bool _isCapturingResume = false;
+
+  bool get _supportsResumeCamera =>
+      kIsWeb ||
+      defaultTargetPlatform == TargetPlatform.android ||
+      defaultTargetPlatform == TargetPlatform.iOS;
 
   /// Values captured by the register form (or resolved from the signed-in
   /// account) that the resume builder, the AI extractor, and the NSRP form
@@ -167,6 +175,28 @@ class _AuthPageState extends State<AuthPage> {
         artifacts: artifacts,
         persist: false,
       );
+      final sourceReading = extracted['_sourceReading'];
+      if (sourceReading is Map && sourceReading['imageOcr'] is Map) {
+        final imageOcr = Map<String, dynamic>.from(
+          sourceReading['imageOcr'] as Map,
+        );
+        final imageCount = int.tryParse('${imageOcr['imageCount'] ?? 0}') ?? 0;
+        final readableImages =
+            int.tryParse('${imageOcr['readableImages'] ?? 0}') ?? 0;
+        if (mounted && imageCount > 0 && readableImages > 0) {
+          AppToast.success(
+            context,
+            'Resume photo text recognized on $readableImages of $imageCount image(s). Review the extracted details before continuing.',
+            duration: const Duration(seconds: 8),
+          );
+        } else if (mounted && imageCount > 0) {
+          AppToast.warning(
+            context,
+            'The resume photo was uploaded, but its text could not be independently verified. Retake a clear, well-lit photo or choose a PDF before relying on AI matching.',
+            duration: const Duration(seconds: 10),
+          );
+        }
+      }
       ticker.cancel();
       progress.value = 1;
       await Future<void>.delayed(const Duration(milliseconds: 550));
@@ -278,48 +308,133 @@ class _AuthPageState extends State<AuthPage> {
 
       // Read/scan the uploaded resume through the Gemini key pool first, then
       // transfer whatever values it extracted into the NSRP form below.
-      final extractedProfile = await _previewResumeExtraction(artifacts);
-      final nsrpIdentity = _nsrpIdentityFromExtraction(
-        extractedProfile,
-        identity,
+      await _continueWithUploadedResume(
+        artifacts: artifacts,
+        identity: identity,
+        fileName: platformFile.name,
+        extension: extension,
       );
+    }
+  }
 
-      if (mounted) {
-        navigator.pushReplacement(
-          MaterialPageRoute(
-            builder: (context) => PesoRegistrationWizard(
-              initialValues: nsrpIdentity,
-              verifiedResumeSex: verifiedResumeSex(extractedProfile),
-              onComplete: (pesoPayload) {
-                final pesoFormData = _asStringMap(pesoPayload['formData']);
-                final pesoText = _aiTextFromPayload(pesoPayload);
-                final pesoArtifact = ProfileArtifactInput.fromBridgePayload(
-                  pesoPayload['artifact'],
-                );
-                if (pesoArtifact != null) artifacts.add(pesoArtifact);
+  String? _imageMimeTypeFromBytes(Uint8List bytes) {
+    if (bytes.length >= 8 &&
+        bytes[0] == 137 &&
+        bytes[1] == 80 &&
+        bytes[2] == 78 &&
+        bytes[3] == 71 &&
+        bytes[4] == 13 &&
+        bytes[5] == 10 &&
+        bytes[6] == 26 &&
+        bytes[7] == 10) {
+      return 'image/png';
+    }
+    if (bytes.length >= 3 &&
+        bytes[0] == 0xff &&
+        bytes[1] == 0xd8 &&
+        bytes[2] == 0xff) {
+      return 'image/jpeg';
+    }
+    return null;
+  }
 
-                navigator.pushReplacement(
-                  MaterialPageRoute(
-                    builder: (context) => AIProcessingScreen(
-                      artifacts: List<ProfileArtifactInput>.unmodifiable(
-                        artifacts,
-                      ),
-                      rawTextData: pesoText,
-                      resumeData: <String, dynamic>{
-                        'documentType': 'Uploaded Resume',
-                        'fileName': platformFile.name,
-                        'fileExtension': extension,
-                      },
-                      pesoFormData: pesoFormData,
-                    ),
-                  ),
-                );
-              },
-            ),
+  Future<void> _captureResumeAndContinue() async {
+    if (_isCapturingResume) return;
+    setState(() => _isCapturingResume = true);
+    try {
+      final bytes = await showDialog<Uint8List>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const _ResumeCameraCaptureDialog(),
+      );
+      if (!mounted || bytes == null) return;
+      if (bytes.isEmpty || bytes.length > 20 * 1024 * 1024) {
+        AppToast.warning(
+          context,
+          'The captured image must be no larger than 20 MB. Please retake it or choose a smaller image.',
+        );
+        return;
+      }
+      final mimeType = _imageMimeTypeFromBytes(bytes);
+      if (mimeType == null) {
+        AppToast.warning(
+          context,
+          'The camera returned an unsupported image. Please capture a JPG or PNG photo.',
+        );
+        return;
+      }
+      final extension = mimeType == 'image/png' ? 'png' : 'jpg';
+      final identity = await _resolveRegistrationIdentity();
+      if (!mounted) return;
+      final fileName = 'resume-camera.$extension';
+      await _continueWithUploadedResume(
+        artifacts: <ProfileArtifactInput>[
+          ProfileArtifactInput(
+            fileName: fileName,
+            category: 'resume_upload',
+            mimeType: mimeType,
+            bytes: bytes,
           ),
+        ],
+        identity: identity,
+        fileName: fileName,
+        extension: extension,
+      );
+    } catch (error) {
+      if (mounted) {
+        AppToast.warning(
+          context,
+          'The camera could not capture your resume. Check camera permission or choose an image/PDF from your device. ($error)',
         );
       }
+    } finally {
+      if (mounted) setState(() => _isCapturingResume = false);
     }
+  }
+
+  Future<void> _continueWithUploadedResume({
+    required List<ProfileArtifactInput> artifacts,
+    required Map<String, String> identity,
+    required String fileName,
+    required String extension,
+  }) async {
+    final navigator = Navigator.of(context);
+    final extractedProfile = await _previewResumeExtraction(artifacts);
+    final nsrpIdentity = _nsrpIdentityFromExtraction(
+      extractedProfile,
+      identity,
+    );
+    if (!mounted) return;
+    navigator.pushReplacement(
+      MaterialPageRoute(
+        builder: (context) => PesoRegistrationWizard(
+          initialValues: nsrpIdentity,
+          verifiedResumeSex: verifiedResumeSex(extractedProfile),
+          onComplete: (pesoPayload) {
+            final pesoFormData = _asStringMap(pesoPayload['formData']);
+            final pesoText = _aiTextFromPayload(pesoPayload);
+            final pesoArtifact = ProfileArtifactInput.fromBridgePayload(
+              pesoPayload['artifact'],
+            );
+            if (pesoArtifact != null) artifacts.add(pesoArtifact);
+            navigator.pushReplacement(
+              MaterialPageRoute(
+                builder: (context) => AIProcessingScreen(
+                  artifacts: List<ProfileArtifactInput>.unmodifiable(artifacts),
+                  rawTextData: pesoText,
+                  resumeData: <String, dynamic>{
+                    'documentType': 'Uploaded Resume',
+                    'fileName': fileName,
+                    'fileExtension': extension,
+                  },
+                  pesoFormData: pesoFormData,
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
   }
 
   void _requireRegistrationVerification(
@@ -1009,6 +1124,29 @@ class _AuthPageState extends State<AuthPage> {
         ),
         const SizedBox(height: 40),
 
+        if (_selectedResumeType == 'upload' && _supportsResumeCamera) ...[
+          OutlinedButton.icon(
+            key: const Key('resume-camera-capture'),
+            onPressed: _isCapturingResume ? null : _captureResumeAndContinue,
+            icon: const Icon(Icons.camera_alt_outlined),
+            label: Text(
+              _isCapturingResume
+                  ? 'Opening camera...'
+                  : 'Take a photo of your resume',
+            ),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              side: BorderSide(color: pesoGreen.withValues(alpha: 0.65)),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Allow camera access to capture a page. For multiple pages, choose a PDF or file instead.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: subtitleColor, fontSize: 12, height: 1.4),
+          ),
+          const SizedBox(height: 14),
+        ],
         ElevatedButton(
           onPressed: _completeOnboarding,
           style: ElevatedButton.styleFrom(
@@ -1097,6 +1235,241 @@ class _AuthPageState extends State<AuthPage> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Scanning feedback follows the actual Gemini request. The slowly advancing
+/// bar is an *estimate* until the API reports completion (100%). This avoids
+/// claiming precise upload or inference progress the Gemini API does not give.
+class _ResumeCameraCaptureDialog extends StatefulWidget {
+  const _ResumeCameraCaptureDialog();
+
+  @override
+  State<_ResumeCameraCaptureDialog> createState() =>
+      _ResumeCameraCaptureDialogState();
+}
+
+class _ResumeCameraCaptureDialogState extends State<_ResumeCameraCaptureDialog>
+    with WidgetsBindingObserver {
+  CameraController? _controller;
+  bool _initializing = true;
+  bool _capturing = false;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _initializeCamera();
+  }
+
+  Future<void> _initializeCamera() async {
+    if (_initializing && _controller != null) return;
+    if (mounted) setState(() => _initializing = true);
+    CameraController? nextController;
+    try {
+      final cameras = await availableCameras();
+      if (cameras.isEmpty) throw StateError('No camera device was found.');
+      var selectedCamera = cameras.first;
+      for (final camera in cameras) {
+        if (camera.lensDirection == CameraLensDirection.back) {
+          selectedCamera = camera;
+          break;
+        }
+      }
+      nextController = CameraController(
+        selectedCamera,
+        ResolutionPreset.high,
+        enableAudio: false,
+      );
+      await nextController.initialize();
+      if (!mounted) {
+        await nextController.dispose();
+        return;
+      }
+      final previous = _controller;
+      setState(() {
+        _controller = nextController;
+        _errorMessage = null;
+      });
+      await previous?.dispose();
+    } catch (error) {
+      await nextController?.dispose();
+      if (mounted) setState(() => _errorMessage = _friendlyCameraError(error));
+    } finally {
+      if (mounted) setState(() => _initializing = false);
+    }
+  }
+
+  String _friendlyCameraError(Object error) {
+    if (error is CameraException) {
+      switch (error.code) {
+        case 'CameraAccessDenied':
+        case 'cameraPermission':
+          return 'Camera permission was denied. Allow camera access in your browser or device settings, then try again.';
+        case 'CameraAccessDeniedWithoutPrompt':
+          return 'Camera access is blocked. Enable camera permission for this site in your browser settings.';
+        case 'CameraAccessRestricted':
+          return 'Camera access is restricted on this device.';
+        default:
+          return 'The camera could not start (${error.code}). Check that another app is not using it.';
+      }
+    }
+    return 'No camera could be opened. Allow camera access or choose a JPG/PNG/PDF from your device.';
+  }
+
+  Future<void> _capture() async {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized || _capturing) {
+      return;
+    }
+    setState(() => _capturing = true);
+    try {
+      final photo = await controller.takePicture();
+      final bytes = await photo.readAsBytes();
+      if (bytes.isEmpty) {
+        throw StateError('The camera returned an empty image.');
+      }
+      if (mounted) Navigator.of(context).pop(bytes);
+    } catch (error) {
+      if (mounted) setState(() => _errorMessage = _friendlyCameraError(error));
+    } finally {
+      if (mounted) setState(() => _capturing = false);
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (kIsWeb) return;
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused) {
+      final current = _controller;
+      _controller = null;
+      if (current != null) {
+        unawaited(current.dispose());
+      }
+    } else if (state == AppLifecycleState.resumed &&
+        _controller == null &&
+        !_initializing) {
+      _initializeCamera();
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    final controller = _controller;
+    _controller = null;
+    if (controller != null) {
+      unawaited(controller.dispose());
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = _controller;
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: 720,
+          maxHeight: MediaQuery.sizeOf(context).height * 0.9,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Photograph your resume',
+                      style: TextStyle(
+                        fontSize: 19,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Close camera',
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              if (_initializing)
+                const SizedBox(
+                  height: 320,
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (_errorMessage != null || controller == null)
+                SizedBox(
+                  height: 260,
+                  child: Center(
+                    child: Text(
+                      _errorMessage ?? 'Camera unavailable.',
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                )
+              else
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: AspectRatio(
+                    aspectRatio: controller.value.aspectRatio,
+                    child: CameraPreview(controller),
+                  ),
+                ),
+              const SizedBox(height: 16),
+              Text(
+                'Place the full page inside the frame. Use good lighting and keep the text in focus.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: _capturing
+                          ? null
+                          : () => Navigator.of(context).pop(),
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed:
+                          _initializing || _capturing || controller == null
+                          ? (_errorMessage == null ? null : _initializeCamera)
+                          : _capture,
+                      icon: Icon(
+                        _errorMessage == null
+                            ? Icons.camera_alt
+                            : Icons.refresh,
+                      ),
+                      label: Text(
+                        _capturing
+                            ? 'Capturing...'
+                            : _errorMessage != null
+                            ? 'Retry camera'
+                            : 'Capture page',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
