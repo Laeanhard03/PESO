@@ -442,3 +442,9 @@ This entry supersedes the immediately preceding Render-stale deployment note. It
 - Verification: Flutter tests 289/289 passed; `flutter analyze --no-fatal-infos --no-pub` exited successfully with 105 existing info-level lint findings and zero warnings/errors. Desktop (1440px) and mobile (390px) local browser previews returned HTTP 200 with no JavaScript errors.
 - Release build: pinned Flutter 3.47.1 web build passed. React NSRP workspace tests 25/25 passed, ESLint passed, and Vite production build passed with the required `/nsrp/` asset base. `build/web/index.html` and `build/web/nsrp/index.html` are present.
 - The pre-change production baseline is Vercel deployment `dpl_3G7fzRAdLoM3Duz5v2sFHyAiKh1W` and Render deployment `dep-dbrrphe1egvs73c2mjc0`, both on commit `f49b057`. The texture changes are locally verified and awaiting the release push.
+
+## 2026-11-14 - Production release confirmation
+
+- Supersedes the earlier awaiting-push note: commit `e6f5f6d99ac88e43139269d778a8c3c00b5b1c4b` is on `deploy/render-failover`. Vercel production deployment `dpl_EApfNH5tWeyWcsh9qRNJXMvNvoRT` is **READY** and owns `https://peso-jobkonek.vercel.app`.
+- Live production smoke checks: `/` HTTP 200; `/api/health` HTTP 200 with MongoDB, Firebase token verification, and Gemini ready; `/api/public/jobs` HTTP 200; `/nsrp/` HTTP 200 with `/nsrp/assets/` references. Playwright desktop/mobile checks recorded zero JavaScript errors and zero failed requests.
+- Render failover `srv-dbqbn6142hec73cvcotg` remains healthy: `/healthz` and `/api/health` return HTTP 200, and `/` redirects to the healthy Vercel primary. It is still on `f49b057`; despite `autoDeploy=yes` on `deploy/render-failover`, no Render build/deploy event for `e6f5f6d` appeared after the push. The failover UI therefore remains on its previous build if the primary becomes unavailable; no manual deploy was forced while auto-deploy is enabled.

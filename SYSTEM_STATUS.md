@@ -291,3 +291,8 @@ A local pass does not establish that Firebase Functions, Gemini, Authentication 
 - Regression coverage added for all tones, disabled mode, and interaction pass-through. Full Flutter suite: **289/289 passed**. Flutter analyzer: **0 warnings, 0 errors**; 105 info-level lints remain.
 - Local browser preview at 1440x1000 and 390x844: HTTP 200, zero JavaScript exceptions. Release build outputs include Flutter root and `/nsrp/` workspace; React NSRP tests 25/25 and ESLint pass.
 - Production baseline before release: Vercel READY and Render LIVE on `f49b057`. Texture release push/deployment is the remaining step.
+
+## 2026-11-14 - Production release confirmation
+
+- Vercel production: **READY**, deployment `dpl_EApfNH5tWeyWcsh9qRNJXMvNvoRT`, commit `e6f5f6d99ac88e43139269d778a8c3c00b5b1c4b`, alias `peso-jobkonek.vercel.app`. Homepage, public jobs, API health, and `/nsrp/` all return HTTP 200. MongoDB, Firebase verification, and Gemini are ready; desktop/mobile browser smoke has zero JavaScript errors and failed requests.
+- Render failover remains healthy on `f49b057` and redirects its root to Vercel while the primary is healthy. Render reports `autoDeploy=yes`, but no deployment event for `e6f5f6d` was created after the push; the backup UI is not yet synchronized. No manual deployment was forced while automatic deployment is enabled.
