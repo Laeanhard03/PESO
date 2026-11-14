@@ -86,3 +86,6 @@ firestore-debug.log
 
 # Local Vercel project linkage and pulled deployment metadata
 .vercel/
+
+.vercel
+.env*

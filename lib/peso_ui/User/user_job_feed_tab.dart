@@ -564,11 +564,16 @@ class UserJobFeedTab extends StatelessWidget {
                             final logoAsset =
                                 PesoEmployerBranding.logoAssetForJob(job);
                             final isSelected = selectedJob == job;
-                            final rawMatch = job['match'];
-                            final matchScore = rawMatch is num
-                                ? rawMatch.toInt()
+                            final rawSimilarity = job['fieldSimilarityScore'];
+                            final hasFieldSimilarity =
+                                rawSimilarity is num &&
+                                rawSimilarity >= 0 &&
+                                rawSimilarity <= 100;
+                            final matchScore = hasFieldSimilarity
+                                ? rawSimilarity.round()
                                 : 0;
-                            final bool isTopMatch = matchScore >= 90;
+                            final bool isTopMatch =
+                                hasFieldSimilarity && matchScore >= 90;
 
                             return PesoHoverLift(
                               child: GestureDetector(
@@ -758,41 +763,48 @@ class UserJobFeedTab extends StatelessWidget {
                                                           const SizedBox(
                                                             width: 5,
                                                           ),
-                                                          Text(
-                                                            matchScore > 0
-                                                                ? 'Field similarity $matchScore/100'
-                                                                : job['roleRequirementsToReview'] ==
-                                                                      true
-                                                                ? 'Check requirements'
-                                                                : job['trainingPathway'] ==
-                                                                      true
-                                                                ? 'Explore training role'
-                                                                : job['transferableCareer'] ==
-                                                                      true
-                                                                ? 'Transferable skills'
-                                                                : job['careerFieldToExplore'] ==
-                                                                      true
-                                                                ? 'Explore career field'
-                                                                : job['suggestedForInterest'] ==
-                                                                      true
-                                                                ? localizedJobHeading(
-                                                                    'Your interests',
-                                                                    selectedLanguage,
-                                                                  )
-                                                                : localizedJobHeading(
-                                                                    'New posting',
-                                                                    selectedLanguage,
-                                                                  ),
-                                                            style: TextStyle(
-                                                              color: isTopMatch
-                                                                  ? Colors
-                                                                        .amberAccent
-                                                                  : Colors
-                                                                        .white,
-                                                              fontWeight:
-                                                                  FontWeight
-                                                                      .bold,
-                                                              fontSize: 12,
+                                                          Tooltip(
+                                                            message:
+                                                                hasFieldSimilarity
+                                                                ? 'Field similarity is based on the Go Mini-AI role-attributed criteria. It is not a probability of being hired or proof that you meet every requirement.'
+                                                                : 'This label describes why the opportunity was surfaced. Review the job requirements before applying.',
+                                                            child: Text(
+                                                              hasFieldSimilarity
+                                                                  ? 'Field similarity $matchScore%'
+                                                                  : job['roleRequirementsToReview'] ==
+                                                                        true
+                                                                  ? 'Check requirements'
+                                                                  : job['trainingPathway'] ==
+                                                                        true
+                                                                  ? 'Explore training role'
+                                                                  : job['transferableCareer'] ==
+                                                                        true
+                                                                  ? 'Transferable skills'
+                                                                  : job['careerFieldToExplore'] ==
+                                                                        true
+                                                                  ? 'Explore career field'
+                                                                  : job['suggestedForInterest'] ==
+                                                                        true
+                                                                  ? localizedJobHeading(
+                                                                      'Your interests',
+                                                                      selectedLanguage,
+                                                                    )
+                                                                  : localizedJobHeading(
+                                                                      'New posting',
+                                                                      selectedLanguage,
+                                                                    ),
+                                                              style: TextStyle(
+                                                                color:
+                                                                    isTopMatch
+                                                                    ? Colors
+                                                                          .amberAccent
+                                                                    : Colors
+                                                                          .white,
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .bold,
+                                                                fontSize: 12,
+                                                              ),
                                                             ),
                                                           ),
                                                         ],

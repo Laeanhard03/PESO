@@ -533,65 +533,119 @@ class UserAiProfileTab extends StatelessWidget {
                   ? (artifact['sizeBytes'] as num).toInt()
                   : 0;
               final fileName = artifact['fileName']?.toString() ?? 'Document';
+              final actions = Wrap(
+                alignment: WrapAlignment.end,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 0,
+                children: [
+                  if (category == 'nsrp_form' && onRebuildNsrp != null)
+                    IconButton(
+                      tooltip: 'Edit full NSRP Form 1 and regenerate PDF',
+                      icon: Icon(Icons.description_outlined, color: primary),
+                      onPressed: onRebuildNsrp,
+                    ),
+                  if (category == 'nsrp_form' && onSaveNsrp != null)
+                    IconButton(
+                      tooltip: 'Edit NSRP form details',
+                      icon: Icon(Icons.edit_note_rounded, color: primary),
+                      onPressed: () => _editNsrp(context),
+                    ),
+                  IconButton(
+                    tooltip: 'Preview document',
+                    icon: Icon(Icons.visibility_outlined, color: primary),
+                    onPressed: () => _openArtifact(context, artifact),
+                  ),
+                ],
+              );
+              final leading = Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  category == 'nsrp_form'
+                      ? Icons.assignment_outlined
+                      : Icons.picture_as_pdf_outlined,
+                  color: primary,
+                ),
+              );
+              final documentDetails = Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '$fileName${sizeBytes > 0 ? ' · ${_formatSize(sizeBytes)}' : ''}',
+                    maxLines: 2,
+                    softWrap: true,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: textLight,
+                      fontSize: 12,
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+              );
               return Container(
+                key: ValueKey(
+                  'saved-document-card-${artifact['id'] ?? category}',
+                ),
+                width: double.infinity,
                 margin: const EdgeInsets.only(bottom: 12),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(14),
                   border: Border.all(color: Colors.grey.shade200),
                 ),
-                child: ListTile(
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 6,
-                  ),
-                  leading: Container(
-                    width: 46,
-                    height: 46,
-                    decoration: BoxDecoration(
-                      color: primary.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Icon(
-                      category == 'nsrp_form'
-                          ? Icons.assignment_outlined
-                          : Icons.picture_as_pdf_outlined,
-                      color: primary,
-                    ),
-                  ),
-                  title: Text(
-                    title,
-                    style: const TextStyle(fontWeight: FontWeight.w800),
-                  ),
-                  subtitle: Text(
-                    '$fileName${sizeBytes > 0 ? ' · ${_formatSize(sizeBytes)}' : ''}',
-                  ),
-                  trailing: Wrap(
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    spacing: 0,
-                    children: [
-                      if (category == 'nsrp_form' && onRebuildNsrp != null)
-                        IconButton(
-                          tooltip: 'Edit full NSRP Form 1 and regenerate PDF',
-                          icon: Icon(
-                            Icons.description_outlined,
-                            color: primary,
-                          ),
-                          onPressed: onRebuildNsrp,
-                        ),
-                      if (category == 'nsrp_form' && onSaveNsrp != null)
-                        IconButton(
-                          tooltip: 'Edit NSRP form details',
-                          icon: Icon(Icons.edit_note_rounded, color: primary),
-                          onPressed: () => _editNsrp(context),
-                        ),
-                      IconButton(
-                        tooltip: 'Preview document',
-                        icon: Icon(Icons.visibility_outlined, color: primary),
-                        onPressed: () => _openArtifact(context, artifact),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final compactCard = constraints.maxWidth < 560;
+                    return Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: compactCard ? 12 : 16,
+                        vertical: compactCard ? 12 : 10,
                       ),
-                    ],
-                  ),
+                      child: compactCard
+                          ? Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    leading,
+                                    const SizedBox(width: 12),
+                                    Expanded(child: documentDetails),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: actions,
+                                ),
+                              ],
+                            )
+                          : Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                leading,
+                                const SizedBox(width: 12),
+                                Expanded(child: documentDetails),
+                                const SizedBox(width: 8),
+                                actions,
+                              ],
+                            ),
+                    );
+                  },
                 ),
               );
             }),

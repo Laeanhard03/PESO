@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   hasSuitablePortraitFace,
+  isVerifiedResumePhoto,
   validatePhotoFile,
   validateResumePhoto,
 } from './resumePhotoValidation.js';
@@ -12,6 +13,15 @@ const face = ({
   topLeft = [100, 100],
   bottomRight = [180, 205],
 } = {}) => ({ probability: [score], topLeft, bottomRight });
+
+test('resume generation requires a previously verified JPG or PNG data URL', () => {
+  assert.equal(isVerifiedResumePhoto('data:image/jpeg;base64,AAAA', 'success'), true);
+  assert.equal(isVerifiedResumePhoto('data:image/png;base64,AAAA', 'success'), true);
+  assert.equal(isVerifiedResumePhoto(null, 'success'), false);
+  assert.equal(isVerifiedResumePhoto('data:image/gif;base64,AAAA', 'success'), false);
+  assert.equal(isVerifiedResumePhoto('data:image/jpeg;base64,AAAA', 'checking'), false);
+  assert.equal(isVerifiedResumePhoto('data:image/jpeg;base64,AAAA', 'error'), false);
+});
 
 test('accepts JPG and PNG metadata within the existing 2 MB limit', () => {
   assert.equal(validatePhotoFile(imageFile('image/jpeg')).valid, true);

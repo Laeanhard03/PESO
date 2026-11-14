@@ -257,6 +257,30 @@ test('read-only job recommendations use saved NSRP evidence without replacing a 
   }
 });
 
+test('job listings reject Google Photos share links and accept direct image URLs', async () => {
+  const rejected = await request('/api/admin/jobs', {
+    token: 'admin-token',
+    method: 'POST',
+    body: jobBody('walk_in_application', {
+      imageUrl: 'https://photos.app.goo.gl/example-share-link',
+    }),
+  });
+  assert.equal(rejected.status, 400);
+  assert.match((await rejected.json()).message, /Upload the image file instead/);
+
+  const accepted = await request('/api/admin/jobs', {
+    token: 'admin-token',
+    method: 'POST',
+    body: jobBody('walk_in_application', {
+      imageUrl: 'https://cdn.example.test/jobs/office-assistant.jpg',
+    }),
+  });
+  assert.equal(accepted.status, 201);
+  const created = (await accepted.json()).job;
+  assert.equal(created.imageUrl, 'https://cdn.example.test/jobs/office-assistant.jpg');
+  jobs.delete(created.id);
+});
+
 test('Local Recruitment Activity expires at the end of its Philippine recruitment day', async () => {
   const response = await request('/api/admin/jobs', {
     token: 'admin-token',

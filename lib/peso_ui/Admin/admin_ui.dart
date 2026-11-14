@@ -217,10 +217,18 @@ class _AnimatedCounterTextState extends State<AnimatedCounterText>
 // ROOT WIDGET
 // =====================================================================
 class AdminDashboard extends StatefulWidget {
-  const AdminDashboard({super.key, this.googleSignIn});
+  const AdminDashboard({
+    super.key,
+    this.googleSignIn,
+    this.adminSessionCheck,
+  });
 
   /// Optional test adapter; the PESO API still verifies administrator roles.
   final Future<UserCredential> Function()? googleSignIn;
+
+  /// Optional test adapter for restoring an already-authenticated admin session.
+  /// Production always uses the protected MongoDB-backed Admin API.
+  final Future<bool> Function()? adminSessionCheck;
 
   @override
   State<AdminDashboard> createState() => _AdminDashboardState();
@@ -249,6 +257,56 @@ class _AdminDashboardState extends State<AdminDashboard> {
   String? _adminGateError;
   bool _isLoggingOut = false;
   final _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  @override
+  void initState() {
+    super.initState();
+    // AuthSessionGate and the login flow already resolve the MongoDB role before
+    // routing an administrator here. Revalidate that durable Firebase session
+    // against the protected Admin API so a refresh/redeploy does not strand a
+    // legitimate admin at a second manual verification screen.
+    unawaited(_restoreExistingAdminSession());
+  }
+
+  Future<void> _restoreExistingAdminSession() async {
+    final testVerifier = widget.adminSessionCheck;
+    if (testVerifier == null) {
+      try {
+        final user = FirebaseAuth.instance.currentUser;
+        if (user == null || !user.emailVerified) return;
+      } catch (_) {
+        // Firebase is not initialized in isolated widget tests or before setup.
+        return;
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _isVerifyingAdmin = true;
+        _adminGateError = null;
+      });
+    }
+    try {
+      final authorized = testVerifier != null
+          ? await testVerifier()
+          : await _confirmMongoAdminRole();
+      if (!authorized || !mounted) return;
+      setState(() {
+        _firebaseAdminVerified = true;
+        _adminGateError = null;
+      });
+      await _loadAdminDashboardProfiles();
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _adminGateError =
+              'Your Firebase session is still available, but PESO could not confirm the administrator role. Check the service connection and retry.';
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _isVerifyingAdmin = false);
+    }
+  }
 
   List<Applicant> _applicants = <Applicant>[];
   List<Concern> _concerns = <Concern>[];
@@ -317,7 +375,14 @@ class _AdminDashboardState extends State<AdminDashboard> {
   }
 
   Future<void> _loadAdminDashboardProfiles() async {
-    final currentUser = FirebaseAuth.instance.currentUser;
+    User? currentUser;
+    try {
+      currentUser = FirebaseAuth.instance.currentUser;
+    } catch (_) {
+      // Firebase may be unavailable in isolated widget tests; the protected
+      // Admin API remains the production authorization boundary.
+      return;
+    }
     if (currentUser == null) return;
 
     setState(() {

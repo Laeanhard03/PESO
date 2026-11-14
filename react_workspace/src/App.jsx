@@ -3,7 +3,11 @@ import * as htmlToImage from "html-to-image";
 import { jsPDF } from "jspdf";
 import { sendToFlutter } from './flutterBridge.js';
 import { applicantCareerEntries, educationChoices, experienceChoices, skillsChoices } from './applicantEssentials.js';
-import { collectMissingNsrpFields } from './nsrpRequiredFields.js';
+import {
+  collectMissingNsrpFields,
+  isCompletePhilippineMobileNumber,
+  isEligibleNsrpAge,
+} from './nsrpRequiredFields.js';
 import pesoformicon from './assets/pesoformicon.png';
 
 const GreenLabel = ({ children, className = '', required = false }) => (
@@ -12,6 +16,7 @@ const GreenLabel = ({ children, className = '', required = false }) => (
     {required && <span aria-hidden="true" className="ml-0.5 font-black text-red-600">*</span>}
   </span>
 );
+
 export default function App() {
   const [zoomLevel, setZoomLevel] = useState(1);
   const [fitScale, setFitScale] = useState(1);
@@ -34,6 +39,7 @@ export default function App() {
   const [dateOfBirth, setDateOfBirth] = useState('');
   const [sex, setSex] = useState('');
   const [religion, setReligion] = useState('');
+  const [contactNumberWarning, setContactNumberWarning] = useState('');
   const manualDobRef = useRef(null);
   const [draftStatus, setDraftStatus] = useState('Offline Draft');
   const ownerUidRef = useRef('');
@@ -52,6 +58,13 @@ export default function App() {
     const [year, month, day] = iso.split('-');
     return month + '/' + day + '/' + year;
   };
+  const handleContactNumberChange = event => {
+    const value = String(event?.target?.value || '').trim();
+    setContactNumberWarning(isCompletePhilippineMobileNumber(value)
+      ? ''
+      : 'Enter a complete Philippine mobile number (09XXXXXXXXX or +639XXXXXXXXX), or N/A.');
+  };
+
   const changeTypedDob = value => {
     const match = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(value.trim());
     if (!match) { setDateOfBirth(''); return; }
@@ -527,13 +540,11 @@ export default function App() {
       sex: sex ? true : '',
       middleName: readNsrpValue('middleName'),
       suffix: readNsrpValue('suffix'),
-      placeOfBirth: readNsrpValue('placeOfBirth'),
       presentAddress: nsrpGroupHasValue('presentAddress') ? true : '',
       city: readField('city'),
       religion: religion,
       height: readNsrpValue('height'),
       email: readField('email'),
-      landline: readNsrpValue('landline'),
       phone: readField('phone'),
       civilStatus: nsrpGroupHasValue('civilStatus') ? true : '',
       employmentStatus: nsrpGroupHasValue('employmentStatus') ? true : '',
@@ -562,6 +573,26 @@ export default function App() {
       } else {
         document.getElementById('zoom-wrapper')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
+      return;
+    }
+    const phoneValue = applicantEssentials.phone;
+    if (!isCompletePhilippineMobileNumber(phoneValue)) {
+      const message = 'Enter a complete Philippine mobile number (09XXXXXXXXX or +639XXXXXXXXX), or N/A.';
+      setContactNumberWarning(message);
+      setMissingEssentials([{ key: 'phone', label: message }]);
+      setValidationOpen(true);
+      const phoneField = document.querySelector('[data-applicant-field="phone"]');
+      phoneField?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      phoneField?.focus?.({ preventScroll: true });
+      return;
+    }
+    if (!isEligibleNsrpAge(age)) {
+      const message = 'Applicants must be at least 18 years old to complete NSRP Form 1.';
+      setMissingEssentials([{ key: 'dateOfBirth', label: message }]);
+      setValidationOpen(true);
+      const dobField = document.querySelector('[data-applicant-field="dateOfBirth"]');
+      dobField?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      dobField?.focus?.({ preventScroll: true });
       return;
     }
     setMissingEssentials([]);
@@ -1046,13 +1077,13 @@ export default function App() {
           <div className="flex border border-black mb-2">
             <div className="w-1/4 border-r border-black p-2 flex flex-col justify-center">
               <span className="font-bold">NSRP Form 1</span>
-              <span>January 2017</span>
+              <span>September 2020</span>
             </div>
             <div className="w-2/4 p-2 text-center flex flex-col justify-center">
               <span>Republic of the Philippines</span>
               <span>Department of Labor and Employment</span>
-              <span className="font-bold text-sm">PESO EMPLOYMENT INFORMATION SYSTEM</span>
-              <span className="font-bold">REGISTRATION FORM</span>
+              <span className="font-bold text-sm">NATIONAL SKILLS REGISTRATION PROGRAM</span>
+              <span className="font-bold">JOBSEEKER REGISTRATION FORM</span>
             </div>
             <div className="w-1/4 border-l border-black p-2 flex justify-center items-center">
               <img src={pesoformicon} alt="PESO Form icon" className="h-16 w-12 object-contain" />
@@ -1060,7 +1091,7 @@ export default function App() {
           </div>
 
           <div className="border border-black p-2 mb-2 bg-gray-50">
-            <span className="font-bold">INSTRUCTIONS:</span> Please fill out the form legibly with ball pen. Print in block letters. Complete every green-highlighted field or section before continuing. Enter "N/A" when a required field or section does not apply to you. Check the appropriate boxes.<br/><strong><span className="text-red-600">*</span> Green-highlighted fields/sections are required. Use N/A only where the field or section does not apply.</strong> You may use an extra sheet if needed. Submit the accomplished form to the Public Employment Service Office Manager or Officer in your city/municipality.
+            <span className="font-bold">INSTRUCTIONS:</span> Please fill out the form legibly in block letters using a ballpoint pen. Check appropriate boxes. Do not leave any items unanswered. Indicate “NA” if not applicable. You may use an extra sheet if needed. Submit the accomplished form to the Public Employment Service Office (PESO) Manager or Officer in your city/municipality.<br/><strong><span className="text-red-600">*</span> For this digital form, green-highlighted fields/sections are required. Use N/A only where a required field or section does not apply.</strong>
           </div>
 
           <div className="bg-gray-300 font-bold p-1 border border-black border-b-0">
@@ -1076,7 +1107,7 @@ export default function App() {
             </div>
 
             <div className="flex border-b border-black divide-x divide-black">
-              <div className="w-1/4 p-1 flex flex-col justify-between"><GreenLabel required>DATE OF BIRTH</GreenLabel> (mm/dd/yyyy)<div className="flex flex-wrap gap-1 mt-1">
+              <div className="w-1/2 p-1 flex flex-col justify-between"><GreenLabel required>DATE OF BIRTH</GreenLabel> (mm/dd/yyyy)<div className="flex flex-wrap gap-1 mt-1">
                 <input type="date" aria-label="Choose date of birth" data-applicant-field="dateOfBirth"
                   aria-required="true" aria-invalid={missingEssentials.some(item => item.key === 'dateOfBirth')}
                   style={missingEssentials.some(item => item.key === 'dateOfBirth') ? { border: '1px solid #dc2626', backgroundColor: '#fff1f2' } : undefined}
@@ -1094,12 +1125,10 @@ export default function App() {
                   onChange={event => changeTypedDob(event.target.value)}
                   className="w-full min-w-0 border-t border-gray-300 outline-none" />
               </div></div>
-              <div className="w-1/4 p-1"><GreenLabel required>SEX</GreenLabel><select aria-label="Sex" data-applicant-field="sex" aria-required="true"
+              <div className="w-1/2 p-1"><GreenLabel required>SEX</GreenLabel><select aria-label="Sex" data-applicant-field="sex" aria-required="true"
                 aria-invalid={missingEssentials.some(item => item.key === 'sex')}
                 style={missingEssentials.some(item => item.key === 'sex') ? { border: '1px solid #dc2626', backgroundColor: '#fff1f2' } : undefined}
                 className="w-full min-w-0 text-[11px]" value={sex} onChange={event => setSex(event.target.value)}><option value="">Choose</option><option>Male</option><option>Female</option><option>Other</option></select></div>
-              <div className="w-[12.5%] p-1"><GreenLabel>AGE</GreenLabel><input type="text" aria-label="Age (calculated)" readOnly value={age} className="w-full outline-none mt-1" /></div>
-              <div className="w-[37.5%] p-1"><GreenLabel required>PLACE OF BIRTH</GreenLabel><input type="text" data-nsrp-required="placeOfBirth" aria-label="Place of birth" aria-required="true" placeholder="City / municipality" className="w-full outline-none mt-1" /></div>
             </div>
 
             <div className="flex border-b border-black divide-x divide-black">
@@ -1110,12 +1139,10 @@ export default function App() {
                 </div>
                 <div className="flex divide-x divide-black h-1/2">
                     <div className="w-1/4 p-1"><GreenLabel required>CIVIL STATUS</GreenLabel></div>
-                    <div className="w-3/4 p-1 grid grid-cols-2 gap-1">
-                        <label className="flex items-center gap-1"><input type="checkbox" data-nsrp-group="civilStatus"/> Single</label>
-                        <label className="flex items-center gap-1"><input type="checkbox" data-nsrp-group="civilStatus"/> Separated</label>
-                        <label className="flex items-center gap-1"><input type="checkbox" data-nsrp-group="civilStatus"/> Married</label>
-                        <label className="flex items-center gap-1"><input type="checkbox" data-nsrp-group="civilStatus"/> Live-in</label>
-                        <label className="flex items-center gap-1"><input type="checkbox" data-nsrp-group="civilStatus"/> Widowed</label>
+                    <div className="w-3/4 p-1 grid grid-cols-3 gap-1">
+                        <label className="flex items-center gap-1"><input type="radio" name="nsrp-civil-status" value="Single" data-nsrp-group="civilStatus"/> Single</label>
+                        <label className="flex items-center gap-1"><input type="radio" name="nsrp-civil-status" value="Married" data-nsrp-group="civilStatus"/> Married</label>
+                        <label className="flex items-center gap-1"><input type="radio" name="nsrp-civil-status" value="Widowed" data-nsrp-group="civilStatus"/> Widowed</label>
                     </div>
                 </div>
               </div>
@@ -1133,16 +1160,32 @@ export default function App() {
 
             <div className="flex border-b border-black divide-x divide-black">
               <div className="w-1/2 flex flex-col divide-y divide-black">
-                  <div className="flex"><div className="w-1/3 p-1 bg-gray-200">TIN</div><div className="w-2/3 p-1"><input type="text" className="w-full outline-none" /></div></div>
-                  <div className="flex"><div className="w-1/3 p-1 bg-gray-200">GSIS/SSS ID NO.</div><div className="w-2/3 p-1"><input type="text" className="w-full outline-none" /></div></div>
-                  <div className="flex"><div className="w-1/3 p-1 bg-gray-200">PAG-IBIG NO.</div><div className="w-2/3 p-1"><input type="text" className="w-full outline-none" /></div></div>
-                  <div className="flex"><div className="w-1/3 p-1 bg-gray-200">PHILHEALTH NO.</div><div className="w-2/3 p-1"><input type="text" className="w-full outline-none" /></div></div>
+                <div className="flex items-center">
+                  <div className="w-1/3 p-1 bg-gray-200">TIN NO.</div>
+                  <div className="w-2/3 p-1"><input type="text" aria-label="Tax identification number or N/A" className="w-full outline-none" /></div>
+                </div>
+                <div className="p-1">
+                  <GreenLabel required>CONTACT NUMBER/S</GreenLabel>
+                  <div className="grid grid-cols-2 gap-2 mt-1">
+                    <label className="text-[9px]">Landline (optional)
+                      <input type="text" aria-label="Optional landline number" placeholder="Landline" className="w-full outline-none border-b border-gray-300" />
+                    </label>
+                    <label className="text-[9px]">Mobile number
+                      <input type="text" data-prefill="phone" data-applicant-field="phone" data-field="Cellphone number" aria-label="Mobile number or N/A" aria-required="true" aria-describedby="nsrp-phone-warning" aria-invalid={Boolean(contactNumberWarning)} onChange={handleContactNumberChange} onBlur={handleContactNumberChange} placeholder="09XXXXXXXXX / N/A" className="w-full outline-none border-b border-gray-300" style={contactNumberWarning ? { border: '1px solid #f59e0b', backgroundColor: '#fff7ed', boxShadow: '0 0 0 1px #f59e0b' } : undefined} />
+                      <p id="nsrp-phone-warning" role="status" aria-live="polite" className="mt-1 min-h-[10px] text-[9px] leading-tight text-amber-700">{contactNumberWarning}</p>
+                    </label>
+                  </div>
+                </div>
               </div>
               <div className="w-1/2 flex flex-col divide-y divide-black">
-                  <div className="flex"><div className="w-1/2 p-1"><GreenLabel required>HEIGHT</GreenLabel></div><div className="w-1/2 p-1"><input type="text" data-nsrp-required="height" aria-label="Height or N/A" aria-required="true" placeholder="cm / N/A" className="w-full outline-none" /></div></div>
-                  <div className="flex"><div className="w-1/2 p-1"><GreenLabel required>EMAIL ADDRESS</GreenLabel></div><div className="w-1/2 p-1"><input type="text" data-prefill="email" data-applicant-field="email" data-field="Email address" aria-label="Email address or N/A" aria-required="true" placeholder="Email / N/A" className="w-full outline-none" /></div></div>
-                  <div className="flex"><div className="w-1/2 p-1"><GreenLabel required>LANDLINE NUMBER</GreenLabel></div><div className="w-1/2 p-1"><input type="text" data-nsrp-required="landline" aria-label="Landline number or N/A" aria-required="true" placeholder="Number / N/A" className="w-full outline-none" /></div></div>
-                  <div className="flex"><div className="w-1/2 p-1"><GreenLabel required>CELLPHONE NUMBER</GreenLabel></div><div className="w-1/2 p-1"><input type="text" data-prefill="phone" data-applicant-field="phone" data-field="Cellphone number" aria-label="Cellphone number or N/A" aria-required="true" placeholder="Number / N/A" className="w-full outline-none" /></div></div>
+                <div className="flex items-center">
+                  <div className="w-1/2 p-1"><GreenLabel required>HEIGHT (FT.)</GreenLabel></div>
+                  <div className="w-1/2 p-1"><input type="text" data-nsrp-required="height" aria-label="Height in feet or N/A" aria-required="true" placeholder="ft. / N/A" className="w-full outline-none" /></div>
+                </div>
+                <div className="flex items-center">
+                  <div className="w-1/2 p-1"><GreenLabel required>E-MAIL</GreenLabel></div>
+                  <div className="w-1/2 p-1"><input type="text" data-prefill="email" data-applicant-field="email" data-field="Email address" aria-label="Email address or N/A" aria-required="true" placeholder="Email / N/A" className="w-full outline-none" /></div>
+                </div>
               </div>
             </div>
 
@@ -1156,6 +1199,7 @@ export default function App() {
                     </div>
                     <label className="flex items-center gap-1"><input type="checkbox"/> Hearing</label>
                     <label className="flex items-center gap-1"><input type="checkbox"/> Physical</label>
+                    <label className="flex items-center gap-1"><input type="checkbox"/> Mental</label>
                 </div>
             </div>
 
@@ -1167,22 +1211,33 @@ export default function App() {
                         <div className="ml-4 flex flex-col gap-1">
                             <label className="flex items-center gap-1"><input type="checkbox" data-nsrp-group="employmentStatus"/> Wage Employed</label>
                             <label className="flex items-center gap-1"><input type="checkbox" data-nsrp-group="employmentStatus"/> Self Employed</label>
+                            <div className="ml-4 grid grid-cols-2 gap-x-2 gap-y-1 text-[9px]">
+                              {['Fisherman/Fisherfolk', 'Vendor/Retailer', 'Home-based worker', 'Transport', 'Domestic Worker', 'Freelancer', 'Artisan/Craft Worker'].map(item => (
+                                <label key={item} className="flex items-center gap-1"><input type="checkbox" data-nsrp-group="employmentStatus"/> {item}</label>
+                              ))}
+                              <label className="col-span-2 flex items-center gap-1"><input type="checkbox" data-nsrp-group="employmentStatus"/> Others (specify) <input type="text" className="min-w-0 flex-1 border-b border-black outline-none" aria-label="Other self-employment type"/></label>
+                            </div>
                         </div>
                     </div>
                     <div className="w-2/3 p-1 flex flex-col gap-2">
                         <label className="flex items-center gap-1 font-bold"><input type="checkbox" data-nsrp-group="employmentStatus"/> Unemployed</label>
+                        <label className="ml-4 flex items-center gap-2 text-[10px]">
+                          How long have you been looking for work? (months)
+                          <input type="text" inputMode="numeric" aria-label="Months looking for work" placeholder="N/A if not applicable" className="min-w-0 w-20 border-b border-black outline-none" />
+                        </label>
                         <div className="ml-4 flex gap-4">
                             <div className="flex flex-col gap-1 w-1/2">
                                 <label className="flex items-center gap-1"><input type="checkbox" data-nsrp-group="employmentStatus"/> New Entrant/Fresh Graduate</label>
                                 <label className="flex items-center gap-1"><input type="checkbox" data-nsrp-group="employmentStatus"/> Finished Contract</label>
                                 <label className="flex items-center gap-1"><input type="checkbox" data-nsrp-group="employmentStatus"/> Resigned</label>
                                 <label className="flex items-center gap-1"><input type="checkbox" data-nsrp-group="employmentStatus"/> Retired</label>
+                                <label className="flex items-center gap-1"><input type="checkbox" data-nsrp-group="employmentStatus"/> Terminated/laid off due to calamity</label>
                             </div>
                              <div className="flex flex-col gap-1 w-1/2">
-                                <label className="flex items-center gap-1"><input type="checkbox" data-nsrp-group="employmentStatus"/> Terminated/Laidoff(local)</label>
+                                <label className="flex items-center gap-1"><input type="checkbox" data-nsrp-group="employmentStatus"/> Terminated/laid off (local)</label>
                                 <label className="flex items-start gap-1"><input type="checkbox" data-nsrp-group="employmentStatus"/>
                                     <div className="flex flex-col">
-                                        <span>Terminated/Laidoff(abroad)</span>
+                                        <span>Terminated/laid off (abroad)</span>
                                         <span className="flex">specify country <input type="text" className="border-b border-black outline-none w-20 ml-1"/></span>
                                     </div>
                                 </label>
@@ -1193,24 +1248,28 @@ export default function App() {
                 </div>
             </div>
             
-            <div className="p-1 flex items-center gap-4 border-b border-black">
-                <span>Are you actively looking for work?</span>
-                <label className="flex items-center gap-1"><input type="checkbox"/> Yes</label>
-                <label className="flex items-center gap-1"><input type="checkbox"/> No</label>
-                <span className="ml-4">How long have you been looking for work?</span>
-                <input type="text" className="border-b border-black outline-none flex-grow"/>
+             <div className="grid grid-cols-2 gap-2 p-1 border-b border-black text-[10px]">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span>Are you an OFW?</span>
+                  <label className="flex items-center gap-1"><input type="radio" name="nsrp-ofw-current"/> Yes</label>
+                  <label className="flex items-center gap-1"><input type="radio" name="nsrp-ofw-current"/> No</label>
+                  <span>Specify country</span><input type="text" className="min-w-0 flex-1 border-b border-black outline-none" aria-label="Current OFW country"/>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span>Are you a former OFW?</span>
+                  <label className="flex items-center gap-1"><input type="radio" name="nsrp-ofw-former"/> Yes</label>
+                  <label className="flex items-center gap-1"><input type="radio" name="nsrp-ofw-former"/> No</label>
+                  <span>Latest country</span><input type="text" className="min-w-0 flex-1 border-b border-black outline-none" aria-label="Latest country of deployment"/>
+                </div>
+                <div className="col-span-2 flex items-center gap-2">
+                  <span>Month and year of return to the Philippines</span>
+                  <input type="text" className="w-48 border-b border-black outline-none" placeholder="MM/YYYY" aria-label="Month and year of return to the Philippines"/>
+                </div>
             </div>
-            <div className="p-1 flex items-center gap-4 border-b border-black">
-                <span>Willing to work immediately?</span>
-                <label className="flex items-center gap-1"><input type="checkbox"/> Yes</label>
-                <label className="flex items-center gap-1"><input type="checkbox"/> No</label>
-                <span className="ml-4">If no, when?</span>
-                <input type="text" className="border-b border-black outline-none flex-grow"/>
-            </div>
-             <div className="p-1 flex items-center gap-4">
+            <div className="p-1 flex items-center gap-4">
                 <span>Are you a 4Ps beneficiary?</span>
-                <label className="flex items-center gap-1"><input type="checkbox"/> Yes</label>
-                <label className="flex items-center gap-1"><input type="checkbox"/> No</label>
+                <label className="flex items-center gap-1"><input type="radio" name="nsrp-4ps"/> Yes</label>
+                <label className="flex items-center gap-1"><input type="radio" name="nsrp-4ps"/> No</label>
                 <span className="ml-4">If yes, Household ID No.</span>
                 <input type="text" className="border-b border-black outline-none w-64"/>
             </div>
@@ -1221,12 +1280,12 @@ export default function App() {
           </div>
           <div className="border border-black flex flex-col">
             <div className="flex divide-x divide-black border-b border-black">
-                <div className="w-1/2 p-1 font-bold text-center"><GreenLabel required>PREFERRED OCCUPATION</GreenLabel></div>
+                <div className="w-1/2 p-1 font-bold text-center"><GreenLabel required>PREFERRED OCCUPATION</GreenLabel><div className="flex justify-center gap-4 mt-1 text-[10px] font-normal"><label className="flex items-center gap-1"><input type="checkbox"/> Part-time</label><label className="flex items-center gap-1"><input type="checkbox"/> Full-time</label></div></div>
                 <div className="w-1/2 p-1 font-bold text-center"><GreenLabel required>PREFERRED WORK LOCATION</GreenLabel></div>
             </div>
             <div className="flex divide-x divide-black">
                 <div className="w-1/2 divide-y divide-black">
-                    {[1,2,3,4].map(num => (
+                    {[1,2,3].map(num => (
                         <div key={num} className="flex p-1 h-8"><span className="w-4">{num}.</span><input type="text" data-applicant-field={num === 1 ? 'preferredOccupation' : undefined} data-field="Preferred occupation" aria-label={`Preferred occupation ${num}`} className="w-full outline-none"/></div>
                     ))}
                 </div>
@@ -1245,11 +1304,6 @@ export default function App() {
                     </div>
                 </div>
             </div>
-             <div className="flex divide-x divide-black border-t border-black">
-                 <div className="w-1/2 p-1 flex">Expected Salary (Range) <input type="text" className="w-full outline-none ml-2"/></div>
-                 <div className="w-1/4 p-1 flex border-r border-black">Passport No. <input type="text" className="w-full outline-none ml-2"/></div>
-                 <div className="w-1/4 p-1 flex">Expiry date <input type="date" className="w-full outline-none ml-2"/></div>
-             </div>
           </div>
 
            <div className="font-bold p-1 border-l border-r border-black mt-2 bg-gray-100 flex items-center">
@@ -1266,21 +1320,28 @@ export default function App() {
                 </tr>
             </thead>
             <tbody>
+                {['English', 'Filipino', 'Mandarin'].map(language => (
+                  <tr key={language} className="divide-x divide-black border-b border-black">
+                    <td className="p-1 text-left">{language}</td>
+                    <td><input type="checkbox" data-nsrp-group="languageProficiency" aria-label={language + ' read'} /></td>
+                    <td><input type="checkbox" data-nsrp-group="languageProficiency" aria-label={language + ' write'} /></td>
+                    <td><input type="checkbox" data-nsrp-group="languageProficiency" aria-label={language + ' speak'} /></td>
+                    <td><input type="checkbox" data-nsrp-group="languageProficiency" aria-label={language + ' understand'} /></td>
+                  </tr>
+                ))}
                 <tr className="divide-x divide-black border-b border-black">
-                    <td className="p-1 text-left">English</td>
-                    <td><input type="checkbox" data-nsrp-group="languageProficiency" /></td>
-                    <td><input type="checkbox" data-nsrp-group="languageProficiency" /></td>
-                    <td><input type="checkbox" data-nsrp-group="languageProficiency" /></td>
-                    <td><input type="checkbox" data-nsrp-group="languageProficiency" /></td>
+                    <td className="p-1 text-left flex">Others: <input type="text" data-nsrp-group="languageProficiency" aria-label="Other language or N/A" placeholder="Language / N/A" className="w-full outline-none ml-1"/></td>
+                    <td><input type="checkbox" data-nsrp-group="languageProficiency" aria-label="Other language read" /></td>
+                    <td><input type="checkbox" data-nsrp-group="languageProficiency" aria-label="Other language write" /></td>
+                    <td><input type="checkbox" data-nsrp-group="languageProficiency" aria-label="Other language speak" /></td>
+                    <td><input type="checkbox" data-nsrp-group="languageProficiency" aria-label="Other language understand" /></td>
                 </tr>
             </tbody>
           </table>
 
           <div className="flex justify-between items-end mt-4">
-              <div className="border border-black p-1 text-[10px] text-center w-32">
-                  OM-25-001<br/>Revision No: 00<br/>Date Issued: 25/201
-              </div>
-              <div className="font-bold text-sm pr-4">Page 1 of 3</div>
+              <div className="text-[10px]">NSRP Form 1 • September 2020</div>
+              <div className="font-bold text-sm pr-4">Page 1 of 2</div>
           </div>
 
         </div>
@@ -1288,101 +1349,82 @@ export default function App() {
         {/* ======================= PAGE 2 ======================= */}
         <div id="peso-page-2" className="w-[850px] bg-white shadow-sm mb-8 border border-gray-400 p-8 text-xs text-black">
             
-           <table className="w-full border-collapse border border-black text-center mb-4">
-            <tbody>
-                <tr className="divide-x divide-black border-b border-black">
-                    <td className="w-1/4 p-1 text-left">Filipino</td>
-                    <td className="w-[18.75%]"><input type="checkbox" data-nsrp-group="languageProficiency" /></td>
-                    <td className="w-[18.75%]"><input type="checkbox" data-nsrp-group="languageProficiency" /></td>
-                    <td className="w-[18.75%]"><input type="checkbox" data-nsrp-group="languageProficiency" /></td>
-                    <td className="w-[18.75%]"><input type="checkbox" data-nsrp-group="languageProficiency" /></td>
-                </tr>
-                <tr className="divide-x divide-black border-b border-black">
-                    <td className="p-1 text-left flex">Others: <input type="text" data-nsrp-group="languageProficiency" aria-label="Other language or N/A" placeholder="Language / N/A" className="w-full outline-none ml-1"/></td>
-                    <td><input type="checkbox" data-nsrp-group="languageProficiency" /></td>
-                    <td><input type="checkbox" data-nsrp-group="languageProficiency" /></td>
-                    <td><input type="checkbox" data-nsrp-group="languageProficiency" /></td>
-                    <td><input type="checkbox" data-nsrp-group="languageProficiency" /></td>
-                </tr>
-            </tbody>
-          </table>
-
           <div className="bg-gray-300 font-bold p-1 border border-black border-b-0 flex items-center">
              IV. <GreenLabel required className="ml-1">EDUCATIONAL BACKGROUND</GreenLabel>
+          </div>
+          <div className="flex items-center gap-4 border-x border-black p-2 text-[10px]">
+            <span>Currently in school?</span>
+            <label className="flex items-center gap-1"><input type="radio" name="nsrp-currently-in-school"/> Yes</label>
+            <label className="flex items-center gap-1"><input type="radio" name="nsrp-currently-in-school"/> No</label>
           </div>
           <table className="w-full border-collapse border border-black text-center mb-4">
             <thead>
                 <tr className="divide-x divide-black border-b border-black bg-gray-100">
-                    <th className="w-1/5 p-1" rowSpan={2}>School</th>
-                    <th className="w-1/5 p-1" rowSpan={2}>Course</th>
-                    <th className="w-[10%] p-1" rowSpan={2}>Year<br/>graduated</th>
-                    <th className="w-1/4 p-1 border-b border-black" colSpan={2}>If undergraduate,</th>
-                    <th className="w-[15%] p-1" rowSpan={2}>Awards<br/>received</th>
-                </tr>
-                <tr className="divide-x divide-black border-b border-black bg-gray-100">
-                    <th className="p-1 w-1/2 font-normal">what level?</th>
-                    <th className="p-1 w-1/2 font-normal">year last<br/>attended</th>
+                    <th className="w-[23%] p-1">LEVEL</th>
+                    <th className="w-[23%] p-1">SCHOOL / COURSE</th>
+                    <th className="w-[16%] p-1">YEAR<br/>GRADUATED</th>
+                    <th className="w-[21%] p-1">IF UNDERGRADUATE<br/>LEVEL REACHED</th>
+                    <th className="w-[17%] p-1">YEAR LAST<br/>ATTENDED</th>
                 </tr>
             </thead>
             <tbody className="divide-y divide-black">
-                {['Elementary', 'Secondary', 'Tertiary', 'Graduate Studies'].map((level) => (
+                {['Elementary', 'Secondary (Non-K12)', 'Secondary (K-12)', 'Senior High Strand', 'Tertiary', 'Graduate Studies/Post-graduate'].map((level) => (
                     <tr key={level} className="divide-x divide-black h-8">
                         <td className="p-1 text-left">{level}</td>
-                        <td><input type="text" data-nsrp-group="educationBackground" placeholder={level === 'Elementary' ? 'Course / N/A' : undefined} aria-label={level + ' course or N/A'} className="w-full outline-none text-center h-full"/></td>
-                        <td><input type="text" data-nsrp-group="educationBackground" className="w-full outline-none text-center h-full"/></td>
-                        <td><input type="text" data-nsrp-group="educationBackground" className="w-full outline-none text-center h-full"/></td>
-                        <td><input type="text" data-nsrp-group="educationBackground" className="w-full outline-none text-center h-full"/></td>
-                        <td><input type="text" data-nsrp-group="educationBackground" className="w-full outline-none text-center h-full"/></td>
+                        <td><input type="text" data-nsrp-group="educationBackground" aria-label={level + ' course'} className="w-full outline-none text-center h-full"/></td>
+                        <td><input type="text" data-nsrp-group="educationBackground" aria-label={level + ' year graduated'} className="w-full outline-none text-center h-full"/></td>
+                        <td><input type="text" data-nsrp-group="educationBackground" aria-label={level + ' undergraduate level reached'} className="w-full outline-none text-center h-full"/></td>
+                        <td><input type="text" data-nsrp-group="educationBackground" aria-label={level + ' year last attended'} className="w-full outline-none text-center h-full"/></td>
                     </tr>
                 ))}
             </tbody>
           </table>
 
            <div className="bg-gray-300 font-bold p-1 border border-black border-b-0">
-             V. TECHNICAL/VOCATIONAL AND OTHER TRAINING <span className="font-normal">(Include courses takens as part of college education)</span>
+             V. TECHNICAL/VOCATIONAL AND OTHER TRAINING <span className="font-normal">(Include courses taken as part of college education)</span>
           </div>
           <table className="w-full border-collapse border border-black text-center mb-4">
             <thead>
                 <tr className="divide-x divide-black border-b border-black bg-gray-100">
-                    <th className="w-1/3 p-1">TRAINING/VOCATIONAL COURSE</th>
-                    <th className="w-[15%] p-1">Duration<br/><span className="font-normal text-[8px]">(mm/dd/yyyy to mm/dd/yyyy)</span></th>
-                    <th className="w-1/4 p-1">Training Institution</th>
-                    <th className="w-[27%] p-1">Certificates Received<br/><span className="font-normal text-[8px]">(NC I, NC II, NC III, NC IV, etc)</span></th>
+                    <th className="w-[24%] p-1">TRAINING / VOCATIONAL COURSE</th>
+                    <th className="w-[13%] p-1">HOURS OF TRAINING</th>
+                    <th className="w-[22%] p-1">TRAINING INSTITUTION</th>
+                    <th className="w-[21%] p-1">SKILLS ACQUIRED</th>
+                    <th className="w-[20%] p-1">CERTIFICATES RECEIVED<br/><span className="font-normal text-[8px]">(NC I, NC II, NC III, NC IV, etc.)</span></th>
                 </tr>
             </thead>
             <tbody className="divide-y divide-black">
                 {[1, 2, 3].map((num) => (
                     <tr key={num} className="divide-x divide-black h-8">
-                        <td className="p-1 text-left flex"><span className="w-4">{num}.</span><input type="text" className="w-full outline-none"/></td>
-                        <td><input type="text" className="w-full outline-none text-center h-full"/></td>
-                        <td><input type="text" className="w-full outline-none text-center h-full"/></td>
-                        <td><input type="text" className="w-full outline-none text-center h-full"/></td>
+                        <td className="p-1 text-left"><input type="text" data-nsrp-group="educationBackground" aria-label={'Training course ' + num} className="w-full outline-none"/></td>
+                        <td><input type="text" data-nsrp-group="educationBackground" aria-label={'Hours of training ' + num} className="w-full outline-none text-center h-full"/></td>
+                        <td><input type="text" data-nsrp-group="educationBackground" aria-label={'Training institution ' + num} className="w-full outline-none text-center h-full"/></td>
+                        <td><input type="text" data-nsrp-group="educationBackground" aria-label={'Skills acquired in training ' + num} className="w-full outline-none text-center h-full"/></td>
+                        <td><input type="text" data-nsrp-group="educationBackground" aria-label={'Certificates received ' + num} className="w-full outline-none text-center h-full"/></td>
                     </tr>
                 ))}
             </tbody>
           </table>
 
           <div className="bg-gray-300 font-bold p-1 border border-black border-b-0">
-             VI. ELIGIBILITY/ PROFESSIONAL LICENSE
+             VI. ELIGIBILITY / PROFESSIONAL LICENSE
           </div>
           <table className="w-full border-collapse border border-black text-center mb-4">
             <thead>
                 <tr className="divide-x divide-black border-b border-black bg-gray-100">
-                    <th className="w-[30%] p-1">ELIGIBILITY (Civil Service)</th>
-                    <th className="w-[10%] p-1">Rating</th>
-                    <th className="w-[20%] p-1">Date of examination</th>
-                    <th className="w-[25%] p-1">PROFESSIONAL LICENSE (PRC)</th>
-                    <th className="w-[15%] p-1">Valid Until</th>
+                    <th className="w-[34%] p-1">CAREER SERVICE / BOARD / BAR</th>
+                    <th className="w-[24%] p-1">LICENSE NUMBER</th>
+                    <th className="w-[22%] p-1">DATE TAKEN</th>
+                    <th className="w-[20%] p-1">VALID UNTIL</th>
                 </tr>
             </thead>
             <tbody className="divide-y divide-black">
                 {[1, 2].map((num) => (
                     <tr key={num} className="divide-x divide-black h-8">
-                        <td className="p-1 text-left flex"><span className="w-4">{num}.</span><input type="text" className="w-full outline-none"/></td>
-                        <td><input type="text" className="w-full outline-none text-center h-full"/></td>
-                        <td><input type="text" className="w-full outline-none text-center h-full"/></td>
-                        <td className="p-1 text-left flex"><span className="w-4">{num}.</span><input type="text" className="w-full outline-none"/></td>
-                        <td><input type="text" className="w-full outline-none text-center h-full"/></td>
+                        <td className="p-1 text-left"><input type="text" data-nsrp-group="educationBackground" aria-label={'Career service, board or bar eligibility ' + num} className="w-full outline-none"/></td>
+                        <td><input type="text" data-nsrp-group="educationBackground" aria-label={'Professional license number ' + num} className="w-full outline-none text-center h-full"/></td>
+                        <td><input type="text" data-nsrp-group="educationBackground" aria-label={'Eligibility or license date taken ' + num} className="w-full outline-none text-center h-full"/></td>
+                        <td><input type="text" data-nsrp-group="educationBackground" aria-label={'Professional license valid until ' + num} className="w-full outline-none text-center h-full"/></td>
                     </tr>
                 ))}
             </tbody>
@@ -1397,7 +1439,7 @@ export default function App() {
                     <th className="w-1/4 p-1">Company Name</th>
                     <th className="w-1/4 p-1">Address<br/><span className="font-normal text-[9px]">(City/Municipality)</span></th>
                     <th className="w-[15%] p-1">Position</th>
-                    <th className="w-[20%] p-1">Inclusive Dates<br/><span className="font-normal text-[9px]">(mm/yyyy to mm/yyyy)</span></th>
+                    <th className="w-[20%] p-1">NUMBER OF<br/>MONTHS</th>
                     <th className="w-[15%] p-1">Status<br/><span className="font-normal text-[8px]">(Permanent, Contractual,<br/>Part-time, Probationary)</span></th>
                 </tr>
             </thead>
@@ -1415,7 +1457,7 @@ export default function App() {
           </table>
 
           <div className="font-bold p-1 border border-black border-b-0 flex items-center bg-gray-100">
-             <GreenLabel required>VII OTHER SKILLS ACQUIRED WITHOUT FORMAL TRAINING</GreenLabel>
+             <GreenLabel required>VIII. OTHER SKILLS ACQUIRED WITHOUT CERTIFICATE</GreenLabel>
           </div>
           <div className="border border-black p-4 grid grid-cols-3 gap-y-2 text-sm mb-4">
              <label className="flex items-center gap-2"><input type="checkbox" data-nsrp-group="otherSkills" className="w-4 h-4"/> AUTO MECHANIC</label>
@@ -1435,30 +1477,16 @@ export default function App() {
              <label className="flex items-center gap-2"><input type="checkbox" data-nsrp-group="otherSkills" className="w-4 h-4"/> TAILORING</label>
              <label className="flex items-center gap-2"><input type="checkbox" data-nsrp-group="otherSkills" className="w-4 h-4"/> DRIVER</label>
              <label className="flex items-center gap-2"><input type="checkbox" data-nsrp-group="otherSkills" className="w-4 h-4"/> PAINTING JOBS</label>
-             <label className="flex items-center gap-2"><input type="checkbox" data-nsrp-group="otherSkills" className="w-4 h-4"/> OTHERS:</label>
+             <label className="flex items-center gap-2 col-span-2"><input type="checkbox" data-nsrp-group="otherSkills" className="w-4 h-4"/> OTHERS: <input type="text" aria-label="Other skills acquired without certificate" className="min-w-0 flex-1 border-b border-black outline-none"/></label>
              <label className="flex items-center gap-2"><input type="checkbox" data-nsrp-group="otherSkills" className="w-4 h-4"/> N/A - no other skills to list</label>
-          </div>
-
-          <div data-testid="print-career-information" className="border border-emerald-800 p-2 text-[10px] mb-3">
-            <div className="font-bold text-emerald-900">APPLICANT CAREER INFORMATION</div>
-            <div className="grid grid-cols-3 gap-2 mt-1">
-              <div><span className="font-bold">Education:</span> {careerEducation || 'Not provided'}</div>
-              <div><span className="font-bold">Work experience:</span> {experienceStatus || 'Not provided'}</div>
-              <div><span className="font-bold">Career stage:</span> {skillsStage || 'Not provided'}</div>
-              {skillsStage === skillsChoices[0] && careerSkills.trim() && (
-                <div className="col-span-3">
-                  <span className="font-bold">Skills or training:</span> {careerSkills.trim()}
-                </div>
-              )}
-            </div>
           </div>
 
           <div className="text-center font-bold mb-2">CERTIFICATION/AUTHORIZATION</div>
           <p className="text-justify indent-8 mb-8">
-            This is to certify that all data/information that I have provided in this form are true to the best of my knowledge. This is also to authorized the DOLE to include my profile in the PESO Employment Information System, which is a subsystem of the PhilJobNet. It is understood that my name shall be made available to employers who have access to the Registry. I am also aware that DOLE is not obliged to seek employment on my behalf.
+            This is to certify that all data/information that I have provided in this form are true to the best of my knowledge. This is also to authorize DOLE to include my profile in the PESO Employment Information System and use my personal information for employment facilitation. I am also aware that DOLE is not obliged to seek employment on my behalf.
           </p>
 
-          <div className="flex justify-between px-12 mb-8">
+          <div className="flex justify-between items-end gap-8 px-8 mb-8">
             <div className="flex flex-col items-center w-64">
                 <canvas
                   ref={signatureCanvasRef}
@@ -1477,8 +1505,10 @@ export default function App() {
                 <span className="font-bold"><GreenLabel required>Signature of Applicant</GreenLabel></span>
             </div>
             <div className="flex flex-col items-center w-48">
-                <input type="date" data-nsrp-required="signatureDate" aria-label="Signature date" aria-required="true"
-                  className="w-full border-b border-black outline-none text-center" />
+                <div className="h-20 w-full flex flex-col justify-end">
+                  <input type="date" data-nsrp-required="signatureDate" aria-label="Signature date" aria-required="true"
+                    className="w-full h-7 border-b border-black outline-none text-center" />
+                </div>
                 <span className="font-bold"><GreenLabel required>Date</GreenLabel></span>
             </div>
           </div>
@@ -1490,17 +1520,21 @@ export default function App() {
              
              <div className="flex mt-4">
                  <div className="w-1/3 flex flex-col gap-1">
-                     <span className="font-bold mb-1">Eligible for public employment services?</span>
-                     <label className="flex items-center gap-2"><input type="checkbox" /> SPES</label>
-                     <label className="flex items-center gap-2"><input type="checkbox" /> GIP</label>
-                     <label className="flex items-center gap-2"><input type="checkbox" /> TUPAD</label>
-                     <label className="flex items-center gap-2"><input type="checkbox" /> JobStart</label>
+                     <span className="font-bold mb-1">Referred to:</span>
+                     <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                       <label className="flex items-center gap-2"><input type="checkbox" /> SPES</label>
+                       <label className="flex items-center gap-2"><input type="checkbox" /> DILEEP</label>
+                       <label className="flex items-center gap-2"><input type="checkbox" /> GIP</label>
+                       <label className="flex items-center gap-2"><input type="checkbox" /> TESDA Training</label>
+                       <label className="flex items-center gap-2"><input type="checkbox" /> TUPAD</label>
+                       <label className="flex items-center gap-2"><input type="checkbox" /> JobStart</label>
+                     </div>
                      <label className="flex items-center gap-2"><input type="checkbox" /> Others, specify: <input type="text" className="border-b border-black outline-none w-24"/></label>
                  </div>
                  
                  <div className="w-2/3 flex flex-col justify-end items-end pr-8 pb-4 relative">
                      <span className="absolute top-0 left-0 font-bold">Assessed by:</span>
-                     <div className="flex w-full justify-end gap-4">
+                     <div className="flex w-full justify-end items-end gap-4">
                          <div className="flex flex-col items-center w-64">
                              <input type="text" className="w-full border-b border-black outline-none text-center" />
                              <span>Signature over Printed Name of Assessor</span>
@@ -1515,10 +1549,8 @@ export default function App() {
           </div>
 
           <div className="flex justify-between items-end mt-4">
-              <div className="border border-black p-1 text-[10px] text-center w-32">
-                  OM-25-001<br/>Revision No: 00<br/>Date Issued: 25/201
-              </div>
-              <div className="font-bold text-sm pr-4">Page 2 of 3</div>
+              <div className="text-[10px]">NSRP Form 1 • September 2020</div>
+              <div className="font-bold text-sm pr-4">Page 2 of 2</div>
           </div>
 
         </div>

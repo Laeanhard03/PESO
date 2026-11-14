@@ -110,6 +110,9 @@ export function createJobPostingRecord(body, createdBy, now = new Date()) {
     if (!['http:', 'https:'].includes(parsed.protocol) || url.length > 2048) {
       throw invalid(field + ' must be a valid HTTP or HTTPS URL.');
     }
+    if (['photos.app.goo.gl', 'photos.google.com'].includes(parsed.hostname.toLowerCase())) {
+      throw invalid(field + ' cannot use a Google Photos sharing link. Upload the image file instead.');
+    }
   }
 
   return {

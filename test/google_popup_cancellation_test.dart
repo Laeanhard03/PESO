@@ -186,7 +186,7 @@ void main() {
     );
     await tester.enterText(
       find.byKey(const Key('registration-password-field')),
-      'PastedPassword1',
+      'PastedPassword1!',
     );
     await tester.ensureVisible(find.byKey(const Key('registration-barangay')));
     await tester.tap(find.byKey(const Key('registration-barangay')));
@@ -210,7 +210,7 @@ void main() {
     final passwordField = tester.widget<TextField>(
       find.byKey(const Key('registration-password-field')),
     );
-    expect(passwordField.controller?.text, 'PastedPassword1');
+    expect(passwordField.controller?.text, 'PastedPassword1!');
     expect(passwordField.enableInteractiveSelection, isTrue);
     expect(tester.takeException(), isNull);
   });

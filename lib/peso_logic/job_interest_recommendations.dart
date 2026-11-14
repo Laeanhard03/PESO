@@ -218,8 +218,11 @@ List<Map<String, dynamic>> rankJobOpportunities(
         if (transferableCareer && !notice) 'transferableCareer': true,
         if (careerFieldToExplore && !notice) 'careerFieldToExplore': true,
         if (hasKnownGap && !notice) 'roleRequirementsToReview': true,
-        // The model score affects ordering, but is not a hiring percentage.
-        // Job cards show a plain explanation instead of a numeric "match".
+        if (modelScore != null && !notice)
+          'fieldSimilarityScore': modelScore.round(),
+        // Only a ready, role-attributed assessment with no recorded mandatory
+        // gaps receives a numeric field-similarity score. It is not a hiring
+        // probability and must never be shown as a qualification guarantee.
       },
     ));
   }

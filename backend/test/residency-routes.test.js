@@ -102,6 +102,16 @@ test('public barangay list is precise and no arbitrary barangay accepted', async
   assert.equal(invalid.status,400);
   assert.equal(profiles.get('resident1').residency,undefined);
 });
+test('authenticated presence heartbeat records last activity without changing role', async () => {
+  const before = profiles.get('resident1').role;
+  const result = await request('/api/presence/heartbeat','resident','POST',{});
+  assert.equal(result.status,200);
+  assert.equal(result.body.ok,true);
+  assert.ok(Number.isFinite(Date.parse(result.body.lastSeenAt)));
+  assert.ok(profiles.get('resident1').lastSeenAt instanceof Date);
+  assert.equal(profiles.get('resident1').role,before);
+});
+
 test('registration records a pending barangay but not false verification', async () => {
   const r = await request('/api/profile/ensure','resident','POST',{
     municipality:'Montalban',barangay:'Mascap' });
@@ -203,6 +213,28 @@ test('NSRP birth date derives age and Other sex without trusting a typed age', a
   assert.notEqual(saved.body.profile.age,99);
   assert.equal(saved.body.profile.pesoFormData.age,saved.body.profile.age);
   assert.equal(saved.body.profile.pesoFormData.religion,'Prefer not to say');
+});
+
+test('under-18 applicants may save a draft but cannot complete NSRP registration', async () => {
+  const latest = await request('/api/profile','resident');
+  const revision = latest.body.profile.onboardingRevision;
+  const draft = await request('/api/profile/onboarding','resident','PATCH',{
+    draft:true,complete:false,expectedRevision:revision,
+    mutationId:'task1-underage-draft',
+    pesoFormData:{dateOfBirth:'2010-06-01',age:99,sex:'Other'},
+  });
+  assert.equal(draft.status,200);
+  assert.equal(draft.body.profile.age,16);
+  const nextRevision = draft.body.profile.onboardingRevision;
+  const completed = await request('/api/profile/onboarding','resident','PATCH',{
+    draft:true,complete:true,expectedRevision:nextRevision,
+    mutationId:'task1-underage-complete',
+    pesoFormData:{dateOfBirth:'2010-06-01',age:99,sex:'Other'},
+  });
+  assert.equal(completed.status,403);
+  assert.equal(completed.body.error,'minimum_age_requirement');
+  const unchanged = await request('/api/profile','resident');
+  assert.equal(unchanged.body.profile.onboardingRevision,nextRevision);
 });
 
 test('document status from saved NSRP data does not require Gemini', async () => {

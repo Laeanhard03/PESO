@@ -86,6 +86,12 @@ const state = {
   geminiProviderOverride: null,
 };
 
+// Authenticated activity is throttled per warm API instance; the explicit
+// heartbeat below keeps an actively open jobseeker dashboard present while idle.
+const presenceLastWrite = new Map();
+const PRESENCE_WRITE_INTERVAL_MS = 30_000;
+const PRESENCE_ONLINE_WINDOW_MS = 120_000;
+
 const geminiProviderDefault = createGeminiProvider();
 
 let publicPdfIngestion = null;
@@ -429,6 +435,33 @@ async function requireAuth(req, res, next) {
       if (profile?.disabled === true) return res.status(403).json({ ok: false, error: 'peso_account_disabled' });
       req.user.role = String(profile?.role || 'job_seeker');
       req.user.admin = req.user.role === 'admin';
+      if (profile && profile.deletionPending !== true) {
+        const nowMs = Date.now();
+        const lastWrite = presenceLastWrite.get(req.user.uid) || 0;
+        if (nowMs - lastWrite >= PRESENCE_WRITE_INTERVAL_MS) {
+          presenceLastWrite.set(req.user.uid, nowMs);
+          if (presenceLastWrite.size > 5000) {
+            for (const [staleUid, lastSeenMs] of presenceLastWrite) {
+              if (nowMs - lastSeenMs > 10 * 60_000) presenceLastWrite.delete(staleUid);
+              if (presenceLastWrite.size <= 4000) break;
+            }
+          }
+          const collection = usersCollection();
+          if (typeof collection.updateOne !== 'function') {
+            presenceLastWrite.delete(req.user.uid);
+          } else {
+            try {
+              await collection.updateOne(
+                { uid: req.user.uid },
+                { $set: { lastSeenAt: new Date(nowMs) } },
+              );
+            } catch (presenceError) {
+              presenceLastWrite.delete(req.user.uid);
+              logSafeError('[Presence] Could not update last-seen timestamp', presenceError);
+            }
+          }
+        }
+      }
     } catch (error) { return next(error); }
   }
   return next();
@@ -786,6 +819,21 @@ installAdminApplicantDocumentRoutes({
 // Shared, administrator-only bug and improvement checklist workspace.
 installAdminDevelopmentNotesRoutes({ app, requireAuth, requireAdmin, requireMongo, state });
 
+app.post('/api/presence/heartbeat', requireAuth, requireMongo, async (req, res, next) => {
+  try {
+    const now = new Date();
+    await ensureProfile(req.user);
+    await usersCollection().updateOne(
+      { uid: req.user.uid, deleted: { $ne: true }, disabled: { $ne: true } },
+      { $set: { lastSeenAt: now } },
+    );
+    presenceLastWrite.set(req.user.uid, now.getTime());
+    return res.json({ ok: true, lastSeenAt: now.toISOString() });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 app.get('/api/health', async (_req, res) => {
   // Managed Gemini keys take precedence over the legacy environment key.
   // Never surface raw keys, account data, quota details, or counts publicly.
@@ -825,6 +873,49 @@ function sendJobFeedError(error, res, next) {
   }
   return next(error);
 }
+app.get('/api/public/job-images/:id', requireMongo, async (req, res, next) => {
+  try {
+    if (!ObjectId.isValid(req.params.id)) {
+      return res.status(404).end();
+    }
+    const id = new ObjectId(req.params.id);
+    const suffix = '/api/public/job-images/' + String(id);
+    const linkedJob = await state.db.collection('jobPostings').findOne({
+      status: 'active',
+      $or: [
+        { imageUrl: { $regex: suffix + '$' } },
+        { logoUrl: { $regex: suffix + '$' } },
+      ],
+    });
+    if (!linkedJob || !isJobPostingVisible(linkedJob)) {
+      return res.status(404).end();
+    }
+    const file = await state.db.collection(BUCKET_NAME + '.files').findOne({
+      _id: id,
+      'metadata.category': 'job_listing_image',
+    });
+    if (!file) return res.status(404).end();
+    const mimeType = String(file.contentType || file.metadata?.mimeType || '');
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(mimeType)) {
+      return res.status(415).end();
+    }
+    res.set({
+      'Content-Type': mimeType,
+      'Content-Disposition': 'inline; filename="' + safeFileName(file.filename) + '"',
+      'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400',
+      'X-Content-Type-Options': 'nosniff',
+    });
+    const download = state.bucket.openDownloadStream(id);
+    download.on('error', () => {
+      if (!res.headersSent) res.status(404).end();
+      else res.destroy();
+    });
+    return download.pipe(res);
+  } catch (error) {
+    return next(error);
+  }
+});
+
 app.get('/api/public/jobs', requireMongo, async (req, res, next) => {
   try {
     const result = await fetchStoredJobPage(state.db.collection('jobPostings'), req.query,
@@ -1037,6 +1128,75 @@ app.get('/api/admin/jobs', requireAuth, requireAdmin, requireMongo, async (req, 
     return res.json({ ok: true, jobs: rows.slice(0, limit).map(publicJobPosting),
       nextPageToken: more ? String(offset + limit) : null });
   } catch (error) { return next(error); }
+});
+
+app.post('/api/admin/job-images', requireAuth, requireAdmin, requireMongo, async (req, res, next) => {
+  let uploadedId = null;
+  try {
+    const body = req.body || {};
+    const mimeType = String(body.mimeType || '').trim().toLowerCase();
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(mimeType)) {
+      return res.status(415).json({ ok: false, error: 'unsupported_job_image_type',
+        message: 'Upload a JPG, PNG, or WEBP image.' });
+    }
+    const raw = String(body.base64 || '');
+    const comma = raw.indexOf(',');
+    const encoded = raw.startsWith('data:') && comma >= 0 ? raw.slice(comma + 1) : raw;
+    if (!encoded || encoded.length > Math.ceil(5 * 1024 * 1024 * 4 / 3) + 8 ||
+        !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded) || encoded.length % 4 === 1) {
+      return res.status(400).json({ ok: false, error: 'invalid_job_image_data' });
+    }
+    const bytes = Buffer.from(encoded, 'base64');
+    if (!bytes.length || bytes.length > 5 * 1024 * 1024) {
+      return res.status(413).json({ ok: false, error: 'job_image_too_large',
+        message: 'Job images must be 5 MB or smaller.' });
+    }
+    const validSignature = mimeType === 'image/jpeg'
+      ? bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
+      : mimeType === 'image/png'
+        ? bytes.length >= 8 && bytes.subarray(0, 8).equals(
+          Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+        )
+        : bytes.length >= 12 && bytes.toString('ascii', 0, 4) === 'RIFF' &&
+          bytes.toString('ascii', 8, 12) === 'WEBP';
+    if (!validSignature) {
+      return res.status(415).json({ ok: false, error: 'invalid_job_image_signature',
+        message: 'The selected file does not match its image type.' });
+    }
+    const fileName = safeFileName(body.fileName || 'job-image');
+    const upload = state.bucket.openUploadStream(fileName, {
+      contentType: mimeType,
+      metadata: {
+        category: 'job_listing_image',
+        mimeType,
+        uploadedByUid: req.user.uid,
+        originalFileName: fileName,
+      },
+    });
+    uploadedId = upload.id;
+    await pipeline(Readable.from([bytes]), upload);
+    const host = String(req.get('host') || '').trim();
+    const forwardedProto = String(req.get('x-forwarded-proto') || req.protocol || 'https')
+      .split(',')[0].trim().toLowerCase();
+    const protocol = forwardedProto === 'http' ? 'http' : 'https';
+    if (!host || !/^[a-z0-9.-]+(?::\d+)?$/i.test(host)) {
+      await state.bucket.delete(uploadedId).catch(() => {});
+      return res.status(400).json({ ok: false, error: 'invalid_request_host' });
+    }
+    const imageUrl = protocol + '://' + host + '/api/public/job-images/' + String(uploadedId);
+    return res.status(201).json({
+      ok: true,
+      imageUrl,
+      fileName,
+      mimeType,
+      sizeBytes: bytes.length,
+    });
+  } catch (error) {
+    if (uploadedId && state.bucket) {
+      try { await state.bucket.delete(uploadedId); } catch { /* preserve original error */ }
+    }
+    return next(error);
+  }
 });
 
 app.post('/api/admin/jobs', requireAuth, requireAdmin, requireMongo, async (req, res, next) => {
@@ -1484,8 +1644,13 @@ app.put('/api/profile', requireAuth, requireMongo, async (req, res, next) => {
     if (req.body?.dateOfBirth !== undefined) {
       const date = normalizeDateOfBirth(req.body.dateOfBirth);
       if (!date || ageFromBirthDate(date) === null) return res.status(400).json({ ok: false, error: 'invalid_date_of_birth' });
+      const age = ageFromBirthDate(date);
+      if (age < 18) return res.status(403).json({
+        ok: false, error: 'minimum_age_requirement',
+        message: 'PESO JobKonek registration requires applicants to be at least 18 years old.',
+      });
       changes.dateOfBirth = date;
-      changes.age = ageFromBirthDate(date);
+      changes.age = age;
     }
     if (req.body?.sex !== undefined) {
       const sex = normalizeSex(req.body.sex);
@@ -1554,6 +1719,14 @@ app.patch('/api/profile/onboarding', requireAuth, requireMongo, async (req, res,
               return res.status(400).json({ ok: false, error: 'invalid_date_of_birth' });
             changes.dateOfBirth = dob;
             changes.age = ageFromBirthDate(dob);
+            // Drafts may be saved while the applicant is completing the form,
+            // but an under-18 applicant cannot submit a completed NSRP record.
+            if ((body.draft !== true || body.complete === true) && changes.age < 18) {
+              return res.status(403).json({
+                ok: false, error: 'minimum_age_requirement',
+                message: 'PESO JobKonek registration requires applicants to be at least 18 years old.',
+              });
+            }
             form.dateOfBirth = dob;
             // Manual ages cannot override a valid date of birth.
             form.age = changes.age;
@@ -2135,6 +2308,13 @@ function accountFromProfile(profile) {
   const resumeData = data.resumeData && typeof data.resumeData === 'object' ? data.resumeData : {};
   const formData = data.pesoFormData && typeof data.pesoFormData === 'object' ? data.pesoFormData : {};
   const matchedJobs = data.matchedJobs;
+  const lastSeenAt = data.lastSeenAt || null;
+  const lastSeenMs = lastSeenAt ? Date.parse(lastSeenAt) : Number.NaN;
+  const nowMs = Date.now();
+  const online = Number.isFinite(lastSeenMs) &&
+    lastSeenMs <= nowMs + 30_000 &&
+    nowMs - lastSeenMs <= PRESENCE_ONLINE_WINDOW_MS &&
+    data.disabled !== true && data.deleted !== true && data.deletionPending !== true;
   return {
     uid: String(data.uid || ''), email: String(data.email || ''),
     displayName: String(data.displayName || (firstName + ' ' + lastName).trim() || data.email || 'Unnamed account'),
@@ -2146,6 +2326,7 @@ function accountFromProfile(profile) {
     firebaseAuthAccountExists: data.firebaseAuthAccountExists === true,
     firebaseDisabled: data.firebaseDisabled === true,
     createdAt: data.createdAt || null, lastSignInAt: data.lastLoginAt || null,
+    lastSeenAt, online,
     municipality: String(data.municipality || ''), barangay: String(data.barangay || ''),
     address: String(data.address || ''), residencyStatus: residencyStatus(data),
     residencyRevision: Number(data.residency?.revision || 0),
@@ -3001,7 +3182,7 @@ app.use((req, res, next) => {
 
 app.use((error, _req, res, _next) => {
   if (res.headersSent) return res.end();
-  if (error?.type === 'entity.too.large' || error?.status === 413) {
+  if (error?.type === 'entity.too.large') {
     return res.status(413).json({
       ok: false,
       error: 'request_too_large',

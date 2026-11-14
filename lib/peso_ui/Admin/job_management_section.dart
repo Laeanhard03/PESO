@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'package:file_picker/file_picker.dart';
+
 import '../../peso_services/app_toast.dart';
 
 import '../../peso_models/job_posting.dart';
@@ -32,6 +34,7 @@ class _JobManagementSectionState extends State<JobManagementSection> {
   List<Map<String, dynamic>> _jobs = <Map<String, dynamic>>[];
   bool _loading = false;
   bool _saving = false;
+  String? _uploadingImageTarget;
   bool _loadingMore = false;
   String? _nextPageToken;
   int _visibleJobs = 24;
@@ -143,8 +146,80 @@ class _JobManagementSectionState extends State<JobManagementSection> {
     }
   }
 
+  Future<void> _pickAndUploadImage(
+    TextEditingController target, {
+    required String targetKey,
+    required String label,
+  }) async {
+    if (_saving || _uploadingImageTarget != null) return;
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        allowMultiple: false,
+        withData: true,
+      );
+      if (result == null || result.files.isEmpty) return;
+      final file = result.files.single;
+      final bytes = file.bytes;
+      if (bytes == null || bytes.isEmpty) {
+        _notice(
+          'Could not read the selected image. Choose it again.',
+          isError: true,
+        );
+        return;
+      }
+      final extension = (file.extension ?? file.name.split('.').last)
+          .toLowerCase();
+      final mimeType = switch (extension) {
+        'jpg' || 'jpeg' => 'image/jpeg',
+        'png' => 'image/png',
+        'webp' => 'image/webp',
+        _ => '',
+      };
+      if (mimeType.isEmpty) {
+        _notice('Choose a JPG, PNG, or WEBP image.', isError: true);
+        return;
+      }
+      if (bytes.length > 5 * 1024 * 1024) {
+        _notice('Job images must be 5 MB or smaller.', isError: true);
+        return;
+      }
+
+      setState(() => _uploadingImageTarget = targetKey);
+      final response = await PesoApiClient.adminUploadJobImage(
+        fileName: file.name,
+        mimeType: mimeType,
+        bytes: bytes,
+      );
+      final imageUrl = response['imageUrl']?.toString() ?? '';
+      if (imageUrl.isEmpty) {
+        throw const FormatException(
+          'The image upload did not return a usable URL.',
+        );
+      }
+      if (!mounted) return;
+      setState(() => target.text = imageUrl);
+      _notice(
+        '$label uploaded. Publish the job to make the image available to applicants.',
+      );
+    } catch (error) {
+      if (!mounted) return;
+      _notice(
+        error is PesoApiException
+            ? error.message
+            : 'Could not upload the image. Try a JPG, PNG, or WEBP file.',
+        isError: true,
+      );
+    } finally {
+      if (mounted && _uploadingImageTarget == targetKey) {
+        setState(() => _uploadingImageTarget = null);
+      }
+    }
+  }
+
   Future<void> _createJob() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (_uploadingImageTarget != null || !_formKey.currentState!.validate())
+      return;
     setState(() => _saving = true);
     try {
       final response = await PesoApiClient.adminCreateJob(<String, dynamic>{
@@ -337,6 +412,24 @@ class _JobManagementSectionState extends State<JobManagementSection> {
         : AppToast.success(context, message);
   }
 
+  String? _validateImageUrl(String? value) {
+    final raw = value?.trim() ?? '';
+    if (raw.isEmpty) return null;
+    final uri = Uri.tryParse(raw);
+    if (uri == null ||
+        !uri.hasScheme ||
+        !['http', 'https'].contains(uri.scheme)) {
+      return 'Enter a direct HTTP(S) image URL or upload a file';
+    }
+    if ([
+      'photos.app.goo.gl',
+      'photos.google.com',
+    ].contains(uri.host.toLowerCase())) {
+      return 'Google Photos sharing links cannot be embedded. Upload the image instead.';
+    }
+    return null;
+  }
+
   Widget _field(
     TextEditingController controller,
     String label, {
@@ -388,112 +481,128 @@ class _JobManagementSectionState extends State<JobManagementSection> {
     final active =
         (job['status']?.toString() ?? 'active') == 'active' && !expired;
     final expiry = PesoJobCategories.expiryText(job);
-    return Card(
-      margin: EdgeInsets.zero,
-      elevation: 0,
-      color: Colors.white,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: const BorderSide(color: Color(0xFFE2E8F0)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _badge(
-                  PesoJobCategories.labelWithShortName(category),
-                  const Color(0xFFDBEAFE),
-                  const Color(0xFF1D4ED8),
-                ),
-                _badge(
-                  expired ? 'Expired' : (active ? 'Active' : 'Inactive'),
-                  active ? const Color(0xFFDCFCE7) : const Color(0xFFF1F5F9),
-                  active ? const Color(0xFF166534) : const Color(0xFF475569),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Text(
-              job['title']?.toString() ?? 'Untitled job',
-              style: const TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.w800,
-                color: Color(0xFF0F172A),
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '${job['company'] ?? 'Employer'} • ${job['location'] ?? 'Location not set'}',
-              style: const TextStyle(color: Color(0xFF64748B)),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '${job['salary'] ?? 'Salary not set'} • ${job['employmentType'] ?? 'Type not set'} • ${job['vacancies'] ?? 1} slot(s)',
-              style: const TextStyle(
-                color: Color(0xFF334155),
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Icon(Icons.schedule, size: 17, color: Color(0xFF64748B)),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    expiry,
-                    style: TextStyle(
-                      color: expiry == 'Expired'
-                          ? const Color(0xFFB91C1C)
-                          : const Color(0xFF64748B),
-                      fontWeight: FontWeight.w600,
-                    ),
+    return SizedBox(
+      height: compact ? 420 : 390,
+      child: Card(
+        margin: EdgeInsets.zero,
+        elevation: 0,
+        color: Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: const BorderSide(color: Color(0xFFE2E8F0)),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _badge(
+                    PesoJobCategories.labelWithShortName(category),
+                    const Color(0xFFDBEAFE),
+                    const Color(0xFF1D4ED8),
                   ),
+                  _badge(
+                    expired ? 'Expired' : (active ? 'Active' : 'Inactive'),
+                    active ? const Color(0xFFDCFCE7) : const Color(0xFFF1F5F9),
+                    active ? const Color(0xFF166534) : const Color(0xFF475569),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Text(
+                job['title']?.toString() ?? 'Untitled job',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF0F172A),
                 ),
-              ],
-            ),
-            if ((job['description']?.toString() ?? '').isNotEmpty) ...[
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${job['company'] ?? 'Employer'} • ${job['location'] ?? 'Location not set'}',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Color(0xFF64748B)),
+              ),
               const SizedBox(height: 8),
               Text(
-                job['description'].toString(),
+                '${job['salary'] ?? 'Salary not set'} • ${job['employmentType'] ?? 'Type not set'} • ${job['vacancies'] ?? 1} slot(s)',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Color(0xFF334155),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(
+                    Icons.schedule,
+                    size: 17,
+                    color: Color(0xFF64748B),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      expiry,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: expiry == 'Expired'
+                            ? const Color(0xFFB91C1C)
+                            : const Color(0xFF64748B),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                (job['description']?.toString() ?? '').trim().isEmpty
+                    ? 'Description not provided'
+                    : job['description'].toString(),
                 maxLines: compact ? 3 : 4,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(color: Color(0xFF475569), height: 1.4),
               ),
-            ],
-            const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerRight,
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  OutlinedButton.icon(
-                    onPressed: _saving || expired
-                        ? null
-                        : () => _setJobActive(job, !active),
-                    icon: Icon(
-                      active
-                          ? Icons.pause_circle_outline
-                          : Icons.play_circle_outline,
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerRight,
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: _saving || expired
+                          ? null
+                          : () => _setJobActive(job, !active),
+                      icon: Icon(
+                        active
+                            ? Icons.pause_circle_outline
+                            : Icons.play_circle_outline,
+                      ),
+                      label: Text(active ? 'Deactivate' : 'Reactivate'),
                     ),
-                    label: Text(active ? 'Deactivate' : 'Reactivate'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: _saving ? null : () => _deleteJob(job),
-                    icon: const Icon(Icons.delete_outline),
-                    label: const Text('Delete'),
-                  ),
-                ],
+                    OutlinedButton.icon(
+                      onPressed: _saving ? null : () => _deleteJob(job),
+                      icon: const Icon(Icons.delete_outline),
+                      label: const Text('Delete'),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -607,11 +716,19 @@ class _JobManagementSectionState extends State<JobManagementSection> {
                             ),
                             DropdownMenuItem(
                               value: PesoJobCategories.seap,
-                              child: Text('SEAP Program', maxLines: 1, overflow: TextOverflow.ellipsis),
+                              child: Text(
+                                'SEAP Program',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
                             DropdownMenuItem(
                               value: PesoJobCategories.gip,
-                              child: Text('Government Internship Program (GIP)', maxLines: 1, overflow: TextOverflow.ellipsis),
+                              child: Text(
+                                'Government Internship Program (GIP)',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
                           ],
                           onChanged: _saving
@@ -631,7 +748,8 @@ class _JobManagementSectionState extends State<JobManagementSection> {
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Text(
-                            _category == PesoJobCategories.localRecruitmentActivity
+                            _category ==
+                                    PesoJobCategories.localRecruitmentActivity
                                 ? 'Local Recruitment Activity: expires at the end of the final scheduled recruitment day (11:59 PM Philippine time).'
                                 : '${PesoJobCategories.label(_category)}: remains listed until an Admin deactivates it. No automatic expiration.',
                             style: const TextStyle(
@@ -737,20 +855,92 @@ class _JobManagementSectionState extends State<JobManagementSection> {
                             ),
                             SizedBox(
                               width: fieldWidth,
-                              child: _field(
-                                _logoUrl,
-                                'Employer logo URL (optional)',
-                                keyboardType: TextInputType.url,
-                                validator: (_) => null,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  _field(
+                                    _logoUrl,
+                                    'Employer logo URL (optional)',
+                                    keyboardType: TextInputType.url,
+                                    validator: _validateImageUrl,
+                                  ),
+                                  Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: TextButton.icon(
+                                      onPressed:
+                                          _saving ||
+                                              _uploadingImageTarget != null
+                                          ? null
+                                          : () => _pickAndUploadImage(
+                                              _logoUrl,
+                                              targetKey: 'logo',
+                                              label: 'Employer logo',
+                                            ),
+                                      icon: _uploadingImageTarget == 'logo'
+                                          ? const SizedBox(
+                                              width: 14,
+                                              height: 14,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                              ),
+                                            )
+                                          : const Icon(
+                                              Icons.upload_file,
+                                              size: 17,
+                                            ),
+                                      label: Text(
+                                        _uploadingImageTarget == 'logo'
+                                            ? 'Uploading logo…'
+                                            : 'Upload logo',
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                             SizedBox(
                               width: fieldWidth,
-                              child: _field(
-                                _imageUrl,
-                                'Job image URL (optional)',
-                                keyboardType: TextInputType.url,
-                                validator: (_) => null,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  _field(
+                                    _imageUrl,
+                                    'Job image URL (optional)',
+                                    keyboardType: TextInputType.url,
+                                    validator: _validateImageUrl,
+                                  ),
+                                  Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: TextButton.icon(
+                                      onPressed:
+                                          _saving ||
+                                              _uploadingImageTarget != null
+                                          ? null
+                                          : () => _pickAndUploadImage(
+                                              _imageUrl,
+                                              targetKey: 'job',
+                                              label: 'Job image',
+                                            ),
+                                      icon: _uploadingImageTarget == 'job'
+                                          ? const SizedBox(
+                                              width: 14,
+                                              height: 14,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                              ),
+                                            )
+                                          : const Icon(
+                                              Icons.upload_file,
+                                              size: 17,
+                                            ),
+                                      label: Text(
+                                        _uploadingImageTarget == 'job'
+                                            ? 'Uploading image…'
+                                            : 'Upload job image',
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                             SizedBox(
@@ -764,13 +954,25 @@ class _JobManagementSectionState extends State<JobManagementSection> {
                             ),
                           ],
                         ),
+                        const Padding(
+                          padding: EdgeInsets.only(top: 2, bottom: 8),
+                          child: Text(
+                            'Upload a JPG, PNG, or WEBP file (5 MB maximum). Google Photos sharing links are not direct image files; upload the image instead.',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Color(0xFF64748B),
+                            ),
+                          ),
+                        ),
                         const SizedBox(height: 12),
                         _field(_description, 'Job description', maxLines: 4),
                         const SizedBox(height: 16),
                         Align(
                           alignment: Alignment.centerRight,
                           child: FilledButton.icon(
-                            onPressed: _saving ? null : _createJob,
+                            onPressed: _saving || _uploadingImageTarget != null
+                                ? null
+                                : _createJob,
                             icon: _saving
                                 ? const SizedBox(
                                     width: 17,

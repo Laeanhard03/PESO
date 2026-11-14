@@ -183,3 +183,49 @@ A local pass does not establish that Firebase Functions, Gemini, Authentication 
 - The existing model, database, applicant records and production deployment are
   unchanged. Acceptance on the real signed-in job-seeker screen and expert
   evaluation of employer requirements remain necessary before production rollout.
+
+## 2026-11-12 ΓÇö Vercel primary restored; Render failback verified
+
+- New primary: **https://peso-jobkonek.vercel.app** (Vercel project **peso-jobkonek**, owner **ferrerajoshlander-1268**).
+- Production deployment **dpl_DPXLeUbUwgmJ8VGjqjFt59fV8HUW** is **READY**, built from **deploy/render-failover** commit **3758dfe81dd8dff3f58692fdae727972d7d73434**.
+- Configured 11 Vercel Production variables, including a new Atlas **peso_vercel_primary** credential with **readWrite** only on **peso_jobkonek**, Firebase Admin credential, Gemini encryption key, and canonical public API URL. No secret values are included here.
+- Firebase Auth authorized domain **peso-jobkonek.vercel.app** added; previous domains preserved. Atlas AI-client App Connections access was disabled after provisioning and verified Off after reload.
+- Vercel **/api/health** HTTP 200: MongoDB connected, Firebase token verification ready, Gemini configured, Development Notepad enabled. **/** and **/nsrp/** HTTP 200. Anonymous protected jobs/admin routes return 401.
+- Render **/healthz** and **/api/health** HTTP 200. Render root and **/nsrp/** redirect to the new Vercel primary when healthy; API requests stay on Render. Prior fallback test confirmed Render serves when Vercel returns 402. Local failover-router tests: 9/9 pass.
+- Legacy **peso-psi.vercel.app** remains HTTP 402; use **peso-jobkonek.vercel.app**.
+- Read-only admin identity check passed (verified Google Firebase account, matching MongoDB UID, admin role, active account). Authenticated admin API acceptance remains pending the owner-approved read-only check; no applicant test data or application writes were made in production.
+- Known hardening item: Atlas still retains the broad **0.0.0.0/0** access-list rule for Vercel dynamic egress. Do not remove until a stable/private Vercel egress path is available.
+- Existing uncommitted worktree changes were preserved; no reset, commit, push, or production data mutation was performed.
+
+## 2026-11-12 ΓÇö Authenticated production administrator acceptance passed
+
+- Owner-approved read-only check used a temporary Firebase custom token for the existing verified Google administrator. Firebase Admin verified the exchanged ID token and confirmed its UID matches the existing administrator record before API calls.
+- Production GET checks: /api/jobs?limit=1 **200** (1 record); /api/admin/jobs?limit=1 **200** (1 record); /api/admin/development-notes?limit=1 **200** (0 notes); /api/admin/users?limit=500 **200** (13 users, source firebase_auth+mongodb, matching administrator UID and role); /api/admin/applications?limit=1 **200** (1 record).
+- All responses returned ok=true and the expected production CORS origin. **5/5 passed; zero failures.**
+- Read-only only: no applicants created, no production records edited/deleted, no Privacy Notice acknowledgement submitted, and no temporary token written to disk or printed.
+## 2026-11-14 - Implementation in progress; checklist intentionally open
+
+- Continued the existing PESO project in place; no replacement project or parallel prototype was created.
+- Shared Admin Development Notepad: exactly 2/14 checklist entries completed (verified administrator account and Admin session-restoration regression fix). The remaining 12 entries are implementation work in this pass; their statuses remain open for independent developer verification after implementation.
+- Applied local changes across NSRP Form 1 alignment/validation, resume photo gating, password policy, administrator presence, job image upload/validation, and job-card layout consistency.
+- Verification: backend 305/305; React 25/25, ESLint passed, Vite build passed; Flutter 270/270; focused Admin restoration 5/5.
+- Flutter release web build passed and includes the React NSRP workspace at build/web/nsrp. Flutter analyzer reports zero errors/warnings and 104 info-level lints.
+- Known build note: Vite reports the main JS bundle at approximately 736 kB before gzip; build still succeeds.
+- No commit, push, Vercel deployment, or Render deployment was performed. The 12 open checklist items remain intentionally unchecked while their implementations are completed for subsequent peer verification.
+- NSRP reference: https://aritao.gov.ph/wp-content/uploads/2020/09/NSRP_Form1-2020.pdf
+
+
+## 2026-11-14 - Implementation continuation after source synchronization
+
+- Fast-forwarded deploy/render-failover from 72d6482 to 3758dfe after preserving the prior local worktree in a retained stash. Restored the local changes and resolved overlapping files without discarding either the newer upstream work or the local implementation.
+- The 12 remaining Admin Development Notepad checklist entries are being implemented in this pass and remain unchecked for subsequent independent developer verification.
+- NSRP browser E2E: all official required fields completed; under-18 submission blocked; exact age-18 submission accepted; two-page PDF exported; Flutter bridge payload emitted; saved form reopened and prefilled; mobile selection remained stable; no JavaScript errors.
+- Signature pointer regression: mouse and touch single-tap, ink capture, and clear all passed.
+- Native keyboard selection: desktop, tablet, and phone widths passed; desktop NSRP PDF export passed.
+- Resume photo gate fixed and browser-verified: export disabled until a verified applicant portrait exists; applicant name/email prefill correctly; no sample-name warning or JavaScript errors. Failed replacement upload preserves the previous verified photo.
+- Change Password now enforces the shared 8-character, uppercase, and special-character policy in the account dialog, displays the complete requirement, and distinguishes missing current password from mismatched confirmation.
+- Backend: 325/325 tests passed. React: 25/25 passed; ESLint and Vite build passed. Flutter: 287/287 passed.
+- Flutter analyze --no-fatal-infos passed with 105 info-level findings, zero warnings, and zero errors.
+- Flutter release web build passed. React NSRP/resume workspace copied to build/web/nsrp; both root and nested index files verified. Vite's 733 kB pre-gzip main chunk warning is non-fatal.
+- Read the new Admin Development Notepad report `bug fixes ilaya` and reviewed its attached mobile screenshot. Implemented both unchecked items locally: responsive saved-document cards, wrapped header pills, and validated Go Mini-AI field-similarity percentages with an explicit non-hiring-probability tooltip. Added regression tests across 320/360/390/560/768/1366px and score evidence gating. Both new bug checkboxes and note status remain unchanged.
+- No commit, push, Vercel deployment, or Render deployment was performed.

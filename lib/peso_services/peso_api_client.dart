@@ -323,7 +323,12 @@ class PesoApiClient {
       'employer': job['company']?.toString() ?? '',
       'location': job['location']?.toString() ?? '',
       'category': job['category']?.toString() ?? '',
-      'matchScore': job['match'] is num ? (job['match'] as num).toInt() : null,
+      'matchScore':
+          (job['fieldSimilarityScore'] ?? job['match']) is num &&
+              (job['fieldSimilarityScore'] ?? job['match']) >= 0 &&
+              (job['fieldSimilarityScore'] ?? job['match']) <= 100
+          ? ((job['fieldSimilarityScore'] ?? job['match']) as num).toInt()
+          : null,
       'answers': answers,
     },
     timeout: const Duration(seconds: 45),
@@ -747,6 +752,20 @@ class PesoApiClient {
     body: <String, dynamic>{'expectedRevision': expectedRevision},
   );
 
+  /// Refreshes the authenticated user's activity timestamp for the Admin
+  /// online/offline indicator. Failures are intentionally non-blocking.
+  static Future<void> sendPresenceHeartbeat() async {
+    try {
+      await _request(
+        'POST',
+        '/api/presence/heartbeat',
+        timeout: const Duration(seconds: 10),
+      );
+    } catch (_) {
+      // Presence is informational and must never interrupt the jobseeker flow.
+    }
+  }
+
   static Future<Map<String, dynamic>> adminListJobs({
     int limit = 100,
     String? pageToken,
@@ -901,6 +920,21 @@ class PesoApiClient {
         '/api/admin/users/${Uri.encodeComponent(uid)}/resume-link',
         timeout: const Duration(seconds: 60),
       );
+
+  static Future<Map<String, dynamic>> adminUploadJobImage({
+    required String fileName,
+    required String mimeType,
+    required List<int> bytes,
+  }) => _request(
+    'POST',
+    '/api/admin/job-images',
+    body: <String, dynamic>{
+      'fileName': fileName,
+      'mimeType': mimeType,
+      'base64': base64Encode(bytes),
+    },
+    timeout: const Duration(seconds: 60),
+  );
 
   static Future<Map<String, dynamic>> adminCreateJob(
     Map<String, dynamic> posting,

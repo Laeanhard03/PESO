@@ -2272,6 +2272,7 @@ class _LandingJobCard extends StatelessWidget {
         ? 82.0
         : 46.0;
     return Container(
+      constraints: const BoxConstraints(minHeight: 560),
       padding: const EdgeInsets.all(PesoTokens.spacingLG),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -2287,26 +2288,41 @@ class _LandingJobCard extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (job.imageUrl.isNotEmpty) ...[
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(PesoTokens.radiusMD),
-                  child: AspectRatio(
-                    aspectRatio: 16 / 9,
-                    child: Image.network(
-                      job.imageUrl,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) =>
-                          const ColoredBox(
-                            color: PesoTokens.surfaceNeutral,
-                            child: Center(
-                              child: Icon(Icons.work_outline_rounded),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(PesoTokens.radiusMD),
+                child: AspectRatio(
+                  aspectRatio: 16 / 9,
+                  child: job.imageUrl.isNotEmpty
+                      ? Image.network(
+                          job.imageUrl,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) =>
+                              const ColoredBox(
+                                color: PesoTokens.surfaceNeutral,
+                                child: Center(
+                                  child: Icon(Icons.work_outline_rounded),
+                                ),
+                              ),
+                        )
+                      : const ColoredBox(
+                          color: PesoTokens.surfaceNeutral,
+                          child: Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.work_outline_rounded, size: 30),
+                                SizedBox(height: 6),
+                                Text(
+                                  'No job image',
+                                  style: TextStyle(fontSize: 11),
+                                ),
+                              ],
                             ),
                           ),
-                    ),
-                  ),
+                        ),
                 ),
-                const SizedBox(height: PesoTokens.spacingMD),
-              ],
+              ),
+              const SizedBox(height: PesoTokens.spacingMD),
               Row(
                 children: [
                   Container(
@@ -2414,36 +2430,45 @@ class _LandingJobCard extends StatelessWidget {
                   ),
                 ],
               ),
-              if (job.description.trim().isNotEmpty) ...[
-                const SizedBox(height: PesoTokens.spacingMD),
-                Text(
-                  'ROLE DESCRIPTION',
-                  style: PesoTokens.labelSmall.copyWith(
-                    letterSpacing: 0.7,
-                    color: PesoTokens.textMuted,
-                  ),
+              const SizedBox(height: PesoTokens.spacingMD),
+              Text(
+                'ROLE DESCRIPTION',
+                style: PesoTokens.labelSmall.copyWith(
+                  letterSpacing: 0.7,
+                  color: PesoTokens.textMuted,
                 ),
-                const SizedBox(height: PesoTokens.space1),
+              ),
+              const SizedBox(height: PesoTokens.space1),
+              Text(
+                job.description.trim().isEmpty
+                    ? 'Description not provided'
+                    : job.description.trim(),
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: PesoTokens.bodySmall.copyWith(
+                  color: PesoTokens.textSecondary,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: PesoTokens.spacingMD),
+              Text(
+                'KEY REQUIREMENTS',
+                style: PesoTokens.labelSmall.copyWith(
+                  letterSpacing: 0.7,
+                  color: PesoTokens.textMuted,
+                ),
+              ),
+              const SizedBox(height: PesoTokens.space1),
+              if (job.requirements.isEmpty)
                 Text(
-                  job.description.trim(),
-                  maxLines: 3,
+                  'No specific requirements listed',
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: PesoTokens.bodySmall.copyWith(
                     color: PesoTokens.textSecondary,
-                    height: 1.4,
                   ),
-                ),
-              ],
-              if (job.requirements.isNotEmpty) ...[
-                const SizedBox(height: PesoTokens.spacingMD),
-                Text(
-                  'KEY REQUIREMENTS',
-                  style: PesoTokens.labelSmall.copyWith(
-                    letterSpacing: 0.7,
-                    color: PesoTokens.textMuted,
-                  ),
-                ),
-                const SizedBox(height: PesoTokens.space1),
+                )
+              else
                 for (final requirement in job.requirements.take(3))
                   Padding(
                     padding: const EdgeInsets.only(bottom: 3),
@@ -2464,32 +2489,43 @@ class _LandingJobCard extends StatelessWidget {
                       ],
                     ),
                   ),
-              ],
-              if (job.tags.isNotEmpty) ...[
-                const SizedBox(height: PesoTokens.spacingLG),
-                Wrap(
-                  spacing: PesoTokens.spacingSM,
-                  runSpacing: PesoTokens.spacingSM,
-                  children: job.tags
-                      .map(
-                        (tag) => Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: PesoTokens.spacingSM,
-                            vertical: PesoTokens.space1,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(
-                              PesoTokens.radiusFull,
+              const SizedBox(height: PesoTokens.spacingLG),
+              SizedBox(
+                height: 42,
+                child: Align(
+                  alignment: Alignment.topLeft,
+                  child: Wrap(
+                    spacing: PesoTokens.spacingSM,
+                    runSpacing: PesoTokens.spacingSM,
+                    children: job.tags
+                        .take(3)
+                        .map(
+                          (tag) => Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: PesoTokens.spacingSM,
+                              vertical: PesoTokens.space1,
                             ),
-                            border: Border.all(color: const Color(0xFFDCE5E0)),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(
+                                PesoTokens.radiusFull,
+                              ),
+                              border: Border.all(
+                                color: const Color(0xFFDCE5E0),
+                              ),
+                            ),
+                            child: Text(
+                              tag,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: PesoTokens.labelSmall,
+                            ),
                           ),
-                          child: Text(tag, style: PesoTokens.labelSmall),
-                        ),
-                      )
-                      .toList(),
+                        )
+                        .toList(),
+                  ),
                 ),
-              ],
+              ),
             ],
           ),
           Padding(

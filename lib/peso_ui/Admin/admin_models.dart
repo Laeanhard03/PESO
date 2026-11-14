@@ -179,3 +179,30 @@ const List<NavItem> kNavItems = [
     'Review your administrator identity and manage your own account.',
   ),
 ];
+
+/// Admin role blocks profile edits and access toggles, but must not block
+/// deleting a different administrator account.
+bool isProtectedAdminAccountMutation(
+  Map<String, dynamic> user, {
+  required String currentUid,
+}) {
+  final uid = (user['uid'] ?? '').toString().trim();
+  return user['role'] == 'admin' ||
+      user['customAdmin'] == true ||
+      (uid.isNotEmpty && uid == currentUid.trim());
+}
+
+/// The delete action is available for any other account, including admins.
+/// Only self-deletion is routed through the signed-in user's Profile page.
+bool canDeleteManagedAccount({
+  required String uid,
+  required String currentUid,
+  required bool busy,
+  required bool profileStoreReady,
+}) {
+  final targetUid = uid.trim();
+  return targetUid.isNotEmpty &&
+      targetUid != currentUid.trim() &&
+      !busy &&
+      profileStoreReady;
+}

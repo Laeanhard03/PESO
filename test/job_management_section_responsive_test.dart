@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -8,6 +10,30 @@ const MethodChannel _secureStorageChannel = MethodChannel(
 );
 
 void main() {
+  test(
+    'job image uploads reject sharing links and job cards use bounded layouts',
+    () {
+      final source = File('lib/peso_ui/Admin/job_management_section.dart')
+          .readAsStringSync();
+      final api = File('lib/peso_services/peso_api_client.dart')
+          .readAsStringSync();
+      final model = File('backend/src/job_postings.js').readAsStringSync();
+
+      expect(source, contains('FileType.image'));
+      expect(source, contains('withData: true'));
+      expect(source, contains('adminUploadJobImage'));
+      expect(source, contains('JPG, PNG, or WEBP'));
+      expect(source, contains('photos.app.goo.gl'));
+      expect(source, contains('photos.google.com'));
+      expect(source, contains('height: compact ? 420 : 390'));
+      expect(source, contains('maxLines: 2'));
+      expect(source, contains('TextOverflow.ellipsis'));
+      expect(api, contains("'/api/admin/job-images'"));
+      expect(model, contains('photos.app.goo.gl'));
+      expect(model, contains('photos.google.com'));
+    },
+  );
+
   setUp(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(

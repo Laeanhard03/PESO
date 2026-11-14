@@ -267,3 +267,109 @@ The Render Free instance may spin down after inactivity; its first request after
 - The remaining Vercel Production blockers are exactly: `MONGODB_URI`, `FIREBASE_ADMIN_SERVICE_ACCOUNT_B64`, and `GEMINI_KEY_ENCRYPTION_SECRET`.
 - The current Vercel production deployment for commit `bcebfaa` is Ready. Public checks: `/`, `/nsrp/`, `/nsrp/resume`, and `/api/health` return HTTP 200; unauthenticated `/api/jobs` and `/api/admin/users` return HTTP 401.
 - Latest Vercel API health remains `mongoDbConnected=false`, `databaseName=null`, `geminiConfigured=false`; Render remains healthy with MongoDB, Gemini, and `adminDevelopmentNotes` enabled. The Render gateway therefore correctly continues to serve the backup until Vercel's database-backed health check passes.
+
+## Vercel primary activation and dual-host recovery (2026-11-12)
+
+This section supersedes the earlier Vercel-pause deployment status for the new **peso-jobkonek** project. The legacy **peso-psi.vercel.app** project remains paused and returned HTTP 402 during the final check. Use the new production hostname below.
+
+### New production primary
+
+- **Primary URL:** https://peso-jobkonek.vercel.app
+- **Vercel project:** **peso-jobkonek** (project ID **prj_sgDlHa6OgqMfpIFVKHcMRHhxi7kS**), owner/team **ferrerajoshlander-1268**
+- **Production deployment:** **dpl_DPXLeUbUwgmJ8VGjqjFt59fV8HUW** ΓÇö **READY**
+- **Deployed source:** GitHub **Laeanhard03/PESO**, branch **deploy/render-failover**, commit **3758dfe81dd8dff3f58692fdae727972d7d73434** (Align Render gateway with Vercel primary)
+- **Build:** successful; React NSRP tests 17/17 passed; ESLint passed; Flutter and NSRP production bundles built successfully.
+
+### Production environment and database
+
+- Configured 11 Production environment variables in the new Vercel project. Sensitive values are stored as Vercel secrets and are not recorded in this file.
+- Added a dedicated MongoDB Atlas account, **peso_vercel_primary**, with **readWrite** limited to **peso_jobkonek**. The existing **peso_render_failover**, **peso_app_user**, and administrator accounts were not changed.
+- Added the server-side Firebase Admin service-account payload for **capstone-4th-year-peso-ai**, the existing 32-byte Gemini key-encryption secret, and **PUBLIC_API_BASE_URL=https://peso-jobkonek.vercel.app**.
+- Firebase Authentication authorized domains now include **peso-jobkonek.vercel.app**. The prior eight domains were preserved, including the Render failover and legacy Vercel hostnames.
+- Atlas AI-client access was temporarily enabled for provisioning, then restricted again. After a page reload the organization setting reported Off, and ChatGPT/Codex CLI entries showed Restricted. This setting affects user-delegated Atlas App Connections, not the application's Atlas programmatic connection.
+
+### Production smoke checks
+
+- **GET /api/health:** HTTP 200; **mongoDbConnected=true**; **firebaseTokenVerificationReady=true**; **geminiConfigured=true**; **features.adminDevelopmentNotes=true**; database **peso_jobkonek**.
+- **/** and **/nsrp/**: HTTP 200.
+- Anonymous **/api/jobs**, **/api/admin/users**, and **/api/admin/development-notes**: HTTP 401 (missing_bearer_token) as expected.
+- Browser smoke: Flutter view loaded at desktop and mobile widths; the first-visit Privacy Notice / Terms tab dialog rendered; no JavaScript errors or failed network requests. The notice was not accepted by automation.
+- Read-only administrator identity check: Firebase account exists, email verified, Google provider present; MongoDB user record exists with matching UID and **role=admin**, and is not disabled/deleted. A separate authenticated production admin-API request check remains pending owner approval; no production applicant or application records were created or changed.
+
+### Failover and known limits
+
+- Render backup remains live at https://peso-jobkonek-failover-jlf-2026-tlgb.onrender.com.
+- Render **/healthz** and **/api/health**: HTTP 200 with MongoDB, Firebase token verification, Gemini, and **adminDevelopmentNotes** ready.
+- With Vercel healthy, Render **/** and **/nsrp/** return HTTP 302 to the new **peso-jobkonek.vercel.app** primary. API and health requests are never redirected. The earlier HTTP 402 outage test verified that Render serves the fallback when the primary is unavailable; the failover-router regression suite passed 9/9 in this final run.
+- The legacy **peso-psi.vercel.app** hostname still returns HTTP 402. Do not use it as the new primary URL.
+- The Render Free instance can cold-start after inactivity.
+- Atlas network access remains broader than ideal because the Vercel Hobby primary uses dynamic egress; the existing **0.0.0.0/0** rule was not changed in this deployment pass. Revisit only when a stable/private egress option is available.
+- Existing uncommitted local project work was preserved. This deployment was a redeploy of the recorded Git commit; no Git reset, commit, push, or destructive data operation was performed in this pass.
+
+### Authenticated production administrator acceptance (2026-11-12)
+
+The owner-approved, read-only production acceptance check completed successfully using a temporary Firebase custom token for the existing verified administrator. Firebase Admin verified the exchanged ID token and confirmed its UID matches the existing MongoDB administrator record before any API requests were sent.
+
+All five production GET checks returned HTTP 200 with ok=true and the expected CORS origin (https://peso-jobkonek.vercel.app):
+
+- /api/jobs?limit=1 ΓÇö authenticated job feed returned one record.
+- /api/admin/jobs?limit=1 ΓÇö administrator job management returned one record.
+- /api/admin/development-notes?limit=1 ΓÇö shared Development Notepad list returned successfully (zero notes at the time of the check).
+- /api/admin/users?limit=500 ΓÇö 13 users returned from firebase_auth+mongodb; the existing administrator UID and role=admin were present.
+- /api/admin/applications?limit=1 ΓÇö administrator applications read returned one record.
+
+**Result: 5/5 checks passed; zero failures.** The check used GET requests only. It created no applicants, modified no user/job/application records, and did not accept the Privacy Notice on the user's behalf. Temporary Firebase tokens were not written to files or printed.
+## Local implementation pass - 2026-11-14 (implementation in progress; checklist intentionally open)
+
+This entry records the local continuation of the shared Admin Development Notepad checklist. It does not replace earlier deployment notes and does not imply a production release.
+
+### Checklist boundary
+- Exactly 2 of 14 checklist entries are marked complete: the verified Firebase/MongoDB administrator account and the Admin session-restoration regression fix.
+- The remaining 12 entries are implementation work in this pass. They remain unchecked so fellow developers can independently verify the completed implementation afterward, including production acceptance.
+- No checklist item is marked complete merely because a local implementation or automated test passed.
+
+### Local changes applied
+- Admin dashboard restores an existing Firebase session only after the protected MongoDB Admin API confirms the administrator role.
+- Digital NSRP Form 1 follows the September 2020 reference structure and two-page layout, including OFW details, education, vocational training, eligibility, work experience, other skills, certification, and PESO-only referrals.
+- Civil status uses a single-select radio group; cellphone input warns on incomplete Philippine mobile numbers; NSRP completion enforces age 18+ in both client and server.
+- NSRP signature and date controls are bottom-aligned.
+- Email registration and password changes require at least 8 characters, an uppercase letter, and a special character.
+- Resume generation requires a verified applicant portrait. The exported applicant resume no longer receives the sample-content warning; a previously verified photo remains usable if a replacement upload fails.
+- Admin account list includes Online/Offline presence and refreshes the presence snapshot periodically. Jobseeker sessions send a heartbeat; backend presence is derived from a bounded last-seen window.
+- Admin job management supports authenticated JPG/PNG/WEBP company-logo and job-image uploads into private GridFS storage. Images are served publicly only when linked to an active job. Google Photos sharing URLs are rejected.
+- Landing and Admin job cards reserve consistent image/content space and use minimum card heights to reduce uneven rows.
+
+### Verification
+- Backend npm test: 305/305 passed.
+- React NSRP/resume npm test: 25/25 passed; ESLint passed; Vite production build passed.
+- Flutter full test suite: 270/270 passed.
+- Focused Admin session-restoration tests: 5/5 passed.
+- Flutter release web build passed. React output was copied into build/web/nsrp; both build/web/index.html and build/web/nsrp/index.html exist.
+- Flutter analyzer: 0 errors, 0 warnings, 104 info-level lint findings remain in the project.
+- Vite build emits a non-fatal main JavaScript chunk-size warning (approximately 736 kB before gzip); build completed successfully.
+
+### Peer review and release boundary
+- The 12 open checklist entries are being implemented in this pass. They remain unchecked so fellow developers can independently verify the completed work against real accounts, browsers, and deployment targets; they are not delegated implementation tasks.
+- No Git commit, push, Vercel deployment, or Render deployment was performed in this pass.
+- Production acceptance and failover verification remain pending.
+
+### NSRP reference
+- September 2020 NSRP Form 1 reference PDF (LGU-hosted copy): https://aritao.gov.ph/wp-content/uploads/2020/09/NSRP_Form1-2020.pdf
+
+
+## 2026-11-14 - Implementation continuation after source synchronization
+
+- Fast-forwarded the existing deploy/render-failover branch from 72d6482 to 3758dfe. Preserved the original worktree in a Git stash, restored its changes, and reconciled the overlapping README, status, backend, landing-card, and NSRP-test edits. No local work was discarded; the stash remains retained until final verification.
+- Continued the existing 12 open Admin Development Notepad implementation tasks. They remain unchecked for independent developer verification; none are delegated to peers.
+- NSRP browser flow passed: 20 required fields initially flagged; all official fields and applicant career basics completed; signature captured; under-18 completion blocked; exact age-18 boundary accepted; two-page PDF downloaded; bridge payload saved; form reopened and prefilled; mobile career selectors retained their values. No browser JavaScript errors.
+- Pointer regression passed for mouse and touch: single tap creates signature ink and Clear signature resets the canvas.
+- Native keyboard selector regression passed at 1260px, 510px, and 390px. The desktop flow downloaded NSRP_Form1.pdf after all official fields and signature were completed.
+- Fixed the resume photo gate: PDF export is now disabled until a verified portrait is available, while a previously verified photo remains usable if a replacement upload fails. The button exposes the photo requirement through aria-describedby.
+- Fixed Change Password validation so the account dialog enforces the same shared 8-character, uppercase, and special-character rule as registration and AuthService. The dialog now explains the rule and separately reports missing current password or mismatched confirmation.
+- Resume browser check passed: registered first/last name and email prefill correctly, export stays disabled without a verified photo, the old sample-name warning is absent, and no JavaScript errors occur.
+- Backend suite: 325/325 passed. React/NSRP/resume: 25/25 passed; ESLint and Vite production build passed. Flutter suite: 287/287 passed.
+- Flutter analyze --no-fatal-infos passed with 105 info-level lint findings and no warnings or errors.
+- Flutter release web build passed. The latest React workspace bundle is copied into build/web/nsrp; the Flutter root and NSRP workspace indexes are present.
+- Vite reports a non-fatal main JavaScript chunk of approximately 733 kB before gzip. Build succeeds.
+- Read the new Admin Development Notepad report `bug fixes ilaya` and its attached mobile screenshot. Implemented both unchecked items locally: saved-document cards now use a stacked mobile layout and horizontal tablet/desktop layout with wrapped filenames/actions; shared header pills now wrap safely; validated Go Mini-AI role-attributed field-similarity scores are displayed as percentages with a non-hiring-probability explanation. Added regression coverage at 320, 360, 390, 560, 768 and 1366 logical pixels, plus score-evidence gating tests. The new note's two checkboxes and status were not changed.
+- No Git commit, push, Vercel deployment, or Render deployment was performed.

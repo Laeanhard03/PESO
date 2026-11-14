@@ -217,12 +217,17 @@ class PesoHeaderPill extends StatelessWidget {
         children: [
           Icon(icon, size: 15, color: const Color(0xFFD7F4DF)),
           const SizedBox(width: 7),
-          Text(
-            label,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 2,
+              softWrap: true,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
         ],

@@ -62,6 +62,73 @@ void main() {
     });
   });
 
+  group('Admin account action policy', () {
+    test('another administrator can be deleted while admin mutations stay protected', () {
+      const currentUid = 'current-admin';
+      const otherAdmin = <String, dynamic>{
+        'uid': 'other-admin',
+        'role': 'admin',
+        'customAdmin': true,
+      };
+
+      expect(
+        isProtectedAdminAccountMutation(otherAdmin, currentUid: currentUid),
+        isTrue,
+      );
+      expect(
+        canDeleteManagedAccount(
+          uid: 'other-admin',
+          currentUid: currentUid,
+          busy: false,
+          profileStoreReady: true,
+        ),
+        isTrue,
+      );
+    });
+
+    test(
+      'only self, busy, missing UID, or unavailable MongoDB block deletion',
+      () {
+        expect(
+          canDeleteManagedAccount(
+            uid: 'current-admin',
+            currentUid: 'current-admin',
+            busy: false,
+            profileStoreReady: true,
+          ),
+          isFalse,
+        );
+        expect(
+          canDeleteManagedAccount(
+            uid: '',
+            currentUid: 'current-admin',
+            busy: false,
+            profileStoreReady: true,
+          ),
+          isFalse,
+        );
+        expect(
+          canDeleteManagedAccount(
+            uid: 'other-admin',
+            currentUid: 'current-admin',
+            busy: true,
+            profileStoreReady: true,
+          ),
+          isFalse,
+        );
+        expect(
+          canDeleteManagedAccount(
+            uid: 'other-admin',
+            currentUid: 'current-admin',
+            busy: false,
+            profileStoreReady: false,
+          ),
+          isFalse,
+        );
+      },
+    );
+  });
+
   test('admin navigation items have unique tabs and stable core sections', () {
     final tabs = kNavItems.map((item) => item.tab).toList();
 

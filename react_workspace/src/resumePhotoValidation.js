@@ -2,6 +2,12 @@ const MAX_PHOTO_BYTES = 2_000_000;
 const MIN_FACE_SCORE = 0.8;
 let faceModelPromise;
 
+export function isVerifiedResumePhoto(photo, validationStatus) {
+  return typeof photo === 'string' &&
+    /^data:image\/(?:jpeg|png);base64,/i.test(photo) &&
+    validationStatus === 'success';
+}
+
 export function validatePhotoFile(file) {
   if (!file) {
     return { valid: false, message: 'Choose a JPG or PNG photo.' };

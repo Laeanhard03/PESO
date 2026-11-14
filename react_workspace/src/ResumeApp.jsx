@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import * as htmlToImage from "html-to-image";
 import { jsPDF } from "jspdf";
 import { sendToFlutter } from './flutterBridge.js';
-import { validateResumePhoto } from './resumePhotoValidation.js';
+import { isVerifiedResumePhoto, validateResumePhoto } from './resumePhotoValidation.js';
 import { applicantCareerEntries, educationChoices, experienceChoices, skillsChoices, validateApplicantEssentials } from './applicantEssentials.js';
 
 // Registration values inherited from the Flutter shell (URL query string).
@@ -95,6 +95,7 @@ export default function ResumeApp() {
   const [isPhotoChecking, setIsPhotoChecking] = useState(false);
   const [photoValidation, setPhotoValidation] = useState({ status: 'idle', message: '' });
   const photoValidationGenerationRef = useRef(0);
+  const verifiedPhotoRef = useRef(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [careerEducation, setCareerEducation] = useState('');
   const [experienceStatus, setExperienceStatus] = useState('');
@@ -194,8 +195,10 @@ export default function ResumeApp() {
           if (photoRequestId !== photoValidationGenerationRef.current) return;
           if (result.valid) {
             setPhoto(draft.photoDataUri);
+            verifiedPhotoRef.current = draft.photoDataUri;
             setPhotoValidation({ status: 'success', message: 'Saved profile photo verified.' });
           } else {
+            verifiedPhotoRef.current = null;
             setPhotoValidation({ status: 'error', message: 'Your saved photo could not be verified. Please upload a clear photo of one person.' });
           }
         }).catch(() => {
@@ -278,13 +281,17 @@ export default function ResumeApp() {
     const file = input.files?.[0];
     if (!file) return;
     const requestId = ++photoValidationGenerationRef.current;
+    const previousPhotoStillVerified = typeof photo === 'string' &&
+      photo === verifiedPhotoRef.current;
     setIsPhotoChecking(true);
     setPhotoValidation({ status: 'checking', message: 'Checking that this is a clear photo of one person…' });
     try {
       const result = await validateResumePhoto(file);
       if (requestId !== photoValidationGenerationRef.current) return;
       if (!result.valid) {
-        setPhotoValidation({ status: 'error', message: result.message });
+        setPhotoValidation(previousPhotoStillVerified
+          ? { status: 'success', message: result.message + ' Your previous verified photo was kept.' }
+          : { status: 'error', message: result.message });
         return;
       }
       const dataUri = await new Promise((resolve, reject) => {
@@ -297,12 +304,15 @@ export default function ResumeApp() {
       });
       if (requestId !== photoValidationGenerationRef.current) return;
       setPhoto(dataUri);
+      verifiedPhotoRef.current = dataUri;
       setPhotoValidation({ status: 'success', message: 'Photo verified and added to your resume.' });
       // The embedded draft autosaver listens for document input/change events.
       document.dispatchEvent(new Event('input', { bubbles: true }));
     } catch {
       if (requestId === photoValidationGenerationRef.current) {
-        setPhotoValidation({ status: 'error', message: 'The photo could not be verified. Your previous photo was kept; please try again.' });
+        setPhotoValidation(previousPhotoStillVerified
+          ? { status: 'success', message: 'The replacement photo could not be verified. Your previous verified photo was kept.' }
+          : { status: 'error', message: 'The photo could not be verified. Choose another clear JPG or PNG.' });
       }
     } finally {
       input.value = '';
@@ -310,8 +320,20 @@ export default function ResumeApp() {
     }
   };
 
+  const hasVerifiedPhoto = isVerifiedResumePhoto(photo, photoValidation.status);
+
   // Generate the PDF, extract editable resume content, and return both to Flutter.
   const handleCompleteResume = async () => {
+    if (isPhotoChecking || !hasVerifiedPhoto) {
+      setPhotoValidation({
+        status: 'error',
+        message: 'Upload and verify a clear profile photo before generating your resume.',
+      });
+      document.querySelector('[data-testid="resume-photo-upload"]')?.scrollIntoView({
+        behavior: 'smooth', block: 'center',
+      });
+      return;
+    }
     // Unedited resume-template examples do not constitute applicant facts.
     const readRealValue = key => {
       const node = document.querySelector(`#resume-node [data-prefill-key="${key}"]`);
@@ -341,7 +363,6 @@ export default function ResumeApp() {
     const zoomWrapper = document.getElementById('zoom-wrapper');
     const originalTransform = zoomWrapper?.style.transform ?? '';
     if (zoomWrapper) zoomWrapper.style.transform = 'scale(1)';
-    let sampleWarningNode = null;
 
     try {
       const element = document.getElementById('resume-node');
@@ -349,26 +370,6 @@ export default function ResumeApp() {
 
       let resumePdfBase64 = '';
       let pdfWarning = '';
-      const normalizeSample = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
-      const hasUneditedSamples = Array.from(
-        element.querySelectorAll('[contenteditable="true"][data-template-default]'),
-      ).some((node) => {
-        const sample = normalizeSample(node.getAttribute('data-template-default'));
-        return sample && normalizeSample(node.innerText) === sample;
-      });
-      if (hasUneditedSamples) {
-        // Keep the visual template intact in the saved PDF (admin preview must
-        // not become blank), but clearly mark it when example text remains.
-        sampleWarningNode = document.createElement('div');
-        sampleWarningNode.setAttribute('role', 'note');
-        sampleWarningNode.textContent =
-          'TEMPLATE EXAMPLE CONTENT - Replace remaining sample details with your own accurate information before using this resume.';
-        sampleWarningNode.style.cssText =
-          'display:block;width:100%;box-sizing:border-box;padding:7px 10px;' +
-          'font:700 9px/1.35 Arial,sans-serif;color:#7c2d12;background:#fff3cd;' +
-          'border-bottom:1px solid #d97706;text-align:center;';
-        element.prepend(sampleWarningNode);
-      }
       const exportOptions = {
         quality: 0.96,
         backgroundColor: '#ffffff',
@@ -558,7 +559,6 @@ export default function ResumeApp() {
       console.error('Resume PDF or data extraction failed:', error);
       alert('Could not generate your resume. Please check the browser console and try again.');
     } finally {
-      sampleWarningNode?.remove();
       if (zoomWrapper) zoomWrapper.style.transform = originalTransform;
       setIsProcessing(false);
     }
@@ -636,11 +636,13 @@ export default function ResumeApp() {
           </div>
 
           <button
+            data-testid="resume-photo-upload"
+            aria-required="true"
             onClick={() => fileInputRef.current.click()}
             disabled={isPhotoChecking || isProcessing}
             className="px-3 py-1.5 bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-xs font-semibold rounded-md border border-neutral-300 disabled:opacity-50 disabled:cursor-wait"
           >
-            {isPhotoChecking ? 'Checking photo…' : 'Change Photo'}
+            {isPhotoChecking ? 'Checking photo…' : (photo ? 'Change Photo' : 'Add Profile Photo')}
           </button>
           <input
             type="file"
@@ -652,7 +654,8 @@ export default function ResumeApp() {
 
           <button
             onClick={handleCompleteResume}
-            disabled={isProcessing}
+            disabled={isProcessing || isPhotoChecking || !hasVerifiedPhoto}
+            aria-describedby="resume-photo-requirement"
             className="px-4 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-md shadow transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isProcessing ? (
@@ -665,8 +668,8 @@ export default function ResumeApp() {
             )}
           </button>
         </div>
-        <p className="mt-2 w-full text-xs text-slate-500">
-          Use a JPG or PNG under 2 MB with one clear face. Photo checks run locally in your browser.
+        <p id="resume-photo-requirement" className="mt-2 w-full text-xs text-slate-500">
+          A verified profile photo is required before generating your resume. Use a JPG or PNG under 2 MB with one clear face. Photo checks run locally in your browser.
         </p>
         {photoValidation.message && (
           <p
@@ -685,7 +688,7 @@ export default function ResumeApp() {
       <section id="resume-applicant-essentials" className="mx-auto mt-4 mb-3 w-[min(94vw,900px)] rounded-2xl border border-emerald-200 bg-white shadow p-5">
         <h2 className="font-extrabold text-lg text-emerald-950">Complete your real resume basics</h2>
         <p className="text-sm text-slate-600 mt-2">
-          Replace the sample name and contact on your resume, then add your actual education and career background.
+          Your registered name and contact details are prefilled from your PESO profile. Review the selected template and edit any field you want to change.
           No prior job, certification, TIN, SSS or other government number is required.
           If you are starting out, select the new entrant options—do not claim skills you do not have.
         </p>
@@ -733,7 +736,7 @@ export default function ResumeApp() {
         </div>
         <p className="text-xs text-slate-500 mt-2">
           <span className="font-bold text-rose-600" aria-hidden="true">*</span> Fields marked * are required.
-          Replace the sample name and contact details in the editable resume preview before saving.
+          Your registered name and contact details are carried into the selected resume template.
         </p>
       </section>
 

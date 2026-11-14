@@ -262,6 +262,42 @@ test('bootstrap admin requires a verified Google identity for the exact allowlis
   }
 });
 
+test('previously assigned MongoDB administrators remain authorized without bootstrap email or Firebase custom claims', async () => {
+  resetFixtures();
+  const uid = 'second-admin';
+  const email = 'second-admin@example.test';
+  authUsers.set(uid, userRecord(uid, {
+    email,
+    displayName: 'Second Administrator',
+    customClaims: {},
+  }));
+  profiles.set(uid, {
+    uid,
+    email,
+    displayName: 'Second Administrator',
+    role: 'admin',
+    disabled: false,
+    deleted: false,
+  });
+
+  // This account is not INITIAL_ADMIN_EMAIL and has no Firebase admin claim.
+  // A fresh token must still resolve the durable MongoDB role on each request.
+  const first = await request('/api/admin/users?limit=50', {
+    token: 'second-admin-token',
+  });
+  assert.equal(first.status, 200);
+  const result = await first.json();
+  assert.equal(result.ok, true);
+  assert.ok(result.users.some((item) => item.uid === uid && item.role === 'admin'));
+
+  const refreshed = await request('/api/admin/users?limit=50', {
+    token: 'second-admin-token',
+  });
+  assert.equal(refreshed.status, 200);
+  assert.equal((await refreshed.json()).ok, true);
+  resetFixtures();
+});
+
 test('admin list joins Firebase Auth accounts with safe MongoDB profile fields and paginates', async () => {
   const first = await request('/api/admin/users?limit=2', { token: 'admin-token' });
   assert.equal(first.status, 200);
@@ -283,6 +319,22 @@ test('admin list joins Firebase Auth accounts with safe MongoDB profile fields a
     encodeURIComponent(payload.nextPageToken), { token: 'admin-token' });
   assert.equal(second.status, 200);
   assert.equal((await second.json()).users.length, 1);
+});
+
+test('admin user list distinguishes recent online activity from offline accounts', async () => {
+  resetFixtures();
+  profiles.get('user-one').lastSeenAt = new Date();
+  profiles.get('user-two').lastSeenAt = new Date(Date.now() - 5 * 60 * 1000);
+
+  const response = await request('/api/admin/users?limit=50', { token: 'admin-token' });
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  const online = result.users.find((item) => item.uid === 'user-one');
+  const offline = result.users.find((item) => item.uid === 'user-two');
+  assert.equal(online.online, true);
+  assert.ok(online.lastSeenAt);
+  assert.equal(offline.online, false);
+  assert.ok(offline.lastSeenAt);
 });
 
 test('admin listing includes Firebase Auth users without MongoDB profiles and can delete an orphan', async () => {

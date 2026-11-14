@@ -140,6 +140,7 @@ class _UserProfileState extends State<UserProfile> {
   final Set<String> _translationErrors = {};
   Timer? _jobExpiryTimer;
   Timer? _jobSearchDebounce;
+  Timer? _presenceHeartbeatTimer;
   int _jobRequestGeneration = 0;
   int _expiryRefreshTicks = 0;
   String? _nextJobPageToken;
@@ -185,9 +186,23 @@ class _UserProfileState extends State<UserProfile> {
       ) {
         if (!mounted) return;
         if (user == null || user.uid != _dashboardSessionUid) {
+          _presenceHeartbeatTimer?.cancel();
           _dismissRequiredOnboarding();
         }
       });
+      if (_dashboardSessionUid != null) {
+        unawaited(PesoApiClient.sendPresenceHeartbeat());
+        _presenceHeartbeatTimer = Timer.periodic(const Duration(seconds: 45), (
+          _,
+        ) {
+          if (!mounted ||
+              _isLoggingOut ||
+              FirebaseAuth.instance.currentUser?.uid != _dashboardSessionUid) {
+            return;
+          }
+          unawaited(PesoApiClient.sendPresenceHeartbeat());
+        });
+      }
     }
     _initializeAIProfileData();
     _resumeData = Map<String, dynamic>.from(widget.initialResumeData);
@@ -231,6 +246,7 @@ class _UserProfileState extends State<UserProfile> {
   Future<void> _logoutAndReturnToLanding() async {
     if (_isLoggingOut || !mounted) return;
     setState(() => _isLoggingOut = true);
+    _presenceHeartbeatTimer?.cancel();
     // Pending profile requests and dialogs must stop at the logout boundary.
     _dismissRequiredOnboarding();
     try {
@@ -1658,6 +1674,7 @@ class _UserProfileState extends State<UserProfile> {
   @override
   void dispose() {
     _authStateSubscription?.cancel();
+    _presenceHeartbeatTimer?.cancel();
     _jobExpiryTimer?.cancel();
     _jobSearchDebounce?.cancel();
     _jobSearchController.dispose();

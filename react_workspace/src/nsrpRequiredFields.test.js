@@ -1,15 +1,38 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
-import { collectMissingNsrpFields } from './nsrpRequiredFields.js';
+import {
+  collectMissingNsrpFields,
+  isCompletePhilippineMobileNumber,
+  isEligibleNsrpAge,
+} from './nsrpRequiredFields.js';
 
 const greenRequiredKeys = [
   'lastName', 'firstName', 'middleName', 'suffix', 'dateOfBirth', 'sex',
-  'placeOfBirth', 'religion', 'presentAddress', 'city', 'height', 'email',
-  'landline', 'phone', 'civilStatus', 'employmentStatus', 'preferredOccupation',
+  'religion', 'presentAddress', 'city', 'height', 'email',
+  'phone', 'civilStatus', 'employmentStatus', 'preferredOccupation',
   'preferredWorkLocation', 'languageProficiency', 'educationBackground',
   'workExperience', 'otherSkills', 'signature', 'signatureDate',
 ];
+
+test('Philippine cellphone validation flags incomplete numbers but accepts N/A', () => {
+  assert.equal(isCompletePhilippineMobileNumber('09171234567'), true);
+  assert.equal(isCompletePhilippineMobileNumber('+639171234567'), true);
+  assert.equal(isCompletePhilippineMobileNumber('639171234567'), true);
+  assert.equal(isCompletePhilippineMobileNumber('9171234567'), true);
+  assert.equal(isCompletePhilippineMobileNumber('N/A'), true);
+  assert.equal(isCompletePhilippineMobileNumber('0917123'), false);
+  assert.equal(isCompletePhilippineMobileNumber('08171234567'), false);
+  assert.equal(isCompletePhilippineMobileNumber('09abc'), false);
+});
+
+test('NSRP completion requires a calculated age of at least 18', () => {
+  assert.equal(isEligibleNsrpAge('18'), true);
+  assert.equal(isEligibleNsrpAge(45), true);
+  assert.equal(isEligibleNsrpAge('17'), false);
+  assert.equal(isEligibleNsrpAge(''), false);
+  assert.equal(isEligibleNsrpAge('unknown'), false);
+});
 
 test('NSRP requires the green-highlighted fields/sections, not unhighlighted subfields', () => {
   const missing = collectMissingNsrpFields({});
@@ -25,13 +48,11 @@ test('accepts populated green fields, selected group choices, and N/A where appl
     suffix: 'N/A',
     dateOfBirth: true,
     sex: true,
-    placeOfBirth: 'Montalban, Rizal',
     religion: 'Prefer not to say',
     presentAddress: true,
     city: 'Rodriguez',
     height: 'N/A',
     email: 'ana@example.com',
-    landline: 'N/A',
     phone: '09171234567',
     civilStatus: true,
     employmentStatus: true,
@@ -55,12 +76,10 @@ test('green field sections stay missing until entered or explicitly marked N/A',
     sex: true,
     middleName: 'N/A',
     suffix: 'N/A',
-    placeOfBirth: 'Rodriguez',
     religion: 'Prefer not to say',
     city: 'Rodriguez',
     height: 'N/A',
     email: 'ana@example.com',
-    landline: 'N/A',
     phone: 'N/A',
     civilStatus: false,
     employmentStatus: false,
@@ -103,6 +122,26 @@ test('only green-highlighted NSRP fields block form completion; supplemental car
   assert.match(source, /if \(officialMissing\.length\) \{/);
   assert.doesNotMatch(source, /Please complete your name, an email or mobile number, city and one preferred occupation/);
 });
+test('civil status is single-select and incomplete cellphone values receive an orange warning', async () => {
+  const source = await readFile(new URL('./App.jsx', import.meta.url), 'utf8');
+  assert.match(source, /type="radio" name="nsrp-civil-status" value="Single" data-nsrp-group="civilStatus"/);
+  assert.match(source, /type="radio" name="nsrp-civil-status" value="Married" data-nsrp-group="civilStatus"/);
+  assert.match(source, /type="radio" name="nsrp-civil-status" value="Widowed" data-nsrp-group="civilStatus"/);
+  assert.doesNotMatch(source, /type="checkbox" data-nsrp-group="civilStatus"/);
+  assert.doesNotMatch(source, /value="Separated"|value="Live-in"|value="Others"/);
+  assert.match(source, /How long have you been looking for work\? \(months\)/);
+  assert.match(source, /Terminated\/laid off due to calamity/);
+  assert.doesNotMatch(source, /Are you actively looking for work\?|Willing to work immediately\?/);
+  assert.match(source, /aria-invalid=\{Boolean\(contactNumberWarning\)\}/);
+  assert.match(source, /backgroundColor: '#fff7ed'/);
+  assert.match(source, /Enter a complete Philippine mobile number/);
+});
+
+test('NSRP signature and date controls share a bottom-aligned row', async () => {
+  const source = await readFile(new URL('./App.jsx', import.meta.url), 'utf8');
+  assert.match(source, /flex justify-between items-end gap-8 px-8 mb-8/);
+});
+
 test('NSRP PDF export keeps exactly two original A4 sheets and numbers them physically', async () => {
   const source = await readFile(new URL('./App.jsx', import.meta.url), 'utf8');
   const styles = await readFile(new URL('./index.css', import.meta.url), 'utf8');
@@ -117,7 +156,69 @@ test('NSRP PDF export keeps exactly two original A4 sheets and numbers them phys
 });
 test('NSRP instructions identify green-highlighted fields as required', async () => {
   const source = await readFile(new URL('./App.jsx', import.meta.url), 'utf8');
-  assert.match(source, /Green-highlighted fields\/sections are required/);
-  assert.match(source, /Complete every green-highlighted field or section/);
+  assert.match(source, /For this digital form, green-highlighted fields\/sections are required/);
   assert.doesNotMatch(source, /Green labels are field headings, not the requirement indicator/);
+});
+
+test('digital NSRP uses the September 2020 Form 1 title and two-page numbering', async () => {
+  const source = await readFile(new URL('./App.jsx', import.meta.url), 'utf8');
+  assert.match(source, /NSRP Form 1/);
+  assert.match(source, /September 2020/);
+  assert.match(source, /NATIONAL SKILLS REGISTRATION PROGRAM/);
+  assert.match(source, /JOBSEEKER REGISTRATION FORM/);
+  assert.match(source, /Page 1 of 2/);
+  assert.match(source, /Page 2 of 2/);
+  assert.match(source, /h-20 w-full flex flex-col justify-end/);
+  assert.match(source, /h-7 border-b border-black outline-none text-center/);
+  assert.doesNotMatch(source, /January 2017|PESO EMPLOYMENT INFORMATION SYSTEM|OM-25-001/);
+  assert.doesNotMatch(source, /PLACE OF BIRTH|CITIZENSHIP|PAG-IBIG NO\.|PHILHEALTH NO\./);
+  assert.doesNotMatch(source, /AGE \(calculated\)|Are you actively looking for work\?|Willing to work immediately\?/);
+  assert.match(source, /CONTACT NUMBER\/S/);
+  assert.match(source, /TIN NO\./);
+  assert.match(source, /HEIGHT \(FT\.\)/);
+  assert.match(source, /E-MAIL/);
+});
+
+test('digital NSRP contains the official education, training, eligibility, work and PESO-only sections', async () => {
+  const source = await readFile(new URL('./App.jsx', import.meta.url), 'utf8');
+  for (const label of [
+    'Currently in school?',
+    'Secondary (Non-K12)',
+    'Secondary (K-12)',
+    'Senior High Strand',
+    'Graduate Studies/Post-graduate',
+    'SCHOOL / COURSE',
+    'TRAINING / VOCATIONAL COURSE',
+    'HOURS OF TRAINING',
+    'TRAINING INSTITUTION',
+    'SKILLS ACQUIRED',
+    'CAREER SERVICE / BOARD / BAR',
+    'LICENSE NUMBER',
+    'DATE TAKEN',
+    'NUMBER OF',
+    'OTHER SKILLS ACQUIRED WITHOUT CERTIFICATE',
+    'DILEEP',
+    'TESDA Training',
+    'Referred to:',
+  ]) {
+    assert.ok(source.includes(label), 'Expected official NSRP field: ' + label);
+  }
+  assert.doesNotMatch(source, /APPLICANT CAREER INFORMATION/);
+  assert.ok(source.indexOf('HOURS OF TRAINING') < source.indexOf('TRAINING INSTITUTION'));
+  assert.ok(source.indexOf('TRAINING INSTITUTION') < source.indexOf('SKILLS ACQUIRED'));
+  assert.ok(source.indexOf('LICENSE NUMBER') < source.indexOf('DATE TAKEN'));
+  assert.ok(source.indexOf('DATE TAKEN') < source.indexOf('VALID UNTIL'));
+});
+
+test('resume completion requires a verified applicant photo and does not inject sample-content warnings', async () => {
+  const source = await readFile(new URL('./ResumeApp.jsx', import.meta.url), 'utf8');
+  assert.match(source, /isVerifiedResumePhoto\(photo, photoValidation\.status\)/);
+  assert.match(source, /A verified profile photo is required before generating your resume/);
+  assert.match(source, /disabled=\{isProcessing \|\| isPhotoChecking \|\| !hasVerifiedPhoto\}/);
+  assert.match(source, /aria-describedby="resume-photo-requirement"/);
+  assert.match(source, /const hasVerifiedPhoto = isVerifiedResumePhoto\(photo, photoValidation\.status\)/);
+  assert.match(source, /previousPhotoStillVerified/);
+  assert.match(source, /Your previous verified photo was kept/);
+  assert.match(source, /Add Profile Photo/);
+  assert.doesNotMatch(source, /TEMPLATE EXAMPLE CONTENT|sampleWarningNode|template warning|Replace the sample name|sample name and contact details/i);
 });

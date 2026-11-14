@@ -228,7 +228,7 @@ class _RegisterFormState extends State<RegisterForm> {
         case 'invalid-email':
           return 'Enter a valid email address.';
         case 'weak-password':
-          return 'Choose a stronger password (at least 6 characters).';
+          return 'Choose a stronger password (8+ characters, one uppercase letter, and one special character).';
         case 'operation-not-allowed':
           return 'This sign-in method is not enabled in Firebase Authentication yet.';
         case 'popup-closed-by-user':
@@ -353,8 +353,8 @@ class _RegisterFormState extends State<RegisterForm> {
       );
       return;
     }
-    if (_passwordController.text.length < 6) {
-      _showMessage('Password must be at least 6 characters.');
+    if (!AuthService.isStrongPassword(_passwordController.text)) {
+      _showMessage('Password must contain ${AuthService.passwordRequirements}');
       return;
     }
     if (_barangay == null ||
@@ -408,8 +408,8 @@ class _RegisterFormState extends State<RegisterForm> {
       );
       return;
     }
-    if (password.length < 6) {
-      _showMessage('Password must be at least 6 characters.');
+    if (!AuthService.isStrongPassword(password)) {
+      _showMessage('Password must contain ${AuthService.passwordRequirements}');
       return;
     }
 
@@ -880,7 +880,7 @@ class _RegisterFormState extends State<RegisterForm> {
             ),
             const SizedBox(height: 15),
             _buildTextField(
-              'Password (at least 6 characters)',
+              'Password (8+ characters, uppercase, special character)',
               Icons.lock_outline,
               _passwordController,
               fieldBg,

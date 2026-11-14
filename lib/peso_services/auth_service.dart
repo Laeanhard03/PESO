@@ -30,12 +30,24 @@ class AuthService {
     }
   }
 
+  static bool isStrongPassword(String password) {
+    return password.length >= 8 &&
+        RegExp(r'[A-Z]').hasMatch(password) &&
+        RegExp(r'[^A-Za-z0-9\s]').hasMatch(password);
+  }
+
+  static const String passwordRequirements =
+      'At least 8 characters, one uppercase letter, and one special character.';
+
   static Future<UserCredential> registerWithEmail({
     required String firstName,
     required String lastName,
     required String email,
     required String password,
   }) async {
+    if (!isStrongPassword(password)) {
+      throw ArgumentError('Password must contain $passwordRequirements');
+    }
     final credential = await _auth.createUserWithEmailAndPassword(
       email: email.trim(),
       password: password,
@@ -107,16 +119,23 @@ class AuthService {
     if (user == null || user.email == null) {
       throw StateError('Sign in with an email/password account first.');
     }
-    if (currentPassword.isEmpty || newPassword.length < 8) {
-      throw ArgumentError('Provide your current password and a new password of at least 8 characters.');
+    if (currentPassword.isEmpty || !isStrongPassword(newPassword)) {
+      throw ArgumentError(
+        'Provide your current password and a new password with $passwordRequirements',
+      );
     }
-    final hasPasswordProvider = user.providerData.any((provider) =>
-        provider.providerId == 'password');
+    final hasPasswordProvider = user.providerData.any(
+      (provider) => provider.providerId == 'password',
+    );
     if (!hasPasswordProvider) {
-      throw StateError('This account uses external sign-in. Change its password through that provider.');
+      throw StateError(
+        'This account uses external sign-in. Change its password through that provider.',
+      );
     }
     final credential = EmailAuthProvider.credential(
-      email: user.email!, password: currentPassword);
+      email: user.email!,
+      password: currentPassword,
+    );
     await user.reauthenticateWithCredential(credential);
     await user.updatePassword(newPassword);
     await user.getIdToken(true);
@@ -168,7 +187,9 @@ class AuthService {
       if (profile is Map) {
         try {
           await OnboardingDraftSync.live.rememberProfile(
-              user.uid, Map<String, dynamic>.from(profile));
+            user.uid,
+            Map<String, dynamic>.from(profile),
+          );
           unawaited(OnboardingDraftSync.live.resumeAfterSignIn(user.uid));
         } catch (_) {
           // Local encrypted storage failure never invalidates Firebase login.
@@ -323,12 +344,16 @@ class AuthService {
       throw StateError('Sign in before saving resume and NSRP form data.');
     }
     final uid = await PesoAuthSession.currentUid();
-    if (uid == null) throw StateError('You must be signed in to save your forms.');
-    await OnboardingDraftSync.live.save(uid: uid, data: <String, dynamic>{
-      if (resumeData != null) 'resumeData': resumeData,
-      if (pesoFormData != null) 'pesoFormData': pesoFormData,
-      if (onboardingText != null) 'onboardingText': onboardingText,
-    });
+    if (uid == null)
+      throw StateError('You must be signed in to save your forms.');
+    await OnboardingDraftSync.live.save(
+      uid: uid,
+      data: <String, dynamic>{
+        if (resumeData != null) 'resumeData': resumeData,
+        if (pesoFormData != null) 'pesoFormData': pesoFormData,
+        if (onboardingText != null) 'onboardingText': onboardingText,
+      },
+    );
   }
 
   static Future<void> saveAiProfile(Map<String, dynamic> aiProfile) async {
@@ -355,8 +380,10 @@ class AuthService {
     if (value.isEmpty || value.length > 80) return false;
     // Allow Unicode letters/marks plus ordinary multi-part Filipino names,
     // spaces, periods, apostrophes, and hyphens; reject digits and symbols.
-    return RegExp(r"^[\p{L}\p{M}][\p{L}\p{M} .'-]*$", unicode: true)
-        .hasMatch(value);
+    return RegExp(
+      r"^[\p{L}\p{M}][\p{L}\p{M} .'-]*$",
+      unicode: true,
+    ).hasMatch(value);
   }
 
   static String? _normalizedPhilippineMobileNumber(String raw) {

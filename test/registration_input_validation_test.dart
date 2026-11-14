@@ -1,53 +1,84 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:peso_prototype/peso_services/auth_service.dart';
 import 'package:peso_prototype/peso_ui/Login_register_pages/register_ui.dart';
 
 void main() {
-  testWidgets('registration name and phone fields reject unsupported characters while typing', (tester) async {
-    tester.view.physicalSize = const Size(390, 950);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+  testWidgets(
+    'registration name and phone fields reject unsupported characters while typing',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 950);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.pumpWidget(MaterialApp(
-      home: Scaffold(
-        body: SingleChildScrollView(
-          child: RegisterForm(
-            pesoGreen: Colors.green,
-            isLight: true,
-            onSwitchToLogin: () {},
-            onProceedToOnboarding: (_) {},
-            onEmailVerificationRequired: (_) {},
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: RegisterForm(
+                pesoGreen: Colors.green,
+                isLight: true,
+                onSwitchToLogin: () {},
+                onProceedToOnboarding: (_) {},
+                onEmailVerificationRequired: (_) {},
+              ),
+            ),
           ),
         ),
-      ),
-    ));
+      );
 
-    Finder field(String hint) => find.byWidgetPredicate(
-      (widget) => widget is TextField && widget.decoration?.hintText == hint,
-    );
+      Finder field(String hint) => find.byWidgetPredicate(
+        (widget) => widget is TextField && widget.decoration?.hintText == hint,
+      );
 
-    await tester.enterText(field('First Name'), 'Anne123<>');
-    await tester.pump();
-    expect(tester.widget<TextField>(field('First Name')).controller!.text, 'Anne');
+      await tester.enterText(field('First Name'), 'Anne123<>');
+      await tester.pump();
+      expect(
+        tester.widget<TextField>(field('First Name')).controller!.text,
+        'Anne',
+      );
 
-    await tester.enterText(field('Last Name'), "Dela-Cruz 123!");
-    await tester.pump();
-    expect(tester.widget<TextField>(field('Last Name')).controller!.text, 'Dela-Cruz ');
+      await tester.enterText(field('Last Name'), "Dela-Cruz 123!");
+      await tester.pump();
+      expect(
+        tester.widget<TextField>(field('Last Name')).controller!.text,
+        'Dela-Cruz ',
+      );
 
-    await tester.enterText(field('Phone Number (optional)'), '0917ABC1234567');
-    await tester.pump();
-    expect(tester.widget<TextField>(field('Phone Number (optional)')).controller!.text, '09171234567');
-    expect(tester.takeException(), isNull);
-  });
+      await tester.enterText(
+        field('Phone Number (optional)'),
+        '0917ABC1234567',
+      );
+      await tester.pump();
+      expect(
+        tester
+            .widget<TextField>(field('Phone Number (optional)'))
+            .controller!
+            .text,
+        '09171234567',
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   group('Philippine mobile number validation', () {
     test('accepts local and Philippine international mobile formats', () {
       expect(AuthService.isValidPhilippineMobileNumber('09171234567'), isTrue);
-      expect(AuthService.normalizePhoneNumber('0917 123 4567'), '+639171234567');
-      expect(AuthService.normalizePhoneNumber('(0917) 123-4567'), '+639171234567');
-      expect(AuthService.normalizePhoneNumber('+639171234567'), '+639171234567');
+      expect(
+        AuthService.normalizePhoneNumber('0917 123 4567'),
+        '+639171234567',
+      );
+      expect(
+        AuthService.normalizePhoneNumber('(0917) 123-4567'),
+        '+639171234567',
+      );
+      expect(
+        AuthService.normalizePhoneNumber('+639171234567'),
+        '+639171234567',
+      );
       expect(AuthService.normalizePhoneNumber('639171234567'), '+639171234567');
       expect(AuthService.normalizePhoneNumber('9171234567'), '+639171234567');
     });
@@ -61,7 +92,11 @@ void main() {
         '0917ABC4567',
         '+63 917 123 4567 ext 2',
       ]) {
-        expect(AuthService.isValidPhilippineMobileNumber(value), isFalse, reason: value);
+        expect(
+          AuthService.isValidPhilippineMobileNumber(value),
+          isFalse,
+          reason: value,
+        );
       }
       expect(
         () => AuthService.normalizePhoneNumber('+12025550123'),
@@ -75,15 +110,52 @@ void main() {
     });
   });
 
+  group('password strength validation', () {
+    test(
+      'requires length, uppercase, and a non-whitespace special character',
+      () {
+        expect(AuthService.isStrongPassword('Password1!'), isTrue);
+        expect(AuthService.isStrongPassword('Aaaaaaaa#'), isTrue);
+        expect(AuthService.isStrongPassword('password1!'), isFalse);
+        expect(AuthService.isStrongPassword('Password1'), isFalse);
+        expect(AuthService.isStrongPassword('Pass1!'), isFalse);
+        expect(AuthService.isStrongPassword('Password 1 '), isFalse);
+      },
+    );
+
+    test('password change UI enforces and explains the same policy', () {
+      final source = File('lib/peso_ui/User/user_account_tab.dart')
+          .readAsStringSync();
+      expect(source, contains('AuthService.isStrongPassword(newer.text)'));
+      expect(source, contains('AuthService.passwordRequirements'));
+      expect(source, contains('New passwords do not match.'));
+      expect(source, contains('Enter your current password.'));
+      expect(source, isNot(contains('newer.text.length < 8')));
+    });
+  });
+
   group('registration name validation', () {
     test('allows multi-part and Unicode names', () {
-      for (final name in ['Maria Santos', "Ma. Angel O'Neil", 'Juan Dela-Cruz', String.fromCharCodes([209, 111, 114, 97, 32, 80, 101, 241, 97]), String.fromCharCodes([26446, 26126])]) {
+      for (final name in [
+        'Maria Santos',
+        "Ma. Angel O'Neil",
+        'Juan Dela-Cruz',
+        String.fromCharCodes([209, 111, 114, 97, 32, 80, 101, 241, 97]),
+        String.fromCharCodes([26446, 26126]),
+      ]) {
         expect(AuthService.isValidPersonName(name), isTrue, reason: name);
       }
     });
 
     test('rejects blank names, digits, symbols, and excessive length', () {
-      for (final name in ['', '   ', 'Juan2', '<Admin>', 'John@Doe', 'A' * 81]) {
+      for (final name in [
+        '',
+        '   ',
+        'Juan2',
+        '<Admin>',
+        'John@Doe',
+        'A' * 81,
+      ]) {
         expect(AuthService.isValidPersonName(name), isFalse, reason: name);
       }
     });
