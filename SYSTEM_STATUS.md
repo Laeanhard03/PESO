@@ -237,3 +237,40 @@ A local pass does not establish that Firebase Functions, Gemini, Authentication 
 - Read-only admin audit: 7 distinct admin emails resolve to verified Firebase Auth accounts; marcelinoedward4@gmail.com is already an active verified Google admin. One extra MongoDB profile is a stale duplicate old UID for an already-active email; no data cleanup performed.
 - Original checklist: 2/14 complete, 12/14 unchecked. Additional bug note bug fixes ilaya: both items implemented, both unchecked. No Admin Notepad statuses were changed.
 - Agent 1 MCP server and primary tunnel client are running and health-checked on 8765 and 8766.
+
+## 2026-11-14 - Render failover synchronized and production smoke-tested
+
+- Supersedes the preceding stale-Render deployment note. Vercel primary and Render failover now both run deploy/render-failover commit 4939dd63e7f6882040482ec18b1771cb5eda1abd. Vercel deployment dpl_35K5vUWkfG41GEynUB9EGZsHLvCe READY; Render deployment dep-dbrqrbbl550s73eiirdg LIVE.
+- Render auto-deploy did not create a deployment after the branch push. After confirming no automatic deploy existed and verifying the exact branch/commit, a manual deployment was started. Render checked out the correct commit, built successfully, and activated the new instance.
+- Both hosts: /api/health HTTP 200 with MongoDB connected to peso_jobkonek; /api/public/jobs HTTP 200 with 30 jobs; /nsrp/ HTTP 200. Render /healthz HTTP 200.
+- Both deployed asset bundles contain field-similarity percentage UI, Admin presence, job image/company logo uploads, strong password policy, September 2020 NSRP Form 1, verified-resume-photo gate and accessible requirement; legacy sample-name warning absent.
+- Render build: Flutter web compilation passed; NSRP export guard passed (two original sheets); React 25/25 passed; ESLint passed; Vite build passed. Non-fatal Vite chunk warning: 733.35 kB before gzip. npm audit reports one low-severity dependency vulnerability; no broad upgrade applied.
+- Full local tests: backend 325/325, React 25/25, Flutter 287/287; Flutter analyze --no-fatal-infos passed with 105 info-level findings, zero warnings/errors.
+- Agent 1 MCP 127.0.0.1:8765 healthy/authenticated; tunnel UI 127.0.0.1:8766 HTTP 200.
+- Original checklist remains 2/14 completed, 12/14 unchecked. Additional bug note bug fixes ilaya remains open, both items unchecked. No checklist/status fields modified.
+- 11 feature items and both additional bug items implemented and deployed. Peer production acceptance of real administrator sign-in/role persistence remains open. A read-only protected-endpoint access matrix for seven existing admin identities is awaiting user approval in the Desktop Commander review panel.
+- marcelinoedward4@gmail.com is an enabled, verified Google administrator. Read-only audit: 7 distinct verified/enabled admin identities across 8 MongoDB profiles; one duplicate stale old-UID profile left untouched.
+- Git commit 4939dd6 live on both hosts. The original worktree stash remains retained. Unrelated untracked files were not staged. This status addendum is appended locally and is not committed/pushed.
+
+
+## 2026-11-14 - Backend dependency security patch
+
+- Patched backend lockfile transitive fast-xml-parser to 5.12.1 using npm audit fix. backend/package.json unchanged. Backend tests 325/325 passed; npm audit zero vulnerabilities.
+- Commit 2813b528f3de053b1323b88073b2f79f873c3c3f pushed to deploy/render-failover.
+- Vercel production dpl_9t54Qphx8vX9KeFyw4j6tjEuCZmg READY on the patch commit.
+- Render dep-dbrqvoei0phs73b8bdv0 LIVE on the patch commit; Flutter web compile, NSRP two-sheet guard, React tests and npm audit zero vulnerabilities. This is the sole new Render deployment for this commit; the prior deployment was deactivated.
+- Both production hosts smoke-tested after the patch: /api/health HTTP 200 with MongoDB connected, /api/public/jobs HTTP 200 with 30 jobs, /nsrp/ HTTP 200.
+- Production Admin access matrix passed for all 7 distinct administrator identities on BOTH Vercel and Render: 7/7 verified/enabled Firebase accounts, 7/7 custom-token exchanges, 7/7 ID-token UID claims matched, 7/7 `/api/profile` responses confirmed matching UID plus `admin` role, and 7/7 protected `/api/admin/development-notes` requests were authorized on each host. The initial QA false negative expected a `localId` field that the Firebase `signInWithCustomToken` REST response does not return; the reusable QA script now validates the ID token `user_id`/`sub` claim. Tokens were ephemeral, not logged or persisted; all seven sign-ins returned isNewUser=false, no Firebase accounts were created, and no account records changed.
+- Original checklist 2/14 complete, 12/14 unchecked. bug fixes ilaya 0/2 complete. No checklist or note status changed.
+
+
+## 2026-11-14 - Final production verification and Admin QA harness correction
+
+- Corrected backend/scripts/qa_live_authenticated_api.mjs to validate the Firebase ID token user_id/sub claim. The signInWithCustomToken REST response does not include localId.
+- Corrected authenticated production matrix passed on BOTH Vercel and Render: 7/7 verified/enabled admin identities, 7/7 token UID matches, 7/7 /api/profile role=admin checks, and 7/7 protected /api/admin/development-notes requests authorized per host. Tokens were ephemeral; no user records changed.
+- UID reconciliation: all 7 distinct admin emails have a matching MongoDB UID profile and a verified/enabled Firebase Auth account. One duplicate old-UID profile was left untouched. marcelinoedward4@gmail.com is an active verified Google administrator.
+- Vercel dpl_9t54Qphx8vX9KeFyw4j6tjEuCZmg READY; Render dep-dbrqvoei0phs73b8bdv0 LIVE; both run commit 2813b528f3de053b1323b88073b2f79f873c3c3f.
+- Both hosts: /api/health HTTP 200 with MongoDB connected to peso_jobkonek; /api/public/jobs HTTP 200 with 30 jobs; /nsrp/ HTTP 200. Both deployed bundles contain the intended updated UI features and verified NSRP/resume content.
+- Backend fast-xml-parser 5.12.1 patch; npm audit zero vulnerabilities. Tests: backend 325/325, React 25/25, Flutter 287/287. ESLint and Flutter/Vite release builds passed. Flutter analyzer: 105 info-level findings, zero warnings/errors.
+- Vite non-fatal main bundle warning: 733.35 kB before gzip. Agent 1 MCP 8765 and tunnel UI 8766 remain healthy.
+- Original checklist 2/14 complete, 12/14 unchecked. Additional bug fixes ilaya 0/2 complete. No Admin Notepad statuses were modified. All 11 original features and both new bug fixes implemented and deployed; items remain open for independent peer verification.

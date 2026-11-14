@@ -381,3 +381,44 @@ This entry records the local continuation of the shared Admin Development Notepa
 - Read-only administrator audit: 7 distinct administrator emails all resolve to verified Firebase Auth accounts; the requested marcelinoedward4@gmail.com account is already a verified Google administrator. MongoDB has one additional stale profile with an old UID duplicating an active admin email; no user records were modified.
 - The original Admin Development Notepad remains 2/14 completed and 12/14 unchecked. The new bug fixes ilaya note still has both items unchecked. No Notepad note, checkbox, or status field was changed.
 - Agent 1 MCP server and primary tunnel client are running and health-checked on ports 8765 and 8766 respectively.
+
+## 2026-11-14 - Render failover synchronized and production smoke-tested
+
+This entry supersedes the immediately preceding Render-stale deployment note. It does not change any Admin Development Notepad checklist status.
+
+- Vercel primary and Render failover are both deployed from branch deploy/render-failover at commit 4939dd63e7f6882040482ec18b1771cb5eda1abd. Vercel production deployment dpl_35K5vUWkfG41GEynUB9EGZsHLvCe is READY. Render deployment dep-dbrqrbbl550s73eiirdg is LIVE.
+- Render initially did not auto-deploy after the branch push. After verifying the branch, commit and service configuration, a manual deployment was started because no automatic deployment had been created. Render checked out commit 4939dd63e7f6882040482ec18b1771cb5eda1abd, built successfully, and activated the new service instance.
+- Both public production hosts returned HTTP 200 for /api/health (MongoDB connected to peso_jobkonek), /api/public/jobs (30 jobs), and /nsrp/. Render /healthz also returned HTTP 200.
+- Production asset inspection on BOTH Vercel and Render confirmed: field-similarity percentage UI, Online/Offline Admin presence, job image upload, company logo upload, strong password policy, September 2020 NSRP Form 1 title, verified-resume-photo gate and accessible requirement text; legacy sample-name warning absent.
+- Render build verification: Flutter web compilation passed; NSRP export guard confirmed exactly two original sheets; React node test suite 25/25 passed; ESLint passed; Vite production build passed. Non-fatal warnings: Vite's main JavaScript chunk is 733.35 kB before gzip; npm audit reported one low-severity vulnerability in the installed frontend dependencies. No automatic dependency upgrade was applied.
+- Local full verification remains backend 325/325, React 25/25, Flutter 287/287; Flutter analyze --no-fatal-infos passed with 105 info-level findings and zero warnings/errors.
+- Agent 1 MCP server is authenticated and healthy on 127.0.0.1:8765; primary tunnel client/UI is healthy on 127.0.0.1:8766.
+- The original Admin Development Notepad remains 2/14 completed and 12/14 unchecked. The additional bug note bug fixes ilaya remains open with both of its items unchecked. No note, checklist item, or status field was changed.
+- The 11 feature implementation items and both additional bug items have been implemented and deployed. The remaining production-acceptance checklist item requires fellow developers to verify sign-in and role persistence with their real admin accounts. A read-only seven-admin protected-endpoint access matrix is awaiting user approval in the Desktop Commander review panel; no identity records were changed.
+- Requested administrator marcelinoedward4@gmail.com is already an enabled, verified Google administrator. Read-only audit found 7 distinct verified/enabled admin identities across 8 MongoDB admin profiles; one duplicate old-UID profile was left untouched.
+- Git deployment commit 4939dd6 is live on both hosts. The original local worktree stash remains retained; unrelated untracked local files were not staged. README and SYSTEM_STATUS have been extended locally after deployment; this status addendum is not committed/pushed.
+
+
+## 2026-11-14 - Backend dependency security patch
+
+- Updated the backend lockfile's transitive fast-xml-parser dependency from 5.11.2 to 5.12.1 through npm audit fix. The backend manifest was unchanged; the package tree was checked and the backend suite passed 325/325. npm audit now reports zero vulnerabilities.
+- Commit 2813b528f3de053b1323b88073b2f79f873c3c3f (Patch low-severity XML parser dependency) was pushed to deploy/render-failover.
+- Vercel production deployment dpl_9t54Qphx8vX9KeFyw4j6tjEuCZmg is READY on this commit.
+- Render deployment dep-dbrqvoei0phs73b8bdv0 is LIVE on this commit and passed its Flutter web compilation, NSRP two-sheet build guard, React tests and npm audit (zero vulnerabilities). It is the sole new Render deployment for this commit; the prior deployment was deactivated after the update.
+- Final public smoke tests after the dependency patch: both Vercel and Render returned HTTP 200 for /api/health (MongoDB connected to peso_jobkonek), /api/public/jobs (30 jobs), and /nsrp/.
+- Production Admin access matrix passed for all 7 distinct administrator identities on BOTH Vercel and Render: 7/7 verified/enabled Firebase accounts; 7/7 custom-token exchanges; 7/7 ID-token UID claims matched; 7/7 `/api/profile` responses returned the matching UID and `admin` role; 7/7 protected `/api/admin/development-notes` requests were authorized on each host. The first QA attempt was a false negative because the Firebase `signInWithCustomToken` REST response does not return `localId`; the corrected reusable QA script validates the ID token's `user_id`/`sub` claim instead. Tokens were ephemeral and never logged or persisted; all seven sign-ins returned isNewUser=false, no Firebase accounts were created, and no user records changed.
+- Original checklist remains 2/14 complete, 12/14 unchecked. Additional bug note bug fixes ilaya remains 0/2 complete. No note/checklist/status field was modified.
+
+
+## 2026-11-14 - Final production verification and Admin QA harness correction
+
+- Corrected backend/scripts/qa_live_authenticated_api.mjs. Firebase signInWithCustomToken's REST response does not include localId; the QA harness now validates the returned ID token's user_id/sub claim against the Firebase Admin UID, then exercises both /api/profile and the protected /api/admin/development-notes endpoint on both production hosts.
+- The corrected read-only production access matrix passed: 7/7 distinct administrator identities verified/enabled, 7/7 token exchanges succeeded, 7/7 token UID claims matched, 7/7 profile responses confirmed matching UID plus role=admin, and 7/7 protected Admin endpoint requests were authorized on BOTH Vercel and Render. No tokens were persisted or logged; no user records changed.
+- Admin UID reconciliation: all 7 distinct administrator emails have at least one MongoDB profile matching the Firebase Auth UID; all are verified and enabled. One extra duplicate old-UID profile remains untouched. marcelinoedward4@gmail.com is an active verified Google administrator.
+- Vercel deployment dpl_9t54Qphx8vX9KeFyw4j6tjEuCZmg is READY on commit 2813b528f3de053b1323b88073b2f79f873c3c3f. Render deployment dep-dbrqvoei0phs73b8bdv0 is LIVE on the same commit.
+- Both production hosts returned HTTP 200 for /api/health with MongoDB connected to peso_jobkonek, /api/public/jobs with 30 jobs, and /nsrp/. Both deployed Flutter bundles contain field-similarity percentage UI, admin Online/Offline presence, job/company image upload controls, and strong-password policy. Both deployed React bundles contain the September 2020 NSRP Form 1 and verified-resume-photo gate; the legacy sample-name warning is absent.
+- Backend transitive fast-xml-parser is patched to 5.12.1; npm audit reports zero vulnerabilities. Backend tests 325/325; React tests 25/25; Flutter tests 287/287. ESLint passed. flutter analyze --no-fatal-infos passed with 105 info-level findings, zero warnings/errors. Flutter web and Vite release builds passed.
+- Known non-fatal build note: Vite's main JavaScript chunk is 733.35 kB before gzip. No broad dependency upgrade was applied.
+- Agent 1 MCP server remains authenticated/healthy on 127.0.0.1:8765; primary tunnel UI remains HTTP 200 on 127.0.0.1:8766.
+- Original Admin Development Notepad checklist remains 2/14 completed, 12/14 unchecked. Additional bug note bug fixes ilaya remains 0/2 completed. No checklist item, note status, or bug checkbox was changed.
+- All 11 original feature implementations and both additional bug fixes are deployed to both production environments. The remaining 12 original checklist entries and 2 new bug entries are left unchecked for independent peer verification.
