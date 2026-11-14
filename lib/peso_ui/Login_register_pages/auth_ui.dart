@@ -73,6 +73,8 @@ class _AuthPageState extends State<AuthPage> {
   bool _verificationForRegistration = false;
   String _verificationEmail = '';
   bool _verificationBusy = false;
+  Duration _verificationCooldownRemaining = Duration.zero;
+  Timer? _verificationCooldownTimer;
   bool _verificationEmailSent = false;
   String? _verificationEmailError;
 
@@ -86,6 +88,7 @@ class _AuthPageState extends State<AuthPage> {
       _verificationEmail = FirebaseAuth.instance.currentUser?.email ?? '';
       _verificationForRegistration = false;
       _verificationEmailSent = true;
+      unawaited(_refreshVerificationCooldown());
     }
 
     _scrollController.addListener(() {
@@ -99,6 +102,7 @@ class _AuthPageState extends State<AuthPage> {
 
   @override
   void dispose() {
+    _verificationCooldownTimer?.cancel();
     _scrollController.dispose();
     super.dispose();
   }
@@ -449,6 +453,7 @@ class _AuthPageState extends State<AuthPage> {
       _verificationEmailError = request.verificationEmailError;
       _currentView = AuthView.emailVerification;
     });
+    unawaited(_refreshVerificationCooldown());
   }
 
   void _requireLoginVerification(String email) {
@@ -460,9 +465,47 @@ class _AuthPageState extends State<AuthPage> {
       _verificationEmailError = null;
       _currentView = AuthView.emailVerification;
     });
+    unawaited(_refreshVerificationCooldown());
+  }
+
+  Future<void> _refreshVerificationCooldown() async {
+    final remaining =
+        await AuthService.emailVerificationResendCooldownRemaining();
+    if (!mounted) return;
+    _verificationCooldownTimer?.cancel();
+    setState(() => _verificationCooldownRemaining = remaining);
+    if (remaining <= Duration.zero) return;
+    _verificationCooldownTimer = Timer.periodic(const Duration(seconds: 1), (
+      timer,
+    ) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      final next = _verificationCooldownRemaining - const Duration(seconds: 1);
+      setState(
+        () => _verificationCooldownRemaining = next > Duration.zero
+            ? next
+            : Duration.zero,
+      );
+      if (next <= Duration.zero) timer.cancel();
+    });
+  }
+
+  String _verificationCooldownLabel() {
+    final seconds = _verificationCooldownRemaining.inSeconds.clamp(0, 86400);
+    final minutes = seconds ~/ 60;
+    final remainder = seconds % 60;
+    return minutes > 0
+        ? '${minutes}m ${remainder.toString().padLeft(2, '0')}s'
+        : '${remainder}s';
   }
 
   Future<void> _resendVerificationEmail() async {
+    if (_verificationBusy || _verificationCooldownRemaining > Duration.zero) {
+      return;
+    }
+    setState(() => _verificationBusy = true);
     try {
       await AuthService.sendEmailVerification();
       if (mounted) {
@@ -473,16 +516,17 @@ class _AuthPageState extends State<AuthPage> {
         AppToast.success(context, 'A new verification email has been sent.');
       }
     } catch (error) {
+      final message = AuthService.verificationErrorMessage(error);
       if (mounted) {
         setState(() {
           _verificationEmailSent = false;
-          _verificationEmailError = error.toString();
+          _verificationEmailError = message;
         });
-        AppToast.error(
-          context,
-          'Could not send the verification email: $error',
-        );
+        AppToast.error(context, message);
       }
+    } finally {
+      if (mounted) setState(() => _verificationBusy = false);
+      await _refreshVerificationCooldown();
     }
   }
 
@@ -500,6 +544,10 @@ class _AuthPageState extends State<AuthPage> {
         return;
       }
 
+      _verificationCooldownTimer?.cancel();
+      if (_verificationCooldownRemaining > Duration.zero) {
+        setState(() => _verificationCooldownRemaining = Duration.zero);
+      }
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) throw StateError('No signed-in account was found.');
       await AuthService.ensureUserProfile(
@@ -1008,8 +1056,18 @@ class _AuthPageState extends State<AuthPage> {
         ),
         const SizedBox(height: 8),
         TextButton(
-          onPressed: _verificationBusy ? null : _resendVerificationEmail,
-          child: const Text('Resend verification email'),
+          onPressed:
+              _verificationBusy ||
+                  _verificationCooldownRemaining > Duration.zero
+              ? null
+              : _resendVerificationEmail,
+          child: Text(
+            _verificationBusy
+                ? 'Sending verification email...'
+                : _verificationCooldownRemaining > Duration.zero
+                ? 'Resend available in ${_verificationCooldownLabel()}'
+                : 'Resend verification email',
+          ),
         ),
         TextButton(
           onPressed: _verificationBusy
@@ -1027,6 +1085,7 @@ class _AuthPageState extends State<AuthPage> {
                     return;
                   }
                   if (!mounted) return;
+                  _verificationCooldownTimer?.cancel();
                   setState(() {
                     _verificationRequest = null;
                     _registrationIdentity = const <String, String>{};

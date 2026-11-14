@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 
 import 'firebase_setup.dart';
@@ -9,11 +10,74 @@ import 'peso_api_client.dart';
 import 'onboarding_draft_sync.dart';
 import 'peso_auth_session.dart';
 import 'peso_role_policy.dart';
+import '../peso_logic/email_verification_throttle.dart';
 
 /// Firebase Authentication adapter plus MongoDB-backed profile persistence.
 /// Profile records are accessed through the authenticated PESO API.
 class AuthService {
   AuthService._();
+
+  static SharedPreferencesAsync? _verificationCooldownStorageInstance;
+  static SharedPreferencesAsync get _verificationCooldownStorage =>
+      _verificationCooldownStorageInstance ??= SharedPreferencesAsync();
+  static const String _verificationCooldownStorageKey =
+      'peso_auth_email_verification_device_cooldown';
+  static final EmailVerificationThrottle _verificationEmailThrottle =
+      EmailVerificationThrottle(
+        readCooldownUntil: () async {
+          final value = await _verificationCooldownStorage.getInt(
+            _verificationCooldownStorageKey,
+          );
+          return value == null
+              ? null
+              : DateTime.fromMillisecondsSinceEpoch(value, isUtc: true);
+        },
+        writeCooldownUntil: (until) async {
+          await _verificationCooldownStorage.setInt(
+            _verificationCooldownStorageKey,
+            until.toUtc().millisecondsSinceEpoch,
+          );
+        },
+        clearStoredCooldown: () async {
+          await _verificationCooldownStorage.remove(
+            _verificationCooldownStorageKey,
+          );
+        },
+      );
+
+  static Future<Duration> emailVerificationResendCooldownRemaining() {
+    // Firebase's abuse message is device-level, so throttle this device rather
+    // than allowing another account on the same browser/device to bypass it.
+    return _verificationEmailThrottle.remaining();
+  }
+
+  static String verificationErrorMessage(Object error) {
+    if (error is EmailVerificationThrottleException) {
+      if (error.failure == EmailVerificationThrottleFailure.requestInProgress) {
+        return 'A verification email is already being requested. Wait for it to finish.';
+      }
+      final seconds = error.remaining.inSeconds.clamp(1, 86400);
+      final wait = seconds >= 60
+          ? '${(seconds + 59) ~/ 60} minute(s)'
+          : '$seconds second(s)';
+      return 'Please wait $wait before requesting another verification email.';
+    }
+    if (error is FirebaseAuthException) {
+      switch (error.code) {
+        case 'too-many-requests':
+          return 'Firebase has temporarily blocked verification requests from this device because of unusual activity. Check your inbox for an earlier verification link. If none arrived, wait before trying again; repeated requests can extend the restriction.';
+        case 'network-request-failed':
+          return 'A network connection problem prevented the verification email from being sent. Check your connection before trying again.';
+        case 'invalid-email':
+          return 'Firebase could not send a verification email to this address. Check the account email.';
+      }
+    }
+    if (error is StateError) return error.message.toString();
+    return 'We could not send the verification email. Please wait and try again later.';
+  }
+
+  static Future<void> _clearVerificationCooldown() =>
+      _verificationEmailThrottle.clear();
 
   static FirebaseAuth get _auth {
     _requireFirebase();
@@ -74,7 +138,11 @@ class AuthService {
   static Future<void> sendEmailVerification() async {
     final user = _auth.currentUser;
     if (user == null) throw StateError('No signed-in user to verify.');
-    await user.sendEmailVerification();
+    await _verificationEmailThrottle.send(
+      user.sendEmailVerification,
+      isRateLimited: (error) =>
+          error is FirebaseAuthException && error.code == 'too-many-requests',
+    );
   }
 
   static Future<bool> reloadCurrentUserVerification() async {
@@ -88,6 +156,7 @@ class AuthService {
     // rejects that stale token with HTTP 403. Force-refresh the token before
     // onboarding, profile storage, or any other authenticated API request.
     await refreshedUser!.getIdToken(true);
+    await _clearVerificationCooldown();
     return true;
   }
 

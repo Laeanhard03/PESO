@@ -231,6 +231,8 @@ class _RegisterFormState extends State<RegisterForm> {
           return 'Choose a stronger password (8+ characters, one uppercase letter, and one special character).';
         case 'operation-not-allowed':
           return 'This sign-in method is not enabled in Firebase Authentication yet.';
+        case 'too-many-requests':
+          return 'Firebase temporarily blocked requests from this device. Wait before trying again.';
         case 'popup-closed-by-user':
         case 'web-context-cancelled':
           return 'Sign-in was cancelled.';
@@ -438,9 +440,9 @@ class _RegisterFormState extends State<RegisterForm> {
         await AuthService.sendEmailVerification();
       } catch (error) {
         verificationSent = false;
-        verificationError = _friendlyError(error);
+        verificationError = AuthService.verificationErrorMessage(error);
         _showMessage(
-          'Your account was created, but the verification email could not be sent: $error',
+          'Your account was created, but the verification email could not be sent: $verificationError',
         );
       }
       if (verificationSent) {
@@ -518,7 +520,7 @@ class _RegisterFormState extends State<RegisterForm> {
         try {
           await AuthService.sendEmailVerification();
         } catch (error) {
-          verificationError = _friendlyError(error);
+          verificationError = AuthService.verificationErrorMessage(error);
         }
         final consentAcceptedAt = DateTime.now().toUtc().toIso8601String();
         widget.onEmailVerificationRequired(
