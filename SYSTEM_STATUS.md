@@ -229,3 +229,11 @@ A local pass does not establish that Firebase Functions, Gemini, Authentication 
 - Flutter release web build passed. React NSRP/resume workspace copied to build/web/nsrp; both root and nested index files verified. Vite's 733 kB pre-gzip main chunk warning is non-fatal.
 - Read the new Admin Development Notepad report `bug fixes ilaya` and reviewed its attached mobile screenshot. Implemented both unchecked items locally: responsive saved-document cards, wrapped header pills, and validated Go Mini-AI field-similarity percentages with an explicit non-hiring-probability tooltip. Added regression tests across 320/360/390/560/768/1366px and score evidence gating. Both new bug checkboxes and note status remain unchanged.
 - No commit, push, Vercel deployment, or Render deployment was performed.
+
+## 2026-11-14 - Deployment result and acceptance boundary
+
+- Commit e30a5b2 pushed to deploy/render-failover. Vercel production READY on e30a5b2; /api/health, /api/public/jobs, and /nsrp/ returned HTTP 200. Production bundle string checks confirmed the field-similarity percentage, admin presence, job/company image uploads, strong password policy, NSRP Form 1, verified-photo gate, and removal of the legacy sample-name warning.
+- Render failover remains healthy but is still on 9dc1718. Service auto-deploy is configured for commits, but no Render deployment event appeared after the push. Health endpoints return HTTP 200; failover code synchronization and production acceptance remain open. No manual redeploy was forced.
+- Read-only admin audit: 7 distinct admin emails resolve to verified Firebase Auth accounts; marcelinoedward4@gmail.com is already an active verified Google admin. One extra MongoDB profile is a stale duplicate old UID for an already-active email; no data cleanup performed.
+- Original checklist: 2/14 complete, 12/14 unchecked. Additional bug note bug fixes ilaya: both items implemented, both unchecked. No Admin Notepad statuses were changed.
+- Agent 1 MCP server and primary tunnel client are running and health-checked on 8765 and 8766.
