@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'design_tokens.dart';
+import 'peso_green_texture.dart';
 
 /// An inexpensive glass-inspired surface: translucent layers, not a live blur.
 /// Safe for scrolling lists, low-powered phones, and Flutter Web.
@@ -97,6 +98,12 @@ class PesoPageHeader extends StatelessWidget {
         ),
         child: Stack(
           children: [
+            const Positioned.fill(
+              child: PesoGreenTextureOverlay(
+                tone: PesoGreenTextureTone.dark,
+                intensity: 0.9,
+              ),
+            ),
             Positioned(
               right: compact ? -102 : -50,
               top: compact ? -78 : -116,

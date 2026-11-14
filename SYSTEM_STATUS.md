@@ -283,3 +283,11 @@ A local pass does not establish that Firebase Functions, Gemini, Authentication 
 - On BOTH Vercel and Render: 7/7 `/api/profile` role/UID checks; 7/7 protected Admin Development Notepad GET requests; CORS preflight passed (HTTP 204, origin/credentials/GET/Authorization); 7/7 profile CORS responses and 7/7 Admin CORS responses. Zero failures.
 - Read-only run only; no account, profile, job, or Notepad data changed. Tokens were neither logged nor persisted. The QA harness is tracked test-only code and is not invoked by the production runtime. At this checkpoint Vercel was READY on commit 3430c4847af4e3fc009ebb7624074eec0a0bea78; Render was LIVE on commit 2813b528f3de053b1323b88073b2f79f873c3c3f.
 - Separate peer acceptance of real human administrator sign-in remains open. Admin Notepad remains 2/14 complete and `bug fixes ilaya` remains 0/2; no checklist state was modified.
+
+## 2026-11-14 - Green surface texture implementation
+
+- Created a reusable static texture layer with dark/brand/pale tones; organic contour paths and sparse grain are painted at runtime and ignore pointer input.
+- Integrated across public landing/services, jobseeker shared headers and cards, authentication, Admin verification/sidebar, AI onboarding, privacy notice, and readiness/outcome surfaces. Original palette and layout retained.
+- Regression coverage added for all tones, disabled mode, and interaction pass-through. Full Flutter suite: **289/289 passed**. Flutter analyzer: **0 warnings, 0 errors**; 105 info-level lints remain.
+- Local browser preview at 1440x1000 and 390x844: HTTP 200, zero JavaScript exceptions. Release build outputs include Flutter root and `/nsrp/` workspace; React NSRP tests 25/25 and ESLint pass.
+- Production baseline before release: Vercel READY and Render LIVE on `f49b057`. Texture release push/deployment is the remaining step.

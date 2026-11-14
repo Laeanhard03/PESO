@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'user_job_feed_tab.dart'; // Imports FadeSlideEntrance
 import '../Reusable_Designs/peso_premium_ui.dart';
+import '../Reusable_Designs/peso_green_texture.dart';
 import 'readiness_report_card.dart';
 
 class UserOutcomesTab extends StatelessWidget {
@@ -170,8 +171,8 @@ class UserOutcomesTab extends StatelessWidget {
 
   Widget _buildPassCard(Map<String, dynamic> data, {required bool compact}) {
     return Container(
+      clipBehavior: Clip.antiAlias,
       margin: const EdgeInsets.only(bottom: 24),
-      padding: EdgeInsets.all(compact ? 16 : 40),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [Colors.green.shade50, Colors.white],
@@ -188,6 +189,11 @@ class UserOutcomesTab extends StatelessWidget {
           ),
         ],
       ),
+      child: PesoGreenTextureLayer(
+        tone: PesoGreenTextureTone.pale,
+        intensity: 0.82,
+        child: Padding(
+          padding: EdgeInsets.all(compact ? 16 : 40),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -278,6 +284,8 @@ class UserOutcomesTab extends StatelessWidget {
             ),
           ),
         ],
+      ),
+        ),
       ),
     );
   }
@@ -720,8 +728,8 @@ class UserOutcomesTab extends StatelessWidget {
       _ => 'Submitted',
     };
     return Container(
+      clipBehavior: Clip.antiAlias,
       margin: const EdgeInsets.only(bottom: 24),
-      padding: EdgeInsets.all(compact ? 16 : 40),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [Colors.green.shade50, Colors.white],
@@ -738,6 +746,11 @@ class UserOutcomesTab extends StatelessWidget {
           ),
         ],
       ),
+      child: PesoGreenTextureLayer(
+        tone: PesoGreenTextureTone.pale,
+        intensity: 0.82,
+        child: Padding(
+          padding: EdgeInsets.all(compact ? 16 : 40),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -884,6 +897,8 @@ class UserOutcomesTab extends StatelessWidget {
             ),
           ),
         ],
+      ),
+        ),
       ),
     );
   }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'design_tokens.dart';
+import 'peso_green_texture.dart';
 import 'peso_logo.dart';
 import 'peso_images.dart';
 
@@ -56,32 +57,41 @@ class HeroSection extends StatelessWidget {
                   ],
                 ),
               ),
-              padding: EdgeInsets.symmetric(
-                horizontal: compact ? 24 : 40,
-                vertical: compact ? 36 : 64,
-              ),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(
-                    maxWidth: PesoTokens.maxContentWidth,
+              child: PesoGreenTextureLayer(
+                tone: PesoGreenTextureTone.dark,
+                intensity: 0.85,
+                child: Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: compact ? 24 : 40,
+                    vertical: compact ? 36 : 64,
                   ),
-                  child: wide
-                      ? Row(
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            Expanded(flex: 6, child: copy),
-                            const SizedBox(width: 64),
-                            const Expanded(flex: 4, child: _OpportunityPanel()),
-                          ],
-                        )
-                      : Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            copy,
-                            const SizedBox(height: 32),
-                            const _OpportunityPanel(),
-                          ],
-                        ),
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(
+                        maxWidth: PesoTokens.maxContentWidth,
+                      ),
+                      child: wide
+                          ? Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                Expanded(flex: 6, child: copy),
+                                const SizedBox(width: 64),
+                                const Expanded(
+                                  flex: 4,
+                                  child: _OpportunityPanel(),
+                                ),
+                              ],
+                            )
+                          : Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                copy,
+                                const SizedBox(height: 32),
+                                const _OpportunityPanel(),
+                              ],
+                            ),
+                    ),
+                  ),
                 ),
               ),
             ),

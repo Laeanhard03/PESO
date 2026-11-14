@@ -8,6 +8,7 @@ import '../Login_register_pages/auth_ui.dart';
 import '../Reusable_Designs/responsive_layout.dart';
 import '../Reusable_Designs/reusable_ui.dart';
 import '../Reusable_Designs/peso_images.dart';
+import '../Reusable_Designs/peso_green_texture.dart';
 import '../Reusable_Designs/peso_employer_branding.dart';
 import '../../peso_services/peso_api_client.dart';
 import '../../peso_services/site_consent_preferences.dart';
@@ -676,9 +677,7 @@ class _LandingPageState extends State<LandingPage> {
 
   Widget _buildJobsIntro(bool isMobile) {
     return Container(
-      padding: EdgeInsets.all(
-        isMobile ? PesoTokens.spacingLG : PesoTokens.spacing3XL,
-      ),
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         gradient: const LinearGradient(
           colors: [PesoTokens.brandGreenDark, PesoTokens.brandGreen],
@@ -688,6 +687,13 @@ class _LandingPageState extends State<LandingPage> {
         borderRadius: BorderRadius.circular(PesoTokens.radiusContainer),
         boxShadow: PesoTokens.shadowMD,
       ),
+      child: PesoGreenTextureLayer(
+        tone: PesoGreenTextureTone.brand,
+        intensity: 0.95,
+        child: Padding(
+          padding: EdgeInsets.all(
+            isMobile ? PesoTokens.spacingLG : PesoTokens.spacing3XL,
+          ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -726,6 +732,8 @@ class _LandingPageState extends State<LandingPage> {
             ),
           ),
         ],
+      ),
+        ),
       ),
     );
   }

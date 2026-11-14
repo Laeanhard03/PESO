@@ -11,6 +11,7 @@ import '../../peso_services/peso_api_client.dart';
 import '../../peso_services/auth_service.dart';
 
 import '../Reusable_Designs/peso_premium_ui.dart';
+import '../Reusable_Designs/peso_green_texture.dart';
 
 class UserAccountTab extends StatefulWidget {
   final Map<String, dynamic> profile;
@@ -398,8 +399,8 @@ class _UserAccountTabState extends State<UserAccountTab> {
               ),
               const SizedBox(height: 18),
               Container(
+                clipBehavior: Clip.antiAlias,
                 width: double.infinity,
-                padding: const EdgeInsets.all(24),
                 decoration: BoxDecoration(
                   gradient: const LinearGradient(
                     colors: [Color(0xFFFFFFFF), Color(0xFFF0F8F3)],
@@ -416,6 +417,11 @@ class _UserAccountTabState extends State<UserAccountTab> {
                     ),
                   ],
                 ),
+                child: PesoGreenTextureLayer(
+                  tone: PesoGreenTextureTone.pale,
+                  intensity: 0.72,
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -472,10 +478,12 @@ class _UserAccountTabState extends State<UserAccountTab> {
                             label: Text(
                               style == 'person'
                                   ? 'Classic'
-                                  : style[0].toUpperCase() + style.substring(1),
+                                      : style[0].toUpperCase() +
+                                            style.substring(1),
                             ),
                             avatar: Icon(pesoAvatarIcon(style), size: 18),
-                            selected: widget.profile['avatarStyle'] == style,
+                                selected:
+                                    widget.profile['avatarStyle'] == style,
                             onSelected: widget.onChooseAvatar == null
                                 ? null
                                 : (_) => widget.onChooseAvatar!(style),
@@ -518,6 +526,8 @@ class _UserAccountTabState extends State<UserAccountTab> {
                       ],
                     ),
                   ],
+                ),
+              ),
                 ),
               ),
               const SizedBox(height: 16),

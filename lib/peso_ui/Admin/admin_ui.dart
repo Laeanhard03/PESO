@@ -10,6 +10,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../Reusable_Designs/spotlight_tour.dart';
+import '../Reusable_Designs/peso_green_texture.dart';
 
 import 'package:url_launcher/url_launcher.dart';
 
@@ -217,11 +218,7 @@ class _AnimatedCounterTextState extends State<AnimatedCounterText>
 // ROOT WIDGET
 // =====================================================================
 class AdminDashboard extends StatefulWidget {
-  const AdminDashboard({
-    super.key,
-    this.googleSignIn,
-    this.adminSessionCheck,
-  });
+  const AdminDashboard({super.key, this.googleSignIn, this.adminSessionCheck});
 
   /// Optional test adapter; the PESO API still verifies administrator roles.
   final Future<UserCredential> Function()? googleSignIn;
@@ -299,8 +296,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
     } catch (_) {
       if (mounted) {
         setState(() {
-          _adminGateError =
-              'Your Firebase session is still available, but PESO could not confirm the administrator role. Check the service connection and retry.';
+          _adminGateError = 'Your Firebase session is still available, but PESO could not confirm the administrator role. Check the service connection and retry.';
         });
       }
     } finally {
@@ -699,7 +695,10 @@ class _AdminDashboardState extends State<AdminDashboard> {
   Widget _buildAdminSecurityGate() {
     return Scaffold(
       backgroundColor: const Color(0xFF0D251B),
-      body: Center(
+      body: PesoGreenTextureLayer(
+        tone: PesoGreenTextureTone.dark,
+        intensity: 0.9,
+        child: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: ConstrainedBox(
@@ -876,7 +875,10 @@ class _AdminDashboardState extends State<AdminDashboard> {
                       ),
                       child: Text(
                         _adminGateError!,
-                        style: const TextStyle(color: _C.rose600, height: 1.4),
+                          style: const TextStyle(
+                            color: _C.rose600,
+                            height: 1.4,
+                          ),
                       ),
                     ),
                   ],
@@ -916,6 +918,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
             ),
           ),
         ),
+      ),
       ),
     );
   }
@@ -1324,6 +1327,10 @@ class _Sidebar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       color: _C.sidebar,
+      child: PesoGreenTextureLayer(
+        tone: PesoGreenTextureTone.dark,
+        intensity: 0.82,
+        child: Padding(
       padding: const EdgeInsets.all(20),
       child: SafeArea(
         child: Column(
@@ -1409,7 +1416,9 @@ class _Sidebar extends StatelessWidget {
                             child: Row(
                               children: [
                                 AnimatedContainer(
-                                  duration: const Duration(milliseconds: 250),
+                                      duration: const Duration(
+                                        milliseconds: 250,
+                                      ),
                                   width: 3,
                                   height: isActive ? 20 : 0,
                                   decoration: BoxDecoration(
@@ -1420,7 +1429,9 @@ class _Sidebar extends StatelessWidget {
                                 SizedBox(width: isActive ? 10 : 13),
                                 AnimatedScale(
                                   scale: isActive ? 1.1 : 1.0,
-                                  duration: const Duration(milliseconds: 200),
+                                      duration: const Duration(
+                                        milliseconds: 200,
+                                      ),
                                   child: Icon(
                                     item.icon,
                                     size: 18,
@@ -1432,7 +1443,9 @@ class _Sidebar extends StatelessWidget {
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: AnimatedDefaultTextStyle(
-                                    duration: const Duration(milliseconds: 200),
+                                        duration: const Duration(
+                                          milliseconds: 200,
+                                        ),
                                     style: TextStyle(
                                       color: isActive
                                           ? const Color(0xFFA4D3B8)
@@ -1451,7 +1464,9 @@ class _Sidebar extends StatelessWidget {
                                     ),
                                     decoration: BoxDecoration(
                                       color: _C.rose,
-                                      borderRadius: BorderRadius.circular(20),
+                                          borderRadius: BorderRadius.circular(
+                                            20,
+                                          ),
                                     ),
                                     child: Text(
                                       '$badge',
@@ -1480,10 +1495,17 @@ class _Sidebar extends StatelessWidget {
                 borderRadius: BorderRadius.circular(12),
                 onTap: onLogout,
                 child: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 12,
+                      ),
                   child: Row(
                     children: [
-                      Icon(Icons.logout, size: 18, color: Color(0xFFFB7185)),
+                          Icon(
+                            Icons.logout,
+                            size: 18,
+                            color: Color(0xFFFB7185),
+                          ),
                       SizedBox(width: 12),
                       Text(
                         'Secure Logout',
@@ -1499,6 +1521,8 @@ class _Sidebar extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
         ),
       ),
     );

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../Reusable_Designs/design_tokens.dart';
+import '../Reusable_Designs/peso_green_texture.dart';
 
 /// Public PESO/DOLE information, not a guarantee of local applications.
 @immutable
@@ -340,6 +341,10 @@ class _PesoPublicServicesState extends State<PesoPublicServices> {
       key: const Key('peso-public-services'),
       width: double.infinity,
       color: PesoTokens.brandGreenDark,
+      child: PesoGreenTextureLayer(
+        tone: PesoGreenTextureTone.dark,
+        intensity: 0.86,
+        child: Padding(
       padding: EdgeInsets.symmetric(
         horizontal: compact ? 16 : 36,
         vertical: compact ? 36 : 54,
@@ -472,6 +477,8 @@ class _PesoPublicServicesState extends State<PesoPublicServices> {
               ),
             ],
           ),
+        ),
+      ),
         ),
       ),
     );

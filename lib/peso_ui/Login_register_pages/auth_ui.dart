@@ -23,6 +23,7 @@ import '../../peso_logic/peso_ai_engine.dart';
 // UI Imports from other directories
 import '../Landingpage/landingpage_ui.dart';
 import '../Reusable_Designs/reusable_ui.dart';
+import '../Reusable_Designs/peso_green_texture.dart';
 import '../Reusable_Designs/pesoform_ui.dart';
 import '../Reusable_Designs/resumebuilder_ui.dart';
 import '../Reusable_Designs/ai_processing_ui.dart';
@@ -683,6 +684,10 @@ class _AuthPageState extends State<AuthPage> {
           colors: [Color(0xFF07160F), Color(0xFF103F2C), Color(0xFF071B14)],
         ),
       ),
+      child: PesoGreenTextureLayer(
+        tone: PesoGreenTextureTone.dark,
+        intensity: 1.05,
+        child: Padding(
       padding: EdgeInsets.symmetric(
         horizontal: compact ? 16 : (narrow ? 28 : 50),
         vertical: compact ? 28 : 56,
@@ -712,7 +717,9 @@ class _AuthPageState extends State<AuthPage> {
                     width: isLogin ? 470 : 580,
                     padding: EdgeInsets.all(compact ? 23 : 38),
                     decoration: BoxDecoration(
-                      color: isLight ? Colors.white : const Color(0xFF183A2D),
+                          color: isLight
+                              ? Colors.white
+                              : const Color(0xFF183A2D),
                       borderRadius: BorderRadius.circular(26),
                       border: Border.all(
                         color: isLight
@@ -734,14 +741,19 @@ class _AuthPageState extends State<AuthPage> {
                         if (isLogin && narrow) ...[
                           introduction(insideCard: true),
                           const SizedBox(height: 27),
-                          Divider(color: Colors.white.withValues(alpha: .17)),
+                              Divider(
+                                color: Colors.white.withValues(alpha: .17),
+                              ),
                           const SizedBox(height: 20),
                         ],
                         AnimatedSwitcher(
                           duration: const Duration(milliseconds: 180),
                           child: KeyedSubtree(
                             key: ValueKey<AuthView>(_currentView),
-                            child: _buildCurrentAuthView(pesoGreen, isLight),
+                                child: _buildCurrentAuthView(
+                                  pesoGreen,
+                                  isLight,
+                                ),
                           ),
                         ),
                       ],
@@ -751,6 +763,8 @@ class _AuthPageState extends State<AuthPage> {
               ),
             ],
           ),
+        ),
+      ),
         ),
       ),
     );

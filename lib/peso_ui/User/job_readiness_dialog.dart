@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'job_readiness_model.dart';
+import '../Reusable_Designs/peso_green_texture.dart';
 
 /// Optional PESO job-application questionnaire. Open only AFTER independent
 /// Go AI matching; these answers never enter the trained model.
@@ -85,12 +86,16 @@ class _JobReadinessDialogState extends State<JobReadinessDialog> {
             children: [
               Container(
                 width: double.infinity,
-                padding: EdgeInsets.all(compact ? 20 : 26),
                 decoration: const BoxDecoration(
                   gradient: LinearGradient(
                     colors: [Color(0xFF173C2E), Color(0xFF286C4F)],
                   ),
                 ),
+                child: PesoGreenTextureLayer(
+                  tone: PesoGreenTextureTone.dark,
+                  intensity: 0.88,
+                  child: Padding(
+                    padding: EdgeInsets.all(compact ? 20 : 26),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -153,6 +158,8 @@ class _JobReadinessDialogState extends State<JobReadinessDialog> {
                       ),
                     ),
                   ],
+                ),
+              ),
                 ),
               ),
               if (_stage == 1)

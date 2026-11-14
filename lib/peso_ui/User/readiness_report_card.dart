@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../Reusable_Designs/peso_green_texture.dart';
+
 /// Visible only while the authenticated trained-model request is in flight.
 /// This indeterminate indicator never invents a percentage or a decision.
 class JobMatchProgressOverlay extends StatelessWidget {
@@ -574,14 +576,19 @@ class ReadinessReportCard extends StatelessWidget {
           ],
           const SizedBox(height: 17),
           Container(
+            clipBehavior: Clip.antiAlias,
             width: double.infinity,
-            padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
               gradient: const LinearGradient(
                 colors: [Color(0xFFE8F4EB), Color(0xFFF8FCF8)],
               ),
               borderRadius: BorderRadius.circular(17),
             ),
+            child: PesoGreenTextureLayer(
+              tone: PesoGreenTextureTone.pale,
+              intensity: 0.78,
+              child: Padding(
+                padding: const EdgeInsets.all(18),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -598,9 +605,14 @@ class ReadinessReportCard extends StatelessWidget {
                 Text(
                   data['message']?.toString() ??
                       'Here are some possible next steps.',
-                  style: const TextStyle(color: Color(0xFF354C42), height: 1.5),
+                      style: const TextStyle(
+                        color: Color(0xFF354C42),
+                        height: 1.5,
+                      ),
                 ),
               ],
+            ),
+          ),
             ),
           ),
           const SizedBox(height: 18),

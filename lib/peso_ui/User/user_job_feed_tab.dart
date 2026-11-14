@@ -9,6 +9,7 @@ import 'notice_role_selector.dart';
 import '../Reusable_Designs/responsive_layout.dart';
 import '../Reusable_Designs/animated_entrance.dart';
 import '../Reusable_Designs/peso_premium_ui.dart';
+import '../Reusable_Designs/peso_green_texture.dart';
 
 void _ignoreCategoryChange(String category) {}
 Future<void> _openPublicPdfSource(String? value) async {
@@ -226,8 +227,8 @@ class UserJobFeedTab extends StatelessWidget {
                 const SizedBox(height: 18),
               ],
               Container(
+                clipBehavior: Clip.antiAlias,
                 width: double.infinity,
-                padding: EdgeInsets.all(compact ? 18 : 24),
                 decoration: BoxDecoration(
                   gradient: const LinearGradient(
                     colors: [Color(0xFFE5F6E9), Color(0xFFF9FCF7)],
@@ -245,6 +246,11 @@ class UserJobFeedTab extends StatelessWidget {
                     ),
                   ],
                 ),
+                child: PesoGreenTextureLayer(
+                  tone: PesoGreenTextureTone.pale,
+                  intensity: 0.85,
+                  child: Padding(
+                    padding: EdgeInsets.all(compact ? 18 : 24),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -287,7 +293,10 @@ class UserJobFeedTab extends StatelessWidget {
                         hintText: selectedLanguage == 'English'
                             ? 'Try: construction, driver, cashier, or company name'
                             : 'Halimbawa: construction, driver, cashier, o pangalan ng kumpanya',
-                        prefixIcon: Icon(Icons.search_rounded, color: primary),
+                            prefixIcon: Icon(
+                              Icons.search_rounded,
+                              color: primary,
+                            ),
                         suffixIcon: searchQuery.isNotEmpty
                             ? IconButton(
                                 tooltip: 'Clear job search',
@@ -313,7 +322,10 @@ class UserJobFeedTab extends StatelessWidget {
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
-                          borderSide: BorderSide(color: primary, width: 2.3),
+                              borderSide: BorderSide(
+                                color: primary,
+                                width: 2.3,
+                              ),
                         ),
                       ),
                     ),
@@ -329,6 +341,8 @@ class UserJobFeedTab extends StatelessWidget {
                       ),
                     ],
                   ],
+                ),
+              ),
                 ),
               ),
               const SizedBox(height: 28),

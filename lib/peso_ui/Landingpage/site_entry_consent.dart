@@ -2,6 +2,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../Reusable_Designs/peso_green_texture.dart';
+
 import '../Login_register_pages/privacy_notice.dart';
 
 class SiteNoticeDecision {
@@ -80,8 +82,12 @@ class _SiteEntryNoticeDialogState extends State<SiteEntryNoticeDialog> {
             children: [
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.fromLTRB(18, 14, 18, 14),
                 color: const Color(0xFF174B37),
+                child: PesoGreenTextureLayer(
+                  tone: PesoGreenTextureTone.dark,
+                  intensity: 0.78,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 14, 18, 14),
                 child: Row(
                   children: [
                     const Icon(
@@ -116,6 +122,8 @@ class _SiteEntryNoticeDialogState extends State<SiteEntryNoticeDialog> {
                       ),
                     ),
                   ],
+                ),
+              ),
                 ),
               ),
               Padding(

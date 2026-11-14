@@ -14,6 +14,7 @@ import '../../peso_services/auth_service.dart';
 import '../../peso_services/onboarding_draft_sync.dart';
 import '../../peso_services/applicant_draft_service.dart';
 import '../../peso_services/profile_artifact_service.dart';
+import 'peso_green_texture.dart';
 import '../User/user_ui.dart';
 
 typedef OnboardingSourceSaver = Future<void> Function({
@@ -372,6 +373,12 @@ class _AIProcessingScreenState extends State<AIProcessingScreen>
               },
             ),
           ),
+          const Positioned.fill(
+            child: PesoGreenTextureOverlay(
+              tone: PesoGreenTextureTone.dark,
+              intensity: 0.52,
+            ),
+          ),
           Positioned(
             left: -100,
             top: 30,
@@ -596,6 +603,7 @@ class AIAbsorbingOrb extends StatelessWidget {
               return Transform.scale(
                 scale: 0.94 + t * 0.09,
                 child: Container(
+                  clipBehavior: Clip.antiAlias,
                   width: dimension * 0.54,
                   height: dimension * 0.54,
                   decoration: BoxDecoration(
@@ -618,11 +626,15 @@ class AIAbsorbingOrb extends StatelessWidget {
                       ),
                     ],
                   ),
+                  child: PesoGreenTextureLayer(
+                    tone: PesoGreenTextureTone.brand,
+                    intensity: 0.55,
                   child: Icon(
                     Icons.psychology_alt_rounded,
                     color: Colors.white,
                     size: compact ? 42 : 50,
                   ),
+                ),
                 ),
               );
             },

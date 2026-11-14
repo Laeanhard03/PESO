@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'design_tokens.dart';
 import 'peso_logo.dart';
+import 'peso_green_texture.dart';
 
 /// Adaptive navigation bar that provides:
 /// - Desktop: Horizontal nav with pill indicator (>= 1024dp)
@@ -106,7 +107,6 @@ class _DesktopNavBar extends StatelessWidget {
         duration: PesoTokens.durationMedium,
         curve: PesoTokens.curveStandard,
         height: PesoTokens.headerHeightDesktop,
-        padding: const EdgeInsets.symmetric(horizontal: PesoTokens.spacingMD),
         decoration: BoxDecoration(
           color: isScrolled
               ? PesoTokens.brandGreenDark
@@ -119,6 +119,14 @@ class _DesktopNavBar extends StatelessWidget {
             ),
           ],
         ),
+        child: PesoGreenTextureLayer(
+          tone: PesoGreenTextureTone.dark,
+          intensity: 0.72,
+          enabled: isScrolled,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: PesoTokens.spacingMD,
+            ),
         child: Row(
           children: [
             // Logo lockup
@@ -146,10 +154,12 @@ class _DesktopNavBar extends StatelessWidget {
                     _DesktopNavPill(
                       destination: AdaptiveNavBar._destinations[i],
                       isActive:
-                          activeIndex == AdaptiveNavBar._destinations[i].index,
+                              activeIndex ==
+                              AdaptiveNavBar._destinations[i].index,
                       isDark: isScrolled,
-                      onTap: () =>
-                          onTabSelected(AdaptiveNavBar._destinations[i].index),
+                          onTap: () => onTabSelected(
+                            AdaptiveNavBar._destinations[i].index,
+                          ),
                     ),
                   ],
                 ],
@@ -165,6 +175,8 @@ class _DesktopNavBar extends StatelessWidget {
               ),
             ],
           ],
+        ),
+      ),
         ),
       ),
     );
@@ -251,7 +263,6 @@ class _TabletNavBar extends StatelessWidget {
         duration: PesoTokens.durationMedium,
         curve: PesoTokens.curveStandard,
         height: PesoTokens.headerHeightCompact,
-        padding: const EdgeInsets.symmetric(horizontal: PesoTokens.spacingLG),
         decoration: BoxDecoration(
           color: isScrolled
               ? PesoTokens.brandGreenDark
@@ -264,6 +275,14 @@ class _TabletNavBar extends StatelessWidget {
             ),
           ],
         ),
+        child: PesoGreenTextureLayer(
+          tone: PesoGreenTextureTone.dark,
+          intensity: 0.72,
+          enabled: isScrolled,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: PesoTokens.spacingLG,
+            ),
         child: Row(
           children: [
             // Compact logo
@@ -318,6 +337,8 @@ class _TabletNavBar extends StatelessWidget {
           ],
         ),
       ),
+        ),
+      ),
     );
   }
 }
@@ -352,7 +373,6 @@ class _MobileNavBar extends StatelessWidget implements PreferredSizeWidget {
         duration: PesoTokens.durationMedium,
         curve: PesoTokens.curveStandard,
         height: PesoTokens.headerHeightCompact,
-        padding: const EdgeInsets.symmetric(horizontal: PesoTokens.spacingMD),
         decoration: BoxDecoration(
           color: isScrolled
               ? PesoTokens.brandGreenDark
@@ -365,6 +385,14 @@ class _MobileNavBar extends StatelessWidget implements PreferredSizeWidget {
             ),
           ],
         ),
+        child: PesoGreenTextureLayer(
+          tone: PesoGreenTextureTone.dark,
+          intensity: 0.72,
+          enabled: isScrolled,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: PesoTokens.spacingMD,
+            ),
         child: Row(
           children: [
             // Compact logo
@@ -398,6 +426,8 @@ class _MobileNavBar extends StatelessWidget implements PreferredSizeWidget {
                 ],
               ),
           ],
+        ),
+      ),
         ),
       ),
     );
