@@ -311,3 +311,10 @@ A local pass does not establish that Firebase Functions, Gemini, Authentication 
 - Resume export remains blocked without a verified photo and validates education, work experience, and skills/readiness before PDF generation. Explicit no-formal-schooling and no-previous-experience choices are valid.
 - Tests: React 30/30; ESLint clean; Vite build passed. Browser optimization: 3,717,424-byte JPG -> 1,273,405-byte JPEG at 1600x1152; data URI 1,697,899 chars. Production-build route checks passed at mobile/desktop widths.
 - Checklist: registration login 1/1 complete; NSRP date/dropdown 2/2 complete. Resume upload/gating items await production release check. IT Admin Salary removal remains pending clarification before altering a personal financial record.
+
+## 2026-11-14 - Production release verified
+
+- Release `48bd88dc8b50693d72a709ab0ee97472f8c3f375`: Vercel READY; Render Singapore failover LIVE.
+- Both hosts passed production resume gate checks at 390/1250 px, first-event NSRP dropdown tests, registration/login UI verification, API health with MongoDB connected, and public jobs response.
+- Admin checklist: 14/14 main task implemented; `bug fixes ilaya` 2/2 fixed; login 1/1 implemented; NSRP bug fixes 2/2 fixed; resume upload 1/1 fixed; resume photo/education gates 1/1 fixed.
+- One item remains open: `IT ADMIN SALARY` / `REMOVE MUNAYONG SALARY`. No salary record was changed pending confirmation of permanent deletion versus hide/archive.

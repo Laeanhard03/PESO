@@ -467,3 +467,10 @@ This entry supersedes the immediately preceding Render-stale deployment note. It
 - Verification: React tests 30/30; ESLint clean; Vite production build passed. Real-browser test accepted a 3,717,424-byte JPG, optimized it to 1,273,405 bytes at 1600x1152, and kept its data URI at 1,697,899 characters (below 3,000,000). Production-build resume route checks passed at 390px and 1250px; export remained disabled without a verified photo and education was required.
 - Admin Development Notepad: registration login checklist 1/1 completed (`implemented`); NSRP date/dropdown checklist 2/2 completed (`fixed`). The resume-photo and resume-education notes are ready to close after production deployment verification. The IT Admin Salary removal item remains pending explicit confirmation of the exact financial record and deletion scope.
 - Deployment: release commit and Vercel/Render production verification pending.
+
+## 2026-11-14 - Production release verification and Admin checklist closure
+
+- Release commit `48bd88dc8b50693d72a709ab0ee97472f8c3f375` is deployed: Vercel production is READY and the Render Singapore failover deployment is LIVE.
+- Both production hosts passed direct resume-route checks at 390 px and 1250 px: no-photo resume export remains disabled, education remains required, and the 5 MB upload guidance is present. Both hosts also passed first-event NSRP dropdown checks, registration/login UI bundle checks, API health (MongoDB connected), and public jobs endpoint checks.
+- Admin Development Notepad verified: main requested-upgrades checklist 14/14 implemented; `bug fixes ilaya` 2/2 fixed; `login` 1/1 implemented; `bug fixes` 2/2 fixed; `CANT UPLOAD ANY PHOTOS IN RESUME` 1/1 fixed; `RESUME PROCESS WITHOUT ANY UPLOAD PHOTOS` 1/1 fixed.
+- Only remaining unchecked Admin item is `IT ADMIN SALARY` / `REMOVE MUNAYONG SALARY`. It remains open because it targets an individual salary record; confirm whether the row should be permanently deleted or only hidden/archived before any financial-data mutation.
