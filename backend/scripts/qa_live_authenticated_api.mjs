@@ -40,7 +40,7 @@ try {
   await client.connect();
   const profiles = await client.db(process.env.MONGODB_DB_NAME || 'peso_jobkonek')
     .collection('users')
-    .find({ role: 'admin' }, { projection: { email: 1, emailLower: 1 } })
+    .find({ role: 'admin' }, { projection: { uid: 1, role: 1, email: 1, emailLower: 1 } })
     .toArray();
   const emails = [...new Set(
     profiles.map(p => (p.emailLower || p.email || '').trim().toLowerCase()).filter(Boolean),
@@ -51,12 +51,35 @@ try {
   const results = Object.fromEntries(hosts.map(host => [host, {
     profileRoleVerified: 0,
     protectedAdminAuthorized: 0,
+    corsPreflightVerified: false,
+    corsProfileResponses: 0,
+    corsAdminResponses: 0,
     failures: [],
   }]));
+  let mongoAdminProfilesMatched = 0;
   let verifiedEnabledAccounts = 0;
   let successfulExchanges = 0;
   let tokenUidMatches = 0;
   let unexpectedNewUsers = 0;
+
+  for (const host of hosts) {
+    const preflight = await fetch(host + '/api/admin/development-notes?limit=1', {
+      method: 'OPTIONS',
+      headers: {
+        Origin: host,
+        'Access-Control-Request-Method': 'GET',
+        'Access-Control-Request-Headers': 'authorization',
+      },
+    });
+    const methods = (preflight.headers.get('access-control-allow-methods') || '').split(',').map(v => v.trim().toUpperCase());
+    const allowedHeaders = (preflight.headers.get('access-control-allow-headers') || '').split(',').map(v => v.trim().toLowerCase());
+    const ok = preflight.status === 204 &&
+      preflight.headers.get('access-control-allow-origin') === host &&
+      preflight.headers.get('access-control-allow-credentials') === 'true' &&
+      methods.includes('GET') && allowedHeaders.includes('authorization');
+    results[host].corsPreflightVerified = ok;
+    if (!ok) results[host].failures.push('CORS preflight failed: HTTP ' + preflight.status);
+  }
 
   for (const email of emails) {
     const account = await auth.getUserByEmail(email);
@@ -65,6 +88,14 @@ try {
       continue;
     }
     verifiedEnabledAccounts++;
+    const mongoProfile = profiles.find(profile =>
+      (profile.emailLower || profile.email || '').trim().toLowerCase() === email &&
+      profile.uid === account.uid && profile.role === 'admin'
+    );
+    if (mongoProfile) mongoAdminProfilesMatched++;
+    else {
+      for (const host of hosts) results[host].failures.push('MongoDB admin profile UID/role mismatch');
+    }
 
     // The documented signInWithCustomToken REST response returns idToken,
     // refreshToken and expiresIn; it does not include localId. Validate the
@@ -91,15 +122,18 @@ try {
       continue;
     }
 
-    const tokenParts = session.idToken.split('.');
-    if (tokenParts.length !== 3) {
-      for (const host of hosts) results[host].failures.push('Malformed Firebase ID token');
+    let claims;
+    try {
+      // Firebase Admin SDK verifies the ID-token signature, issuer, audience,
+      // expiry and (with checkRevoked=true) revocation/disabled-account state.
+      claims = await auth.verifyIdToken(session.idToken, true);
+    } catch (error) {
+      const code = error?.code || error?.name || 'verification_error';
+      for (const host of hosts) results[host].failures.push('Firebase ID token verification failed: ' + code);
       continue;
     }
-    const claims = JSON.parse(Buffer.from(tokenParts[1], 'base64url').toString('utf8'));
-    const tokenUid = claims.user_id || claims.sub;
-    if (tokenUid !== account.uid) {
-      for (const host of hosts) results[host].failures.push('Firebase ID token UID mismatch');
+    if (claims.uid !== account.uid || String(claims.email || '').trim().toLowerCase() !== email) {
+      for (const host of hosts) results[host].failures.push('Firebase ID token UID/email mismatch');
       continue;
     }
     tokenUidMatches++;
@@ -112,6 +146,10 @@ try {
       };
       const profileResponse = await fetch(host + '/api/profile', { headers });
       const profile = await profileResponse.json().catch(() => ({}));
+      const profileCorsOk = profileResponse.headers.get('access-control-allow-origin') === host &&
+        profileResponse.headers.get('access-control-allow-credentials') === 'true';
+      if (profileCorsOk) results[host].corsProfileResponses++;
+      else results[host].failures.push('Profile CORS response headers missing');
       if (
         profileResponse.status === 200 &&
         profile.ok === true &&
@@ -125,6 +163,10 @@ try {
 
       const adminResponse = await fetch(host + '/api/admin/development-notes?limit=1', { headers });
       const adminPayload = await adminResponse.json().catch(() => ({}));
+      const adminCorsOk = adminResponse.headers.get('access-control-allow-origin') === host &&
+        adminResponse.headers.get('access-control-allow-credentials') === 'true';
+      if (adminCorsOk) results[host].corsAdminResponses++;
+      else results[host].failures.push('Protected Admin CORS response headers missing');
       if (
         adminResponse.status === 200 &&
         adminPayload.ok === true &&
@@ -141,22 +183,30 @@ try {
     distinctAdminEmails: emails.length,
     verifiedEnabledFirebaseAccounts: verifiedEnabledAccounts,
     successfulCustomTokenExchanges: successfulExchanges,
-    IDTokenUIDsMatched: tokenUidMatches,
+    IDTokenUIDsCryptographicallyVerifiedAndMatched: tokenUidMatches,
+    mongoAdminProfilesMatched,
     unexpectedNewUsersCreated: unexpectedNewUsers,
     productionHosts: Object.fromEntries(hosts.map(host => [host, {
       profileRoleVerified: results[host].profileRoleVerified,
       protectedAdminAuthorized: results[host].protectedAdminAuthorized,
+      corsPreflightVerified: results[host].corsPreflightVerified,
+      corsProfileResponses: results[host].corsProfileResponses,
+      corsAdminResponses: results[host].corsAdminResponses,
       failures: results[host].failures,
     }])),
   };
   console.log('LIVE_ADMIN_ACCESS_MATRIX', JSON.stringify(summary, null, 2));
 
   if (
+    mongoAdminProfilesMatched !== emails.length ||
     verifiedEnabledAccounts !== emails.length ||
     successfulExchanges !== emails.length ||
     tokenUidMatches !== emails.length ||
     unexpectedNewUsers !== 0 ||
     hosts.some(host =>
+      !results[host].corsPreflightVerified ||
+      results[host].corsProfileResponses !== emails.length ||
+      results[host].corsAdminResponses !== emails.length ||
       results[host].profileRoleVerified !== emails.length ||
       results[host].protectedAdminAuthorized !== emails.length
     )

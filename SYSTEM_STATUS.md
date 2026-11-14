@@ -248,9 +248,9 @@ A local pass does not establish that Firebase Functions, Gemini, Authentication 
 - Full local tests: backend 325/325, React 25/25, Flutter 287/287; Flutter analyze --no-fatal-infos passed with 105 info-level findings, zero warnings/errors.
 - Agent 1 MCP 127.0.0.1:8765 healthy/authenticated; tunnel UI 127.0.0.1:8766 HTTP 200.
 - Original checklist remains 2/14 completed, 12/14 unchecked. Additional bug note bug fixes ilaya remains open, both items unchecked. No checklist/status fields modified.
-- 11 feature items and both additional bug items implemented and deployed. Peer production acceptance of real administrator sign-in/role persistence remains open. A read-only protected-endpoint access matrix for seven existing admin identities is awaiting user approval in the Desktop Commander review panel.
+- 11 feature items and both additional bug items implemented and deployed. The seven-admin read-only production API access matrix has passed on Vercel and Render using ephemeral custom-token sessions for existing UIDs. Independent peer acceptance of real human administrator sign-in/role persistence remains open.
 - marcelinoedward4@gmail.com is an enabled, verified Google administrator. Read-only audit: 7 distinct verified/enabled admin identities across 8 MongoDB profiles; one duplicate stale old-UID profile left untouched.
-- Git commit 4939dd6 live on both hosts. The original worktree stash remains retained. Unrelated untracked files were not staged. This status addendum is appended locally and is not committed/pushed.
+- Git commit 4939dd6 was the previous live baseline on both hosts. The original worktree stash remains retained. Unrelated untracked files were not staged. Later release and verification outcomes are recorded in the dated entries below.
 
 
 ## 2026-11-14 - Backend dependency security patch
@@ -274,3 +274,12 @@ A local pass does not establish that Firebase Functions, Gemini, Authentication 
 - Backend fast-xml-parser 5.12.1 patch; npm audit zero vulnerabilities. Tests: backend 325/325, React 25/25, Flutter 287/287. ESLint and Flutter/Vite release builds passed. Flutter analyzer: 105 info-level findings, zero warnings/errors.
 - Vite non-fatal main bundle warning: 733.35 kB before gzip. Agent 1 MCP 8765 and tunnel UI 8766 remain healthy.
 - Original checklist 2/14 complete, 12/14 unchecked. Additional bug fixes ilaya 0/2 complete. No Admin Notepad statuses were modified. All 11 original features and both new bug fixes implemented and deployed; items remain open for independent peer verification.
+
+
+## 2026-11-14 - Enhanced read-only Admin production matrix (final)
+
+- Enhanced `backend/scripts/qa_live_authenticated_api.mjs` to use Firebase Admin SDK `verifyIdToken(idToken, true)` for signature, audience/issuer/expiry, revocation and disabled-account verification; verify MongoDB UID + `role=admin`; check CORS preflight and CORS response headers.
+- Final run exit code 0: 7/7 verified/enabled Firebase identities; 7/7 matching MongoDB admin profiles; 7/7 custom-token exchanges; 7/7 cryptographically verified matching ID-token UID/email claims; zero unexpected new accounts (`isNewUser=false` for all).
+- On BOTH Vercel and Render: 7/7 `/api/profile` role/UID checks; 7/7 protected Admin Development Notepad GET requests; CORS preflight passed (HTTP 204, origin/credentials/GET/Authorization); 7/7 profile CORS responses and 7/7 Admin CORS responses. Zero failures.
+- Read-only run only; no account, profile, job, or Notepad data changed. Tokens were neither logged nor persisted. The QA harness is tracked test-only code and is not invoked by the production runtime. At this checkpoint Vercel was READY on commit 3430c4847af4e3fc009ebb7624074eec0a0bea78; Render was LIVE on commit 2813b528f3de053b1323b88073b2f79f873c3c3f.
+- Separate peer acceptance of real human administrator sign-in remains open. Admin Notepad remains 2/14 complete and `bug fixes ilaya` remains 0/2; no checklist state was modified.
