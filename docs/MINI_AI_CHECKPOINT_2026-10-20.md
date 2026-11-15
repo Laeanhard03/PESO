@@ -360,3 +360,10 @@ The Render GitHub App repository authorization is restored and push-based deploy
 - Production HTTP smoke checks on both hosts: `/` -> 200, `/nsrp/` -> 200, `/api/health` -> 200. Render `/healthz` -> 200 and reports MongoDB ready.
 - Playwright visual verification at 1030 x 647 on both Render and Vercel loaded 60 job actions with no browser JavaScript errors. The first two `View and apply` action bounds were identical (`y = 335.3125 px`, `40 px` height), giving a `0 px` vertical alignment delta. The screenshot shows both cards ending at the same baseline and the next row starting evenly below.
 - Admin Development Notepad: the previous generic card-alignment item was already complete. A new regression-specific item was added to the same requested-upgrades note. Its completion write is awaiting the user's Run action in the Desktop Commander review panel; do not report it complete until the API confirms the completed state.
+
+## 2026-11-15 - Public Jobs card alignment checklist closed
+
+- The regression-specific Admin Development Notepad item `141b7c1d-b01d-4ae9-869e-ffe5365d5573` is now officially completed through the authenticated Admin Development Notepad API.
+- Parent note: `PESO JobKonek - Admin Access Recovery and Requested Upgrades`; revision advanced from 28 to 29; status `implemented`.
+- Final checklist count: 15/15 completed. The row-aligned Jobs card fix is production-verified on Render and Vercel, with the first two same-row `View and apply` controls measured at the same vertical coordinate (0 px delta) at 1030 x 647.
+- This closure supersedes the earlier checkpoint note that said the item was awaiting approval.
