@@ -352,3 +352,11 @@ The Render GitHub App repository authorization is restored and push-based deploy
 - Local verification: `dart format` on the three changed files; `dart analyze` on the three changed files reported no issues; `flutter test test/peso_featured_listing_layout_test.dart test/peso_landing_user_image_test.dart` passed 12/12.
 - The previous generic Admin checklist item `Correct job-listing card alignment and visual consistency` was already marked complete, so a new regression-specific checklist item was added to the existing requested-upgrades note. It remains open until the production release and smoke checks pass.
 - Production deployment and final checklist closure pending.
+
+## 2026-11-15 - Public Jobs card alignment production verification
+
+- Code commit `dac8342d801f778962665f978bfa971fb87a699c` is live on Render and READY on Vercel from the same GitHub push (`new_commit` auto-deploy).
+- Render deployment: `dep-dbsfv5eq1p3s73eq4so0`, status `live`. Vercel production deployment: `dpl_5qAWcqtYGRRzLtP9wG9woxxV2L4G`, status `READY`.
+- Production HTTP smoke checks on both hosts: `/` -> 200, `/nsrp/` -> 200, `/api/health` -> 200. Render `/healthz` -> 200 and reports MongoDB ready.
+- Playwright visual verification at 1030 x 647 on both Render and Vercel loaded 60 job actions with no browser JavaScript errors. The first two `View and apply` action bounds were identical (`y = 335.3125 px`, `40 px` height), giving a `0 px` vertical alignment delta. The screenshot shows both cards ending at the same baseline and the next row starting evenly below.
+- Admin Development Notepad: the previous generic card-alignment item was already complete. A new regression-specific item was added to the same requested-upgrades note. Its completion write is awaiting the user's Run action in the Desktop Commander review panel; do not report it complete until the API confirms the completed state.
