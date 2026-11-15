@@ -694,45 +694,45 @@ class _LandingPageState extends State<LandingPage> {
           padding: EdgeInsets.all(
             isMobile ? PesoTokens.spacingLG : PesoTokens.spacing3XL,
           ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: PesoTokens.spacingMD,
-              vertical: PesoTokens.spacingSM,
-            ),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.14),
-              borderRadius: BorderRadius.circular(PesoTokens.radiusFull),
-            ),
-            child: Text(
-              'PESO MONTALBAN JOB BOARD',
-              style: PesoTokens.labelSmall.copyWith(
-                color: Colors.white,
-                letterSpacing: 1.1,
-                fontWeight: FontWeight.w800,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: PesoTokens.spacingMD,
+                  vertical: PesoTokens.spacingSM,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(PesoTokens.radiusFull),
+                ),
+                child: Text(
+                  'PESO MONTALBAN JOB BOARD',
+                  style: PesoTokens.labelSmall.copyWith(
+                    color: Colors.white,
+                    letterSpacing: 1.1,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
               ),
-            ),
+              const SizedBox(height: PesoTokens.spacingLG),
+              Text(
+                'Find work that moves you forward.',
+                style: PesoTokens.displaySmall.copyWith(
+                  color: Colors.white,
+                  fontSize: isMobile ? 32 : 42,
+                  height: 1.12,
+                ),
+              ),
+              const SizedBox(height: PesoTokens.spacingSM),
+              Text(
+                'Explore local opportunities, compare the details, and sign in to check your fit and apply.',
+                style: PesoTokens.bodyLarge.copyWith(
+                  color: Colors.white.withValues(alpha: 0.88),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: PesoTokens.spacingLG),
-          Text(
-            'Find work that moves you forward.',
-            style: PesoTokens.displaySmall.copyWith(
-              color: Colors.white,
-              fontSize: isMobile ? 32 : 42,
-              height: 1.12,
-            ),
-          ),
-          const SizedBox(height: PesoTokens.spacingSM),
-          Text(
-            'Explore local opportunities, compare the details, and sign in to check your fit and apply.',
-            style: PesoTokens.bodyLarge.copyWith(
-              color: Colors.white.withValues(alpha: 0.88),
-            ),
-          ),
-        ],
-      ),
         ),
       ),
     );
@@ -897,44 +897,23 @@ class _LandingPageState extends State<LandingPage> {
                   : constraints.maxWidth >= 650
                   ? 2
                   : 1;
-              final rowCount = (jobs.length + columns - 1) ~/ columns;
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: List.generate(rowCount, (rowIndex) {
-                  final rowStart = rowIndex * columns;
-                  final rowJobs = jobs.skip(rowStart).take(columns).toList();
-                  return Padding(
-                    padding: EdgeInsets.only(
-                      top: rowIndex == 0 ? 0 : PesoTokens.spacingLG,
-                    ),
-                    child: IntrinsicHeight(
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          for (var column = 0; column < columns; column++) ...[
-                            if (column > 0)
-                              const SizedBox(width: PesoTokens.spacingLG),
-                            Expanded(
-                              child: column < rowJobs.length
-                                  ? _LandingJobCard(
-                                      job: rowJobs[column],
-                                      onApply: () => Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) => const AuthPage(
-                                            initialIsLogin: true,
-                                          ),
-                                        ),
-                                      ),
-                                    )
-                                  : const SizedBox.shrink(),
-                            ),
-                          ],
-                        ],
+              return EqualHeightCardGrid(
+                columns: columns,
+                spacing: PesoTokens.spacingLG,
+                children: jobs
+                    .map(
+                      (job) => _LandingJobCard(
+                        job: job,
+                        onApply: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                const AuthPage(initialIsLogin: true),
+                          ),
+                        ),
                       ),
-                    ),
-                  );
-                }),
+                    )
+                    .toList(),
               );
             },
           ),
@@ -2498,8 +2477,8 @@ class _LandingJobCard extends StatelessWidget {
                     ),
                   ),
               const SizedBox(height: PesoTokens.spacingLG),
-              SizedBox(
-                height: 42,
+              ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 42),
                 child: Align(
                   alignment: Alignment.topLeft,
                   child: Wrap(

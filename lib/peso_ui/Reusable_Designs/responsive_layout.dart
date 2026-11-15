@@ -74,3 +74,67 @@ class ResponsiveContent extends StatelessWidget {
     );
   }
 }
+
+/// A row-based card grid that gives every card in a row the height of its
+/// tallest sibling. Fixed-width children let [IntrinsicHeight] measure the
+/// real card content before the row stretches shorter cards to match.
+class EqualHeightCardGrid extends StatelessWidget {
+  const EqualHeightCardGrid({
+    super.key,
+    required this.children,
+    required this.columns,
+    this.spacing = 16,
+  });
+
+  final List<Widget> children;
+  final int columns;
+  final double spacing;
+
+  @override
+  Widget build(BuildContext context) {
+    if (children.isEmpty) return const SizedBox.shrink();
+
+    final columnCount = columns < 1 ? 1 : columns;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final availableWidth = constraints.hasBoundedWidth
+            ? constraints.maxWidth
+            : MediaQuery.sizeOf(context).width;
+        final totalGaps = spacing * (columnCount - 1);
+        final cardWidth =
+            ((availableWidth - totalGaps).clamp(
+              0.0,
+              double.infinity,
+            )).toDouble() /
+            columnCount;
+        final rowCount = (children.length + columnCount - 1) ~/ columnCount;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: List.generate(rowCount, (rowIndex) {
+            final rowStart = rowIndex * columnCount;
+            return Padding(
+              padding: EdgeInsets.only(top: rowIndex == 0 ? 0 : spacing),
+              child: IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (var column = 0; column < columnCount; column++) ...[
+                      if (column > 0) SizedBox(width: spacing),
+                      SizedBox(
+                        width: cardWidth,
+                        child: rowStart + column < children.length
+                            ? children[rowStart + column]
+                            : const SizedBox.shrink(),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            );
+          }),
+        );
+      },
+    );
+  }
+}

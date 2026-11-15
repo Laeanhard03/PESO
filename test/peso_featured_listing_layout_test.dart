@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:peso_prototype/peso_ui/Reusable_Designs/design_tokens.dart';
@@ -55,4 +56,73 @@ void main() {
       expect(grid.cardWidth, 0);
     });
   });
+
+  testWidgets(
+    'equal-height card rows stretch shorter cards and align their actions',
+    (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1200, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      Widget card(String id, double contentHeight) {
+        return Container(
+          key: ValueKey('$id-card'),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            border: Border.all(color: const Color(0xFFDCE5E0)),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              SizedBox(height: contentHeight),
+              SizedBox(key: ValueKey('$id-action'), width: 100, height: 24),
+            ],
+          ),
+        );
+      }
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Padding(
+              padding: const EdgeInsets.all(16),
+              child: EqualHeightCardGrid(
+                columns: 2,
+                spacing: 16,
+                children: [
+                  card('short', 100),
+                  card('tall', 220),
+                  card('next-row', 80),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+
+      final shortCard = tester.getRect(
+        find.byKey(const ValueKey('short-card')),
+      );
+      final tallCard = tester.getRect(find.byKey(const ValueKey('tall-card')));
+      final nextRowCard = tester.getRect(
+        find.byKey(const ValueKey('next-row-card')),
+      );
+      final shortAction = tester.getRect(
+        find.byKey(const ValueKey('short-action')),
+      );
+      final tallAction = tester.getRect(
+        find.byKey(const ValueKey('tall-action')),
+      );
+
+      expect(shortCard.height, closeTo(tallCard.height, 0.01));
+      expect(shortCard.width, closeTo(tallCard.width, 0.01));
+      expect(shortAction.bottom, closeTo(tallAction.bottom, 0.01));
+      expect(nextRowCard.height, lessThan(shortCard.height));
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

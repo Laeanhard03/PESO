@@ -342,3 +342,13 @@ The Render GitHub App repository authorization is restored and push-based deploy
 - Build includes the pinned Flutter SDK, Flutter Web app, embedded NSRP/resume React/Vite app, and backend Node dependencies; it starts the existing Express/MongoDB service after build.
 
 **Result:** a GitHub push now starts builds automatically on both Vercel and Render. No routine manual Render deploy is required. Keep this Render service as the Singapore backup; do not create a duplicate service or separate database.
+
+## 2026-11-15 - Public Jobs card row alignment regression
+
+- The supplied screenshot showed cards in the same public Jobs row with unequal heights, misaligned bottom edges, and `View and apply` actions at different vertical positions.
+- Added reusable `EqualHeightCardGrid` to `lib/peso_ui/Reusable_Designs/responsive_layout.dart`. It gives cards fixed column widths, measures each row's tallest card, and stretches sibling cards to the same height. The Landing page now uses this helper instead of flex-based `Expanded` children inside `IntrinsicHeight`; each row keeps its own content-driven height.
+- Changed the tag-chip area from a fixed 42 px height to a 42 px minimum so wrapped chips expand the card instead of being clipped. The existing card `spaceBetween` layout now keeps every action at the shared bottom baseline.
+- Added a regression widget test in `test/peso_featured_listing_layout_test.dart` for equal same-row card dimensions, bottom-aligned actions, and independent heights between rows.
+- Local verification: `dart format` on the three changed files; `dart analyze` on the three changed files reported no issues; `flutter test test/peso_featured_listing_layout_test.dart test/peso_landing_user_image_test.dart` passed 12/12.
+- The previous generic Admin checklist item `Correct job-listing card alignment and visual consistency` was already marked complete, so a new regression-specific checklist item was added to the existing requested-upgrades note. It remains open until the production release and smoke checks pass.
+- Production deployment and final checklist closure pending.
