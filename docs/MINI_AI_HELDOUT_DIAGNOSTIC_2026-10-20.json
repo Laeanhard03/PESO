@@ -1,0 +1,30 @@
+{
+  "baseline": {
+    "modelVersion": "peso-mini-ai-v1",
+    "evaluated": 444,
+    "uncertainSkipped": 260,
+    "tp": 35,
+    "fp": 0,
+    "tn": 408,
+    "fn": 1,
+    "f1": 0.9859154929577464,
+    "precision": 1,
+    "recall": 0.9722222222222222,
+    "accuracy": 0.9977477477477478,
+    "syntheticRubricBrier": 0.007857682742036602,
+    "syntheticRubricECE10": 0.026738959693945193,
+    "syntheticRubricNDCGAt5": 1,
+    "syntheticRubricTop1HitRate": 1,
+    "rankingGroupsWithPositiveAndNegative": 34
+  },
+  "baselineModelSha256": "c7f34b0deaebe793331273927a275341dab441be562ee131250282c5902e41eb",
+  "confidenceCalibration": "Brier and ECE are proxies against synthetic rubric labels, not reliability of the displayed confidence categories",
+  "evaluationType": "synthetic_rubric_diagnostic_not_hiring_accuracy",
+  "heldOutDataSha256": "0e7e6c4351f4c284afe057f04dfdb3fc45e54067fb7fd79da5024810f593904a",
+  "humanReviewedRoleRequirements": 0,
+  "limitation": "Synthetic labels cannot validate real qualification gaps, real-world probability calibration or hiring job-ranking quality. Do not deploy from these metrics.",
+  "missingMandatoryAccuracy": "NOT_MEASURABLE: needs independently verified role-specific mandatory requirement and applicant-evidence annotations",
+  "promotionEligible": false,
+  "realApplicantLabels": 0,
+  "sameHeldOutEvaluation": true
+}
